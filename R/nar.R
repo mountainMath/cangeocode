@@ -183,5 +183,27 @@ normalized_nar_version <- function(version, refresh=FALSE) {
   normalized_version
 }
 
+#' Collect sf object from a remote table
+#' @param tbl Remote table to collect
+#' @return An sf object
+#' @export
+#' @examples
+#' con <- nar_connection()
+#' nar_sf <- con |>
+#'   head(20) |>
+#'   collect_sf()
+collect_sf <- function(tbl) {
+  uses2 <- sf::sf_use_s2()
+  suppressMessages(sf::sf_use_s2(FALSE))
+  result <- tbl |>
+    mutate(geom=st_astext(.data$geom)) |>
+    collect() |>
+    mutate(geom=ifelse(is.na(.data$geom),"POINT EMPTY",.data$geom)) |>
+    sf::st_as_sf(wkt="geom",crs="EPSG:3347")
 
+  if (uses2) {
+    suppressMessages(sf::sf_use_s2(uses2))
+  }
 
+  result
+}

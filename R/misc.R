@@ -12,4 +12,4 @@ NULL
 ## quiets concerns of R CMD check re: the .'s that appear in pipelines
 if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
 
-utils::globalVariables(c("lat_lon", "st_distance", "st_point"))
+utils::globalVariables(c("lat_lon", "st_distance", "st_point","st_astext"))
