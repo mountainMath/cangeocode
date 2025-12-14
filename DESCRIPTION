@@ -1,0 +1,41 @@
+Package: cangeocode
+Type: Package
+Title: Geocode and reverse geocode addresses in Canada
+Version: 0.1.0
+Authors@R: c(
+    person(
+      "Braden", "Batch",
+      email = "bbatch@cmhc-schl.gc.ca",
+      role = c("aut")
+    ),
+    person(
+      "Jens", "von Bergmann",
+      email = "jens@mountainmath.ca",
+      role = c("aut", "cre")
+    )
+  )
+Description: Implement a range of methods to help geocode and reverser geocode addresses in Canada. Makes use of the NAR, road network files, as well as online geocoders.
+License: MIT + file LICENSE
+Encoding: UTF-8
+ByteCompile: yes
+NeedsCompilation: no
+LazyData: true
+Depends: R (>= 4.1)
+Imports: 
+    dplyr (>= 1.1),
+    rvest (>= 1.0.0),
+    readr (>= 2.1),
+    duckdb (>= 1.4),
+    duckspatial (>= 0.2),
+    tibble (>= 3.2),
+    arrow (>= 18.1),
+    DBI  (>= 1.2),
+    utils (>= 4.3),
+    dbplyr (>= 2.5)
+RoxygenNote: 7.3.3
+Suggests: 
+    knitr,
+    rmarkdown,
+    ggplot2,
+    scales,
+    testthat (>= 3.0.0)
