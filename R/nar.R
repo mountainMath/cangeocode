@@ -183,16 +183,16 @@ normalized_nar_version <- function(version, refresh=FALSE) {
   normalized_version
 }
 
-#' Collect sf object from a remote table
-#' @param tbl Remote table to collect
+#' Collect sf object from a car connection
+#' @param tbl nar table to collect
 #' @return An sf object
 #' @export
 #' @examples
 #' con <- nar_connection()
 #' nar_sf <- con |>
 #'   head(20) |>
-#'   collect_sf()
-collect_sf <- function(tbl) {
+#'   collect_nar()
+collect_nar <- function(tbl) {
   uses2 <- sf::sf_use_s2()
   suppressMessages(sf::sf_use_s2(FALSE))
   result <- tbl |>
