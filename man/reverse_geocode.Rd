@@ -36,7 +36,7 @@ Determines closest address(s) to given coordinates using the NAR dataset based o
 \dontrun{
 library(sf)
 # Create an sf POINT object with coordinates to reverse geocode
-point <- st_sfc(st_point(c(-75.6972, 45.      4215)), crs = 4326)
+point <- st_sfc(st_point(c(-75.6972, 45.4215)), crs = 4326)
 # Reverse geocode the point to get the closest address
 address <- reverse_geocode(point, match_radius = 200, output = "address")
 print(address)

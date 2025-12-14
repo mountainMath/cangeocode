@@ -17,7 +17,4 @@ Normalized version string
 \description{
 Normalize NAR version string
 }
-\examples{
-versions <- normalized_nar_version("latest")
-}
 \keyword{internal}

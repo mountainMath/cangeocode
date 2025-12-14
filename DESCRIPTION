@@ -27,11 +27,13 @@ Imports:
     readr (>= 2.1),
     duckdb (>= 1.4),
     duckspatial (>= 0.2),
-    tibble (>= 3.2),
     arrow (>= 18.1),
     DBI  (>= 1.2),
     utils (>= 4.3),
-    dbplyr (>= 2.5)
+    dbplyr (>= 2.5),
+    rlang,
+    sf,
+    xml2
 RoxygenNote: 7.3.3
 Suggests: 
     knitr,

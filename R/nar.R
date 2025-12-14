@@ -28,17 +28,17 @@ nar_connection <- function(version="latest", format=c("duckdb","parquet"), refre
   nar_path <- file.path(cache_path, paste0(version,".",format))
   if (!file.exists(nar_path) && !dir.exists(nar_path) || refresh) {
     url <- available_nar_versions() |>
-      filter(path == !!version) |>
+      filter(.data$path == !!version | .data$version == !!version) |>
       pull(url)
     tmp <- tempfile(fileext = ".zip")
     to <- options("timeout")
     # set timeout to 20 minutes if it's less than that, StatCan connection can be very slow
     options(timeout = max(1200, as.numeric(unlist(to)), na.rm = TRUE))
-    download.file(url, tmp, mode="wb")
+    utils::download.file(url, tmp, mode="wb")
     options(timeout = to)
 
     exdir <- file.path(tempdir(),"nar_extract")
-    zip::unzip(tmp, exdir=exdir)
+    utils::unzip(tmp, exdir=exdir)
 
     arrow_schema <- arrow::schema(
       LOC_GUID = arrow::string(),
@@ -130,7 +130,7 @@ nar_connection <- function(version="latest", format=c("duckdb","parquet"), refre
 #' Scrape availabe NAR versions from the StatCan website
 #' @param refresh Logical indicating whether to refresh the cached version list
 #' @return A tibble with available NAR versions and their URLs
-#' @keywords internal
+#' @export
 #' @examples
 #' versions <- available_nar_versions()
 available_nar_versions <- function(refresh=FALSE){
@@ -142,13 +142,13 @@ available_nar_versions <- function(refresh=FALSE){
     versions <- tibble(version=rvest::html_text(links),
            url=rvest::html_attr(links, "href")) |>
       filter(grepl("\\.zip$", url)) |>
-      mutate(url=file.path(dirname(overview_url), url)) |>
-      mutate(Date=as.Date(case_when(grepl("^\\d{4}$",version) ~ paste0("01 December ",version),
-                             grepl("^[A-Z][a-z]+ \\d{4}$",version) ~ paste0("01 ",version),
-                             TRUE ~ version),
+      mutate(url=file.path(dirname(overview_url), .data$url)) |>
+      mutate(Date=as.Date(case_when(grepl("^\\d{4}$",.data$version) ~ paste0("01 December ",.data$version),
+                             grepl("^[A-Z][a-z]+ \\d{4}$",.data$version) ~ paste0("01 ",.data$version),
+                             TRUE ~ .data$version),
                           format="%d %B %Y")) |>
-      mutate(path=strftime(Date,"%Y-%m")) |>
-      arrange(desc(Date))
+      mutate(path=strftime(.data$Date,"%Y-%m")) |>
+      arrange(desc(.data$Date))
     readr::write_csv(versions, version_cache_path)
   } else {
     versions <- readr::read_csv(version_cache_path,
@@ -167,8 +167,6 @@ available_nar_versions <- function(refresh=FALSE){
 #' @param refresh Logical indicating whether to refresh the cached version list
 #' @return Normalized version string
 #' @keywords internal
-#' @examples
-#' versions <- normalized_nar_version("latest")
 normalized_nar_version <- function(version, refresh=FALSE) {
   available_versions <- available_nar_versions()
 
@@ -176,8 +174,8 @@ normalized_nar_version <- function(version, refresh=FALSE) {
     normalized_version <- available_versions$path[1]
   } else {
     normalized_version <- available_versions |>
-      filter(toupper(version) == !!toupper(version) | path == !!version) |>
-      pull(path)
+      filter(toupper(.data$version) == toupper(!!version) | .data$path == !!version) |>
+      pull(.data$path)
   }
   if (length(normalized_version) > 1) {
     stop(paste0("Multiple versions matched the specified version: ",normalized_version))

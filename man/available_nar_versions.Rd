@@ -18,4 +18,3 @@ Scrape availabe NAR versions from the StatCan website
 \examples{
 versions <- available_nar_versions()
 }
-\keyword{internal}
