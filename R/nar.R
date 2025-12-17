@@ -40,7 +40,7 @@ nar_connection <- function(version="latest", format=c("duckdb","parquet"), refre
     exdir <- file.path(tempdir(),"nar_extract")
     utils::unzip(tmp, exdir=exdir)
 
-    arrow_schema <- arrow::schema(
+    address_schema <- arrow::schema(
       LOC_GUID = arrow::string(),
       ADDR_GUID = arrow::string(),
       APT_NO_LABEL = arrow::string(),
@@ -73,12 +73,13 @@ nar_connection <- function(version="latest", format=c("duckdb","parquet"), refre
     )
 
     address_data_paths <- list.files(exdir, pattern="Address_.*\\.csv$", full.names=TRUE, recursive=TRUE)
+    location_data_paths <- list.files(exdir, pattern="Location_.*\\.csv$", full.names=TRUE, recursive=TRUE)
 
 
     address_arrow <- arrow::open_dataset(address_data_paths,
                                         format = "csv",
                                         skip_rows = 1,
-                                        schema = arrow_schema)
+                                        schema = address_schema)
     if (format == "parquet") {
       arrow::write_dataset(address_arrow,
                            path = nar_path,
