@@ -53,7 +53,8 @@ reverse_geocode <- function(x, match_radius = 100, output = "multiple", source =
     }
     x_coord <- xx[1]
     y_coord <- xx[2]
-    con <- nar_connection()
+    con <- nar_connection() |>
+      tbl("Addresses")
 
     results <- con |>
       filter(st_distance(.data$geom,lat_lon(x_coord,y_coord))<=match_radius) |>

@@ -4,21 +4,15 @@
 \alias{nar_connection}
 \title{Get NAR data}
 \usage{
-nar_connection(
-  version = "latest",
-  format = c("duckdb", "parquet"),
-  refresh = FALSE
-)
+nar_connection(version = "latest", refresh = FALSE)
 }
 \arguments{
 \item{version}{Version of the NAR database to connect to. Default is "latest".}
 
-\item{format}{Format of the database. Currently only "duckdb" and "parquet" are supported.}
-
 \item{refresh}{Logical indicating whether to refresh the local cache of the NAR database.}
 }
 \value{
-A connection to the NAR database
+A connection to the NAR database containing Addresses and Locations tables
 }
 \description{
 This function downloads the NAR data if necessary and returns a connection the NAR database
