@@ -145,7 +145,8 @@ between two intersections — and records which was used in `geom_source`.
 ```{r geom-source}
 tbl(con, "Addresses") |>
   count(geom_source) |>
-  collect()
+  collect() |>
+  arrange(desc(n))
 ```
 
 The difference matters. A building point is specific to the address. A

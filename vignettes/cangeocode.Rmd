@@ -195,13 +195,14 @@ between two intersections — and records which was used in `geom_source`.
 ``` r
 tbl(con, "Addresses") |>
   count(geom_source) |>
-  collect()
+  collect() |>
+  arrange(desc(n))
 #> # A tibble: 3 × 2
 #>   geom_source        n
 #>   <chr>          <dbl>
-#> 1 <NA>           65083
+#> 1 building    16157303
 #> 2 blockface    1140090
-#> 3 building    16157303
+#> 3 <NA>           65083
 ```
 
 The difference matters. A building point is specific to the address. A
