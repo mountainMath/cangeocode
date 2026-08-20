@@ -119,3 +119,12 @@ test_that("collect_nar accepts a CRS however the caller spells it", {
   expect_equal(sf::st_coordinates(numeric_crs), sf::st_coordinates(string_crs))
   expect_equal(sf::st_coordinates(numeric_crs), sf::st_coordinates(object_crs))
 })
+
+test_that("collect_nar refuses a table it cannot reproject", {
+  # This used to fail with an opaque dplyr error about nar_wkb(), and a `crs`
+  # argument was silently discarded.
+  local <- sf::st_sf(a = 1, geom = sf::st_sfc(sf::st_point(c(0, 1)), crs = 3347))
+
+  expect_error(collect_nar(local), "needs a lazy table")
+  expect_error(collect_nar(local, crs = 4326), "needs a lazy table")
+})

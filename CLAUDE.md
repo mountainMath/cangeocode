@@ -54,7 +54,8 @@ Two knobs matter:
   29-column one. **Both must keep passing** — that pair is the regression test for the positional
   column shift and for the conditional blockface fallback.
 - `local_nar_env()` mocks `available_nar_versions()` (the only function that scrapes StatCan) and
-  points `NAR_CACHE_PATH` and `nar_exdir` at temp dirs. Anything calling `nar_connection()` needs
+  points `NAR_CACHE_PATH` and `nar_exdir` at temp dirs. The mock takes `...` because the
+  `refresh` argument is threaded through to it. Anything calling `nar_connection()` needs
   it; `local_nar_connection()` bundles it with the import and cleanup.
 
 `skip_if_no_duckdb_spatial()` guards every test that touches DuckDB, since `LOAD spatial` may
@@ -158,22 +159,49 @@ DDL here must use `dbExecute()`, not `dbSendQuery()`: an uncleared result set ke
 connection busy, the final `CHECKPOINT` never lands, and the leftover WAL makes the subsequent
 **read-only** reopen fail outright.
 
+### Version discovery and offline use
+
 `available_nar_versions()` **scrapes** the StatCan publication page (`rvest`/`xml2`) for `.zip`
-links, parses heterogeneous version labels ("2022", "May 2024", full dates) into a `Date`, and
-derives `path` as `YYYY-MM` — that `path` is the database filename and the canonical version
-key. Cached as a CSV in `tempdir()` for the session. A StatCan page layout change breaks version
-discovery; the CSS selector is `"section div p a"`.
+links and caches the result as a CSV in `tempdir()` for the session. The parsing itself lives in
+`nar_version_table(page, overview_url)`, which takes an already-parsed document so it can be
+tested without the network — **that is where the CSS selector `"section div p a"` lives**, and a
+StatCan page layout change breaks version discovery there. It resolves relative hrefs against the
+publication page but leaves absolute ones alone, errors if the selector matches nothing, and warns
+about (rather than drops silently) labels it cannot date.
+
+`nar_version_date()` parses the heterogeneous version labels ("2022", "May 2024", "Sept. 2025",
+full dates) into a `Date`, and `path` is derived from it as `YYYY-MM` — that `path` is the
+database filename and the canonical version key. It matches month names against `month.name` /
+`month.abb` plus any unambiguous prefix, **not** `strptime`'s `%B`: those constants are English
+regardless of `LC_TIME`, so a French or German locale would otherwise fail to parse every label.
+A bare year means that year's December release.
+
+`nar_connection()` resolves the version through `nar_resolve_version()`, which **checks the local
+cache before the network**: `nar_cached_versions()` lists the `<version>.duckdb` files (keys are
+`YYYY-MM`, so a lexical sort is chronological), and an explicitly named version already on disk is
+returned without contacting StatCan at all. If lookup fails while offline and `version = "latest"`,
+it warns and falls back to the newest cached database rather than erroring. `refresh = TRUE` always
+goes to the network.
 
 ### `R/reverse_geocode.R` — the query layer
 
 Accepts an `sf`/`sfc` POINT (transformed to 4326 if needed) or a bare `c(lon, lat)` numeric,
-then delegates the spatial predicate to `nar_within_radius()`. `output` selects between
+then delegates the spatial predicate to `nar_within_radius()`. It opens a connection per call
+unless the caller passes one as `con` (in which case `version` is ignored and the caller keeps
+ownership — only an internally opened connection is disconnected on exit); reuse it when
+geocoding many points in a loop. `output` selects between
 `"address"`, `"components"`, and `"multiple"`; `geometry = TRUE` returns an `sf` object. Zero
 matches produce a warning and `NULL`.
 
 Results are sorted **in R** after collection, not with `arrange()` in the lazy pipeline: any
 subsequent verb wraps the query in a subquery, and DuckDB drops `ORDER BY` in subqueries without
 `LIMIT`, so sorting in SQL is silently discarded rather than honoured.
+
+The formatted `address` column is built **column-wise**, via the internal `nar_paste_parts()`
+(a vectorised `paste(na.omit(c(...)), collapse = " ")`). It replaced a `rowwise()` pipeline that
+did not scale the way the query does: at an 800 m radius, 27k matches spent ~2.4s in R formatting
+against ~0.06s in the database. Output is byte-identical — verified over 34k real rows. Do not
+reintroduce `rowwise()` here.
 
 ### What `BG` and `BF` mean
 
@@ -220,6 +248,16 @@ argument reprojects, passing `always_xy = TRUE` to `ST_Transform` — authority 
 EPSG:4326 order their axes lat/lon while `sf` always expects lon/lat, so **omitting that flag
 silently returns transposed coordinates**. Always route database→`sf` conversion through this
 function.
+
+That `crs` argument goes through `nar_crs_string()` (in `geo_helpers.R`), which normalizes an
+EPSG number, an `sf::crs`, or an authority string into something `ST_Transform` accepts — a bare
+`4326` reaches DuckDB as `"EPSG:4326"`, since `as.character(4326)` is rejected with "not a
+recognized CRS". A CRS with no authority code is passed through as full WKT.
+
+`collect_nar()` needs a lazy table still attached to its NAR connection: it looks the connection up
+with `nar_con()` in order to read the storage CRS and register the macros. Handed an
+already-collected data frame it raises an explicit error pointing at `sf::st_transform()` instead
+of failing deep inside dbplyr.
 
 ### `R/misc.R`
 

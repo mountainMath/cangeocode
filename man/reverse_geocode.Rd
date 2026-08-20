@@ -11,6 +11,8 @@ reverse_geocode(
   source = "nar",
   geometry = FALSE,
   crs = 4326,
+  version = "latest",
+  con = NULL,
   ...
 )
 }
@@ -34,6 +36,14 @@ matched address point geometry. Default is \code{FALSE}.}
 object without a CRS. Defaults to EPSG:4326, the longitude/latitude that GPS
 receivers and web maps report. An `sf` object that carries its own CRS is
 reprojected from that CRS and this argument is ignored.}
+
+\item{version}{NAR version to query, passed to [nar_connection()]. Ignored
+when \code{con} is supplied.}
+
+\item{con}{An open NAR connection to reuse. Supplying one avoids reopening
+the database on every call, which matters when reverse geocoding many points
+in a loop. The caller keeps ownership: a connection passed in here is left
+open, while one opened internally is closed again before returning.}
 
 \item{...}{Additional arguments (currently unused)}
 }

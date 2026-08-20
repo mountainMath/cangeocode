@@ -16,6 +16,12 @@
 #' "components" (returns a data frame with address components for the closest match), or "multiple" (returns a data frame with all matches within the match radius).
 #' Default is "multiple".
 #' @param source Source dataset to use for reverse geocoding. Currently only "nar" (National Address Repository) is supported.
+#' @param version NAR version to query, passed to [nar_connection()]. Ignored
+#' when \code{con} is supplied.
+#' @param con An open NAR connection to reuse. Supplying one avoids reopening
+#' the database on every call, which matters when reverse geocoding many points
+#' in a loop. The caller keeps ownership: a connection passed in here is left
+#' open, while one opened internally is closed again before returning.
 #' @param geometry Logical, whether to return the result as an \code{sf} object with the
 #' matched address point geometry. Default is \code{FALSE}.
 #' @param ... Additional arguments (currently unused)
@@ -42,7 +48,7 @@
 #' print(address)
 #' }
 
-reverse_geocode <- function(x, match_radius = 100, output = "multiple", source = "nar", geometry = FALSE, crs = 4326, ...) {
+reverse_geocode <- function(x, match_radius = 100, output = "multiple", source = "nar", geometry = FALSE, crs = 4326, version = "latest", con = NULL, ...) {
   source <- match.arg(
     source,
     choices = c("nar")
@@ -58,8 +64,10 @@ reverse_geocode <- function(x, match_radius = 100, output = "multiple", source =
     stop("Please specify exactly one valid output type.")
   }
   if (source == "nar") {
-    con <- nar_connection()
-    on.exit(DBI::dbDisconnect(con), add = TRUE)
+    if (is.null(con)) {
+      con <- nar_connection(version = version)
+      on.exit(DBI::dbDisconnect(con), add = TRUE)
+    }
 
     # Reproject straight to the CRS the addresses are stored in. Going via
     # lon/lat would transform twice and pin the intermediate step to a datum the
@@ -95,18 +103,18 @@ reverse_geocode <- function(x, match_radius = 100, output = "multiple", source =
     return(NULL)
   }
 
+  # Built column-wise rather than with rowwise(): the query itself stays flat as
+  # the radius grows, but row-by-row formatting did not -- 27k matches spent
+  # ~2.4s here against ~0.06s in the database.
   results <- results |>
     mutate(across(where(is.character),\(x)ifelse(x=="",NA_character_,x))) |>
-    rowwise() |>
-    mutate(address1=ifelse(is.na(.data$APT_NO_LABEL),
-                          "",paste0(.data$APT_NO_LABEL,"-"))) |>
-    mutate(address2=paste0(na.omit(c(.data$CIVIC_NO,.data$CIVIC_NO_SUFFIX,
-                                     .data$MAIL_STREET_DIR, .data$MAIL_STREET_NAME, .data$MAIL_STREET_TYPE)),
-                           collapse=" ")) |>
-    mutate(address=paste0(.data$address1,.data$address2,", ",.data$MAIL_MUN_NAME," ",.data$MAIL_POSTAL_CODE),
-           .after="ADDR_GUID") |>
-    select(-matches("address\\d+")) |>
-    ungroup()
+    mutate(address=paste0(ifelse(is.na(.data$APT_NO_LABEL), "",
+                                 paste0(.data$APT_NO_LABEL, "-")),
+                          nar_paste_parts(.data$CIVIC_NO, .data$CIVIC_NO_SUFFIX,
+                                          .data$MAIL_STREET_DIR, .data$MAIL_STREET_NAME,
+                                          .data$MAIL_STREET_TYPE),
+                          ", ",.data$MAIL_MUN_NAME," ",.data$MAIL_POSTAL_CODE),
+           .after="ADDR_GUID")
 
   if (!is.null(geom_col)) {
     results <- sf::st_sf(results, geometry = geom_col)
@@ -121,4 +129,25 @@ reverse_geocode <- function(x, match_radius = 100, output = "multiple", source =
   } else {
     stop("Unsupported output type. Please use 'address' or 'components'.")
   }
+}
+
+
+#' Join the address parts that are present with single spaces
+#'
+#' @description The vectorised equivalent of
+#' `paste(na.omit(c(...)), collapse = " ")` applied per row, returning `""` when
+#' every part is missing. Interior spacing inside a part is preserved, so a
+#' street name is never reflowed.
+#' @param ... Equal-length vectors of address components
+#' @return A character vector with no missing values
+#' @keywords internal
+nar_paste_parts <- function(...) {
+  parts <- lapply(list(...), as.character)
+  joined <- Reduce(function(acc, part) {
+    dplyr::case_when(is.na(acc) & is.na(part) ~ NA_character_,
+                     is.na(acc) ~ part,
+                     is.na(part) ~ acc,
+                     .default = paste(acc, part))
+  }, parts)
+  ifelse(is.na(joined), "", joined)
 }

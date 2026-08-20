@@ -118,3 +118,61 @@ test_that("unsupported arguments are rejected", {
   expect_error(reverse_geocode(c(0, 0), source = "google"), "arg")
   expect_error(reverse_geocode(c(0, 0), output = "everything"), "arg")
 })
+
+test_that("a supplied connection is reused and left open", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  got <- reverse_geocode(addr1_xy, crs = 3347, match_radius = 60, con = con)
+
+  expect_equal(got$ADDR_GUID, c("addr1", "addr2"))
+  # The caller owns the connection, so it must survive the call.
+  expect_true(DBI::dbIsValid(con))
+  expect_equal(reverse_geocode(addr1_xy, crs = 3347, match_radius = 10, con = con)$ADDR_GUID,
+               "addr1")
+})
+
+test_that("a supplied connection means no version lookup at all", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+  local_mocked_bindings(available_nar_versions = function(...) stop("network used"),
+                        .package = "cangeocode")
+
+  expect_no_error(reverse_geocode(addr1_xy, crs = 3347, match_radius = 60, con = con))
+})
+
+test_that("address strings are assembled the same way for every row", {
+  skip_if_no_duckdb_spatial()
+  local_nar_connection(blockface = TRUE)
+
+  got <- reverse_geocode(addr1_xy, crs = 3347, match_radius = 60)
+
+  # No apartment label in the fixture, and every street component present.
+  # The direction is placed before the street name, as it always has been.
+  expect_equal(got$address,
+               c("4001 W KING EDWARD AVE, VANCOUVER V6S1N3",
+                 "4002 W KING EDWARD AVE, VANCOUVER V6S1N3"))
+  expect_equal(which(names(got) == "address"), which(names(got) == "ADDR_GUID") + 1)
+})
+
+test_that("nar_paste_parts matches paste(na.omit(...), collapse = ' ')", {
+  reference <- function(...) {
+    parts <- lapply(list(...), as.character)
+    vapply(seq_along(parts[[1]]), function(i) {
+      row <- vapply(parts, `[`, character(1), i)
+      paste(row[!is.na(row)], collapse = " ")
+    }, character(1))
+  }
+
+  a <- c("1", NA, NA, "4", NA)
+  b <- c("A", "B", NA, NA, NA)
+  d <- c("N", NA, "S", "E", NA)
+
+  expect_equal(nar_paste_parts(a, b, d), reference(a, b, d))
+  # Every part missing collapses to an empty string, not NA.
+  expect_equal(nar_paste_parts(NA_character_, NA_character_), "")
+  # Interior spacing inside a part is preserved rather than reflowed.
+  expect_equal(nar_paste_parts("ST  JOHN", "RD"), "ST  JOHN RD")
+  # Numeric components are coerced, as the civic number is.
+  expect_equal(nar_paste_parts(4001L, "MAIN"), "4001 MAIN")
+})

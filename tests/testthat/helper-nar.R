@@ -53,9 +53,10 @@ local_nar_fixture <- function(blockface = FALSE, env = parent.frame()) {
   dir
 }
 
-nar_fake_versions <- function() {
-  dplyr::tibble(version = "test", date = as.Date("2026-06-01"),
-                path = "test-01", url = "https://example.invalid/nar.zip")
+# Accepts ... because normalized_nar_version() passes `refresh` through.
+nar_fake_versions <- function(...) {
+  dplyr::tibble(version = "test", url = "https://example.invalid/nar.zip",
+                Date = as.Date("2026-06-01"), path = "test-01")
 }
 
 #' Point the package at a throwaway cache and a local extract, with no network

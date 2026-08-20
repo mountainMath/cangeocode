@@ -1,6 +1,6 @@
 #' @import dplyr
 #' @importFrom rlang .data
-#' @importFrom stats na.omit
+#' @importFrom stats setNames
 
 # silence warning that dbplyer is not used (explicitly)
 ignore_unused_imports <- function(){

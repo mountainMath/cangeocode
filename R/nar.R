@@ -20,13 +20,9 @@ nar_connection <- function(version="latest", refresh=FALSE) {
   if (!dir.exists(cache_path)) {
     dir.create(cache_path, recursive=TRUE)
   }
-  version <- normalized_nar_version(version)
-  if (length(version)==0||is.null(version)||nchar(version)==0) {
-    stop(paste0("Invalid version specified. Valid versions are: ",
-                paste(c("latest",available_nar_versions()$version), collapse=", ")))
-  }
+  version <- nar_resolve_version(version, cache_path, refresh = refresh)
   nar_path <- file.path(cache_path, paste0(version,".duckdb"))
-  if (!file.exists(nar_path) && !dir.exists(nar_path) || refresh) {
+  if (!file.exists(nar_path) || refresh) {
     url <- available_nar_versions() |>
       filter(.data$path == !!version | .data$version == !!version) |>
       pull(url)
@@ -206,18 +202,7 @@ available_nar_versions <- function(refresh=FALSE){
   version_cache_path <- file.path(tempdir(), "nar_versions.csv")
   if (refresh || !file.exists(version_cache_path)) {
     overview_url <- "https://www150.statcan.gc.ca/n1/pub/46-26-0002/462600022022001-eng.htm"
-    page <- xml2::read_html(overview_url)
-    links <- rvest::html_nodes(page, "section div p a")
-    versions <- tibble(version=rvest::html_text(links),
-                       url=rvest::html_attr(links, "href")) |>
-      filter(grepl("\\.zip$", url)) |>
-      mutate(url=file.path(dirname(overview_url), .data$url)) |>
-      mutate(Date=as.Date(case_when(grepl("^\\d{4}$",.data$version) ~ paste0("01 December ",.data$version),
-                                    grepl("^[A-Z][a-z]+ \\d{4}$",.data$version) ~ paste0("01 ",.data$version),
-                                    TRUE ~ .data$version),
-                          format="%d %B %Y")) |>
-      mutate(path=strftime(.data$Date,"%Y-%m")) |>
-      arrange(desc(.data$Date))
+    versions <- nar_version_table(xml2::read_html(overview_url), overview_url)
     readr::write_csv(versions, version_cache_path)
   } else {
     versions <- readr::read_csv(version_cache_path,
@@ -231,13 +216,164 @@ available_nar_versions <- function(refresh=FALSE){
   versions
 }
 
+#' Parse a StatCan version label into a date
+#'
+#' @description StatCan labels releases inconsistently -- a bare year, a month
+#' and year, or a full date -- so each form is matched explicitly.
+#'
+#' This deliberately avoids `strptime`'s `%B`, which reads month names through
+#' `LC_TIME` and returns `NA` for an English name under, say, a French locale.
+#' `month.name`/`month.abb` are English constants in base R whatever the locale,
+#' so matching against them keeps version discovery working everywhere. A silent
+#' `NA` here is expensive: it propagates into `path`, which is both the database
+#' filename and the canonical version key.
+#' @param version Character vector of version labels
+#' @return A `Date` vector, `NA` where the label could not be parsed
+#' @keywords internal
+nar_version_date <- function(version) {
+  months <- stats::setNames(rep(1:12, 2), tolower(c(month.name, month.abb)))
+
+  # Exact name or abbreviation first, then any unambiguous prefix, so labels
+  # like "Sept. 2025" resolve without hard-coding every abbreviation StatCan
+  # has used.
+  month_number <- function(token) {
+    token <- tolower(token)
+    exact <- months[token]
+    if (!is.na(exact)) return(unname(exact))
+    hit <- which(startsWith(tolower(month.name), token))
+    if (length(hit) == 1) hit else NA_integer_
+  }
+
+  one <- function(label) {
+    label <- trimws(label)
+    # A bare year labels that year's December release.
+    if (grepl("^[0-9]{4}$", label)) return(paste0(label, "-12-01"))
+
+    my <- regmatches(label, regexec("^([A-Za-z]+)\\.?\\s+([0-9]{4})$", label))[[1]]
+    if (length(my) == 3) {
+      month <- month_number(my[2])
+      if (!is.na(month)) return(sprintf("%04d-%02d-01", as.integer(my[3]), month))
+    }
+
+    dmy <- regmatches(label, regexec("^([0-9]{1,2})\\s+([A-Za-z]+)\\.?\\s+([0-9]{4})$", label))[[1]]
+    if (length(dmy) == 4) {
+      month <- month_number(dmy[3])
+      if (!is.na(month)) {
+        return(sprintf("%04d-%02d-%02d", as.integer(dmy[4]), month, as.integer(dmy[2])))
+      }
+    }
+
+    # ISO dates are locale-independent, so pass those through; anything else is
+    # unparseable and must become NA rather than throwing from as.Date().
+    if (grepl("^[0-9]{4}[-/][0-9]{1,2}[-/][0-9]{1,2}$", label)) return(label)
+    NA_character_
+  }
+
+  as.Date(vapply(version, one, character(1), USE.NAMES = FALSE))
+}
+
+#' Extract the version table from the StatCan publication page
+#'
+#' @description Split out from [available_nar_versions()] so the parsing can be
+#' exercised without a network round trip. A layout change on the StatCan side
+#' is the most likely way version discovery breaks, so it fails loudly rather
+#' than returning an empty table.
+#' @param page Parsed HTML, from `xml2::read_html()`
+#' @param overview_url URL the page came from, used to resolve relative links
+#' @return A tibble of `version`, `url`, `Date` and `path`, newest first
+#' @keywords internal
+nar_version_table <- function(page, overview_url) {
+  links <- rvest::html_nodes(page, "section div p a")
+  versions <- tibble(version=trimws(rvest::html_text(links)),
+                     url=rvest::html_attr(links, "href")) |>
+    filter(grepl("\\.zip$", .data$url)) |>
+    # Resolve relative hrefs only: file.path() would mangle an absolute URL
+    # into the publication page's directory.
+    mutate(url=ifelse(grepl("^[A-Za-z][A-Za-z0-9+.-]*://", .data$url), .data$url,
+                      file.path(dirname(overview_url), .data$url))) |>
+    mutate(Date=nar_version_date(.data$version)) |>
+    mutate(path=strftime(.data$Date,"%Y-%m")) |>
+    arrange(desc(.data$Date))
+
+  if (nrow(versions) == 0) {
+    stop("Found no NAR download links on ", overview_url,
+         ". The page layout has probably changed; see the CSS selector in ",
+         "nar_version_table().")
+  }
+
+  unparsed <- versions$version[is.na(versions$Date)]
+  if (length(unparsed)) {
+    warning("Ignoring NAR version(s) with an unrecognized date label: ",
+            paste(unparsed, collapse = ", "), ".")
+    versions <- versions |> filter(!is.na(.data$Date))
+  }
+  versions
+}
+
+#' Versions already present in the local cache
+#'
+#' @param cache_path Directory holding the `<version>.duckdb` files
+#' @return Character vector of version keys, newest first
+#' @keywords internal
+nar_cached_versions <- function(cache_path) {
+  if (!dir.exists(cache_path)) return(character(0))
+  files <- list.files(cache_path, pattern = "\\.duckdb$")
+  # Keys are YYYY-MM, so a lexical sort is chronological.
+  sort(sub("\\.duckdb$", "", files), decreasing = TRUE)
+}
+
+#' Resolve a requested version, preferring the cache over the network
+#'
+#' @description `nar_connection()` used to resolve every request against the
+#' StatCan publication page before looking at the cache, which made an already
+#' downloaded multi-gigabyte database unusable offline. A version key that names
+#' a cached database is now answered locally, and `"latest"` falls back to the
+#' newest cached database when StatCan cannot be reached.
+#'
+#' Resolving still needs the network when there is a genuine question to answer:
+#' which release is currently latest, or which key a label like `"May 2024"`
+#' corresponds to.
+#' @param version Requested version, or `"latest"`
+#' @param cache_path Directory holding the cached databases
+#' @param refresh Whether the database is being rebuilt, which always needs the
+#' download URL and so always needs the network
+#' @return A version key
+#' @keywords internal
+nar_resolve_version <- function(version, cache_path, refresh = FALSE) {
+  cached <- nar_cached_versions(cache_path)
+
+  if (!refresh && version %in% cached) {
+    return(version)
+  }
+
+  resolved <- try(normalized_nar_version(version, refresh = refresh), silent = TRUE)
+
+  if (inherits(resolved, "try-error")) {
+    if (!refresh && version == "latest" && length(cached)) {
+      warning("Could not reach StatCan to look up the latest NAR version (",
+              sub("\n.*", "", conditionMessage(attr(resolved, "condition"))),
+              "). Using the newest cached version, ", cached[1],
+              ". Pass refresh = TRUE once a connection is available to check ",
+              "for a newer release.")
+      return(cached[1])
+    }
+    stop(conditionMessage(attr(resolved, "condition")))
+  }
+
+  if (length(resolved) == 0 || is.null(resolved) || !nzchar(resolved)) {
+    stop("Invalid version specified. Valid versions are: ",
+         paste(c("latest", available_nar_versions()$version), collapse = ", "))
+  }
+  resolved
+}
+
 #' Normalize NAR version string
 #' @param version Version of the NAR database to connect to. Default is "latest
 #' @param refresh Logical indicating whether to refresh the cached version list
 #' @return Normalized version string
 #' @keywords internal
 normalized_nar_version <- function(version, refresh=FALSE) {
-  available_versions <- available_nar_versions()
+  available_versions <- available_nar_versions(refresh = refresh)
 
   if (version == "latest") {
     normalized_version <- available_versions$path[1]
@@ -274,10 +410,16 @@ normalized_nar_version <- function(version, refresh=FALSE) {
 #' }
 collect_nar <- function(tbl, crs = NULL) {
   con <- nar_con(tbl)
-  storage_crs <- if (is.null(con)) nar_storage_crs() else nar_crs(con)
-  if (!is.null(con)) nar_register_spatial(con, crs = storage_crs)
+  if (is.null(con)) {
+    stop("collect_nar() needs a lazy table backed by a NAR database connection; ",
+         "got an object that has already been collected. Call it directly on ",
+         "the result of dplyr::tbl(con, ...), and use sf::st_transform() to ",
+         "reproject afterwards.")
+  }
+  storage_crs <- nar_crs(con)
+  nar_register_spatial(con, crs = storage_crs)
 
-  if (!is.null(crs) && !is.null(con)) {
+  if (!is.null(crs)) {
     # always_xy = TRUE: authority-defined CRSs such as EPSG:4326 order their
     # axes lat/lon, but sf always expects lon/lat, so the flag is required to
     # avoid silently returning transposed coordinates.
