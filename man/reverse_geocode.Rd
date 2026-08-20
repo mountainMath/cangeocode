@@ -9,11 +9,14 @@ reverse_geocode(
   match_radius = 100,
   output = "multiple",
   source = "nar",
+  geometry = FALSE,
+  crs = 4326,
   ...
 )
 }
 \arguments{
-\item{x}{An `sf` POINT object with coordinates to reverse geocode}
+\item{x}{An `sf` POINT object with coordinates to reverse geocode, or a
+length-2 numeric vector of longitude and latitude}
 
 \item{match_radius}{Maximum distance (in meters) to search for matching addresses (default
 is 100 meters)}
@@ -24,6 +27,14 @@ Default is "multiple".}
 
 \item{source}{Source dataset to use for reverse geocoding. Currently only "nar" (National Address Repository) is supported.}
 
+\item{geometry}{Logical, whether to return the result as an \code{sf} object with the
+matched address point geometry. Default is \code{FALSE}.}
+
+\item{crs}{CRS of `x`, used when `x` is a bare numeric vector or an `sf`
+object without a CRS. Defaults to EPSG:4326, the longitude/latitude that GPS
+receivers and web maps report. An `sf` object that carries its own CRS is
+reprojected from that CRS and this argument is ignored.}
+
 \item{...}{Additional arguments (currently unused)}
 }
 \value{
@@ -32,6 +43,19 @@ Depending on the `output` parameter, either a single address string, a data fram
 \description{
 Determines closest address(s) to given coordinates using the NAR dataset based on maximym match radius
 }
+\section{Match precision}{
+ Results carry a `geom_source` column naming the
+point each match was measured from. `"building"` is NAR's building
+representative point, specific to the address. `"blockface"` is the centroid
+of one side of a street between two intersections, used for the ~7% of
+addresses that have no building point; it is shared by every address on that
+blockface -- a median of 3.9 and as many as several hundred -- so those rows
+are a street-segment approximation and their `dist` is not comparable to a
+building match. Filter on `geom_source` when only precise matches will do.
+Databases built before schema version 3 have no blockface fallback and no
+`geom_source` column.
+}
+
 \examples{
 \dontrun{
 library(sf)

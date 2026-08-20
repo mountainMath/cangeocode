@@ -9,7 +9,9 @@
 #' @return A connection to the NAR database containing Addresses and Locations tables
 #' @export
 #' @examples
+#' \dontrun{
 #' con <- nar_connection()
+#' }
 nar_connection <- function(version="latest", refresh=FALSE) {
   cache_path <- Sys.getenv("NAR_CACHE_PATH")
   if (cache_path == "") {
@@ -29,7 +31,10 @@ nar_connection <- function(version="latest", refresh=FALSE) {
       filter(.data$path == !!version | .data$version == !!version) |>
       pull(url)
     exdir <- getOption("nar_exdir")
-    if (is.null(exdir)) {
+    # Only a directory this function created may be deleted afterwards; a
+    # caller-supplied `nar_exdir` belongs to the caller.
+    downloaded <- is.null(exdir)
+    if (downloaded) {
       message("Downloading NAR data version ",version," from StatCan.")
       tmp <- tempfile(fileext = ".zip")
       to <- options("timeout")
@@ -45,54 +50,21 @@ nar_connection <- function(version="latest", refresh=FALSE) {
       message("Using cached NAR data version ",version," from ",exdir,".")
     }
 
-    address_schema <- arrow::schema(
-      LOC_GUID = arrow::string(),
-      ADDR_GUID = arrow::string(),
-      APT_NO_LABEL = arrow::string(),
-      CIVIC_NO = arrow::int64(),
-      CIVIC_NO_SUFFIX = arrow::string(),
-      OFFICIAL_STREET_NAME = arrow::string(),
-      OFFICIAL_STREET_TYPE = arrow::string(),
-      OFFICIAL_STREET_DIR = arrow::string(),
-      PROV_CODE = arrow::string(),
-      CSD_ENG_NAME = arrow::string(),
-      CSD_FRE_NAME = arrow::string(),
-      CSD_TYPE_ENG_CODE = arrow::string(),
-      CSD_TYPE_FRE_CODE = arrow::string(),
-      MAIL_STREET_NAME = arrow::string(),
-      MAIL_STREET_TYPE = arrow::string(),
-      MAIL_STREET_DIR = arrow::string(),
-      MAIL_MUN_NAME = arrow::string(),
-      MAIL_PROV_ABVN = arrow::string(),
-      MAIL_POSTAL_CODE = arrow::string(),
-      BG_DLS_LSD = arrow::string(),
-      BG_DLS_QTR = arrow::string(),
-      BG_DLS_SCTN = arrow::string(),
-      BG_DLS_TWNSHP = arrow::string(),
-      BG_DLS_RNG = arrow::string(),
-      BG_DLS_MRD = arrow::string(),
-      BG_X = arrow::float64(),
-      BG_Y = arrow::float64(),
-      BU_N_CIVIC_ADD = arrow::string(),
-      BU_USE = arrow::int64()
-    )
-
-    location_schema <- arrow::schema(
-      LOC_GUID = arrow::string(),
-      CSD_CODE = arrow::string(),
-      FED_CODE = arrow::string(),
-      FED_ENG_NAME = arrow::string(),
-      FED_FRE_NAME = arrow::string(),
-      ER_CODE = arrow::string(),
-      ER_ENG_NAME = arrow::string(),
-      ER_FRE_NAME = arrow::string(),
-      BG_LATITUDE = arrow::float64(),
-      BG_LONGITUDE = arrow::float64()
-    )
-
     address_data_paths <- list.files(exdir, pattern="Address_.*\\.csv$", full.names=TRUE, recursive=TRUE)
     location_data_paths <- list.files(exdir, pattern="Location_.*\\.csv$", full.names=TRUE, recursive=TRUE)
+    if (!length(address_data_paths) || !length(location_data_paths)) {
+      stop("No NAR Address/Location CSVs found under ", exdir, ".")
+    }
 
+    address_schema <- nar_csv_schema(address_data_paths[1], nar_address_types(),
+                                     required = c("LOC_GUID", "ADDR_GUID", "BG_X", "BG_Y"))
+    location_schema <- nar_csv_schema(location_data_paths[1], nar_location_types(),
+                                      required = c("LOC_GUID", "BG_LATITUDE", "BG_LONGITUDE"))
+
+    # Releases before 2026-06 carry no blockface columns, so the fallback has to
+    # be built from what the header actually offers.
+    has_blockface <- all(c("BF_REPPOINT_X", "BF_REPPOINT_Y") %in%
+                           names(address_schema))
 
     address_arrow <- arrow::open_dataset(address_data_paths,
                                          format = "csv",
@@ -105,16 +77,29 @@ nar_connection <- function(version="latest", refresh=FALSE) {
 
 
 
-    if (file.exists(nar_path)) {
-      unlink(nar_path,recursive = TRUE)
-    }
-    con <- DBI::dbConnect(duckdb::duckdb(dbdir=nar_path))
-    suppressMessages(duckspatial::ddbs_install(con))
-    suppressMessages(duckspatial::ddbs_load(con))
-    DBI::dbSendQuery(con, "CREATE OR REPLACE FUNCTION lon_lat(x,y) as (
-        st_transform(st_point(x,y), 'OGC:CRS84', 'EPSG:3347')
-      );")
+    # Build into a side path and publish by renaming once the import has
+    # completed. A database that fails partway through would otherwise be left
+    # at `nar_path`, where every later call -- seeing the file exist -- would
+    # treat it as a finished import and hand out a connection with no
+    # Addresses table.
+    build_path <- paste0(nar_path, ".building")
+    if (file.exists(build_path)) unlink(build_path, recursive = TRUE)
+    import_complete <- FALSE
+    on.exit(if (!import_complete && file.exists(build_path))
+              unlink(build_path, recursive = TRUE), add = TRUE)
 
+    con <- DBI::dbConnect(duckdb::duckdb(dbdir=build_path))
+    nar_load_spatial(con)
+    nar_write_metadata(con, version)
+    nar_register_spatial(con)
+
+    # The building point (BG) is the primary geometry; where it is absent the
+    # blockface centroid (BF) stands in -- a much coarser point shared by every
+    # address on one side of a street -- and geom_source records which was used.
+    # x/y mirror whichever point geom ended up holding rather than BG alone:
+    # DuckDB maintains min/max zonemaps for plain numeric columns, and the
+    # bounding-box prefilter in nar_within_radius() uses them to skip most row
+    # groups, so they have to agree with the geometry they are filtering.
     message("Importing address data.")
 
     dplyr::copy_to(con,
@@ -122,18 +107,33 @@ nar_connection <- function(version="latest", refresh=FALSE) {
                      arrow::to_duckdb(),
                    name = "AddressesTemp", temporary = TRUE, overwrite = TRUE)
 
+    addresses <- con |> tbl("AddressesTemp")
+
+    if (has_blockface) {
+      addresses <- addresses |>
+        mutate(x=dplyr::coalesce(.data$BG_X, .data$BF_REPPOINT_X),
+               y=dplyr::coalesce(.data$BG_Y, .data$BF_REPPOINT_Y),
+               geom_source=dplyr::case_when(!is.na(.data$BG_X) ~ "building",
+                                            !is.na(.data$BF_REPPOINT_X) ~ "blockface",
+                                            TRUE ~ NA_character_))
+    } else {
+      addresses <- addresses |>
+        mutate(x=.data$BG_X, y=.data$BG_Y,
+               geom_source=dplyr::if_else(is.na(.data$BG_X),
+                                          NA_character_, "building"))
+    }
+
     dplyr::copy_to(con,
-                   con |>
-                     tbl("AddressesTemp") |>
-                     mutate(geom=st_point(.data$BG_X,.data$BG_Y)) |>
+                   addresses |>
+                     mutate(geom=st_point(.data$x, .data$y)) |>
                      select(-"BG_X", -"BG_Y"),
                    name = "Addresses", temporary = FALSE, overwrite = TRUE)
 
     message("Indexing address data.")
 
-    DBI::dbSendQuery(con, "DROP TABLE AddressesTemp;")
-    DBI::dbSendQuery(con, "CREATE INDEX add_geom_idx ON Addresses USING RTREE (geom);")
-    DBI::dbSendQuery(con, "CREATE INDEX add_loc_guid_idx ON Addresses (LOC_GUID);")
+    DBI::dbExecute(con, "DROP TABLE AddressesTemp;")
+    DBI::dbExecute(con, "CREATE INDEX add_geom_idx ON Addresses USING RTREE (geom);")
+    DBI::dbExecute(con, "CREATE INDEX add_loc_guid_idx ON Addresses (LOC_GUID);")
 
     message("Importing location data.")
     dplyr::copy_to(con,
@@ -144,19 +144,30 @@ nar_connection <- function(version="latest", refresh=FALSE) {
     dplyr::copy_to(con,
                    con |>
                      tbl("LocationsTemp") |>
-                     mutate(geom=lon_lat(.data$BG_LONGITUDE,.data$BG_LATITUDE)) |>
+                     mutate(geom=nar_store(nar_point(.data$BG_LONGITUDE,.data$BG_LATITUDE))) |>
+                     mutate(x=st_x(.data$geom), y=st_y(.data$geom)) |>
                      select(-"BG_LATITUDE", -"BG_LONGITUDE"),
                    name = "Locations", temporary = FALSE, overwrite = TRUE)
 
     message("Indexing location data.")
 
-    DBI::dbSendQuery(con, "DROP TABLE LocationsTemp;")
-    DBI::dbSendQuery(con, "CREATE INDEX loc_geom_idx ON Locations USING RTREE (geom);")
-    DBI::dbSendQuery(con, "CREATE INDEX loc_loc_guid_idx ON Locations (LOC_GUID);")
+    DBI::dbExecute(con, "DROP TABLE LocationsTemp;")
+    DBI::dbExecute(con, "CREATE INDEX loc_geom_idx ON Locations USING RTREE (geom);")
+    DBI::dbExecute(con, "CREATE INDEX loc_loc_guid_idx ON Locations (LOC_GUID);")
 
 
 
-    con |> DBI::dbDisconnect()
+    # Checkpoint and fully shut down before reopening read-only: any WAL left
+    # behind cannot be replayed by a read-only connection, which then fails to
+    # open the database at all.
+    DBI::dbExecute(con, "CHECKPOINT;")
+    DBI::dbDisconnect(con, shutdown = TRUE)
+
+    if (file.exists(nar_path)) unlink(nar_path, recursive = TRUE)
+    if (!file.rename(build_path, nar_path)) {
+      stop("Could not move the imported database into place at ", nar_path, ".")
+    }
+    import_complete <- TRUE
 
     message("NAR data version ",version," successfully imported.")
 
@@ -164,12 +175,20 @@ nar_connection <- function(version="latest", refresh=FALSE) {
     # cleanup
     address_arrow <- NULL
     location_arrow <- NULL
-    unlink(exdir, recursive=TRUE)
+    if (downloaded) unlink(exdir, recursive=TRUE)
   }
 
   con <- DBI::dbConnect(duckdb::duckdb(dbdir=nar_path, read_only = TRUE))
-  suppressMessages(duckspatial::ddbs_load(con))
-
+  missing_tables <- setdiff(c("Addresses", "Locations"), DBI::dbListTables(con))
+  if (length(missing_tables)) {
+    DBI::dbDisconnect(con, shutdown = TRUE)
+    stop("The cached NAR database at ", nar_path, " is incomplete (missing ",
+         paste(missing_tables, collapse = ", "),
+         "). Rebuild it with nar_connection(version = \"", version,
+         "\", refresh = TRUE).")
+  }
+  nar_load_spatial(con)
+  nar_register_spatial(con)
 
   return(con)
 }
@@ -180,7 +199,9 @@ nar_connection <- function(version="latest", refresh=FALSE) {
 #' @return A tibble with available NAR versions and their URLs
 #' @export
 #' @examples
+#' \dontrun{
 #' versions <- available_nar_versions()
+#' }
 available_nar_versions <- function(refresh=FALSE){
   version_cache_path <- file.path(tempdir(), "nar_versions.csv")
   if (refresh || !file.exists(version_cache_path)) {
@@ -231,27 +252,122 @@ normalized_nar_version <- function(version, refresh=FALSE) {
   normalized_version
 }
 
-#' Collect sf object from a car connection
+#' Collect a NAR table as an sf object
+#'
+#' @description Collects a lazy NAR table into an \code{sf} object. Geometry is
+#' transferred as WKB rather than WKT, and the CRS is read from the database
+#' rather than assumed, so the result is correct for any NAR version.
 #' @param tbl nar table to collect
-#' @return An sf object
+#' @param crs Optional CRS to return the geometry in. Defaults to the CRS the
+#' geometry is stored in (EPSG:3347). Pass e.g. \code{"EPSG:4326"} for
+#' longitude/latitude; coordinates are always returned in lon/lat order.
+#' @return An sf object. The internal `x`/`y` storage-coordinate columns are
+#' dropped: they duplicate the geometry and would not survive a reprojection.
 #' @export
 #' @examples
+#' \dontrun{
 #' con <- nar_connection()
 #' nar_sf <- con |>
+#'   dplyr::tbl("Addresses") |>
 #'   head(20) |>
 #'   collect_nar()
-collect_nar <- function(tbl) {
-  uses2 <- sf::sf_use_s2()
-  suppressMessages(sf::sf_use_s2(FALSE))
-  result <- tbl |>
-    mutate(geom=st_astext(.data$geom)) |>
-    collect() |>
-    mutate(geom=ifelse(is.na(.data$geom),"POINT EMPTY",.data$geom)) |>
-    sf::st_as_sf(wkt="geom",crs="EPSG:3347")
+#' }
+collect_nar <- function(tbl, crs = NULL) {
+  con <- nar_con(tbl)
+  storage_crs <- if (is.null(con)) nar_storage_crs() else nar_crs(con)
+  if (!is.null(con)) nar_register_spatial(con, crs = storage_crs)
 
-  if (uses2) {
-    suppressMessages(sf::sf_use_s2(uses2))
+  if (!is.null(crs) && !is.null(con)) {
+    # always_xy = TRUE: authority-defined CRSs such as EPSG:4326 order their
+    # axes lat/lon, but sf always expects lon/lat, so the flag is required to
+    # avoid silently returning transposed coordinates.
+    tbl <- tbl |> mutate(geom = st_transform(nar_geom(.data$geom),
+                                             !!nar_crs_string(crs), TRUE))
+    out_crs <- crs
+  } else {
+    out_crs <- storage_crs
   }
 
-  result
+  result <- tbl |>
+    mutate(geom = nar_wkb(.data$geom)) |>
+    select(-dplyr::any_of(c("x", "y"))) |>
+    collect()
+
+  result$geom <- sf::st_as_sfc(structure(unclass(result$geom), class = "WKB"),
+                               EWKB = FALSE, crs = sf::st_crs(out_crs))
+
+  sf::st_as_sf(result)
+}
+
+
+#' Non-string column types in the NAR address file
+#'
+#' @description Every other column is read as a string, matching the original
+#' StatCan text. Only the columns listed here are given a numeric type.
+#' @return A named list of `arrow` types
+#' @keywords internal
+nar_address_types <- function() {
+  list(
+    CIVIC_NO = arrow::int64(),
+    BG_X = arrow::float64(),
+    BG_Y = arrow::float64(),
+    BF_REPPOINT_X = arrow::float64(),
+    BF_REPPOINT_Y = arrow::float64(),
+    BU_USE = arrow::int64()
+  )
+}
+
+#' Non-string column types in the NAR location file
+#'
+#' @return A named list of `arrow` types
+#' @keywords internal
+nar_location_types <- function() {
+  list(
+    BG_LATITUDE = arrow::float64(),
+    BG_LONGITUDE = arrow::float64(),
+    BF_REPPOINT_LATITUDE = arrow::float64(),
+    BF_REPPOINT_LONGITUDE = arrow::float64()
+  )
+}
+
+#' Build an Arrow schema from a NAR CSV header
+#'
+#' @description The schema is derived from the file's own header, with types
+#' attached **by name**, rather than declared as a fixed positional list.
+#'
+#' This matters because NAR's layout changes between releases and `arrow` maps a
+#' declared schema onto CSV columns by position. The June 2026 release inserted
+#' `BF_REPPOINT_X`/`BF_REPPOINT_Y` in the *middle* of the address record, after
+#' `BG_X`/`BG_Y`, shifting `BU_N_CIVIC_ADD` and `BU_USE` along by two. A fixed
+#' list that was merely extended at the end would have read blockface centroid
+#' coordinates into `BU_N_CIVIC_ADD` without complaint; only the column count
+#' differing made the mismatch an error rather than silent corruption.
+#'
+#' Reading the header keeps the import working across releases and surfaces a
+#' genuinely breaking change -- a column that disappears -- through `required`.
+#' @param path Path to a NAR CSV
+#' @param types Named list of `arrow` types for the columns that are not strings
+#' @param required Column names that must be present
+#' @return An `arrow` schema
+#' @keywords internal
+nar_csv_schema <- function(path, types, required = character(0)) {
+  header <- readLines(path, n = 1, warn = FALSE)
+  if (!length(header) || !nzchar(header)) {
+    stop("Could not read a column header from ", path, ".")
+  }
+  cols <- trimws(strsplit(header, ",", fixed = TRUE)[[1]])
+  cols <- gsub('"', "", cols, fixed = TRUE)
+  # StatCan writes a UTF-8 BOM; strip whatever precedes the first column name
+  # rather than matching the byte sequence, which depends on the locale.
+  cols[1] <- sub("^[^A-Za-z_]+", "", cols[1])
+  cols <- cols[nzchar(cols)]
+
+  missing <- setdiff(required, cols)
+  if (length(missing)) {
+    stop("NAR file ", basename(path), " is missing expected column(s): ",
+         paste(missing, collapse = ", "), ".")
+  }
+
+  fields <- lapply(cols, function(nm) if (is.null(types[[nm]])) arrow::string() else types[[nm]])
+  do.call(arrow::schema, stats::setNames(fields, cols))
 }

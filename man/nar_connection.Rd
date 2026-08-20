@@ -18,5 +18,7 @@ A connection to the NAR database containing Addresses and Locations tables
 This function downloads the NAR data if necessary and returns a connection the NAR database
 }
 \examples{
+\dontrun{
 con <- nar_connection()
+}
 }

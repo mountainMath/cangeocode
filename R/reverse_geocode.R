@@ -4,15 +4,33 @@
 #'
 #' @description Determines closest address(s) to given coordinates using the NAR dataset based on maximym match radius
 #'
-#' @param x An `sf` POINT object with coordinates to reverse geocode
+#' @param x An `sf` POINT object with coordinates to reverse geocode, or a
+#' length-2 numeric vector of longitude and latitude
+#' @param crs CRS of `x`, used when `x` is a bare numeric vector or an `sf`
+#' object without a CRS. Defaults to EPSG:4326, the longitude/latitude that GPS
+#' receivers and web maps report. An `sf` object that carries its own CRS is
+#' reprojected from that CRS and this argument is ignored.
 #' @param match_radius Maximum distance (in meters) to search for matching addresses (default
 #' is 100 meters)
 #' @param output Type of output to return. Options are "address" (returns a single formatted address string),
 #' "components" (returns a data frame with address components for the closest match), or "multiple" (returns a data frame with all matches within the match radius).
 #' Default is "multiple".
 #' @param source Source dataset to use for reverse geocoding. Currently only "nar" (National Address Repository) is supported.
+#' @param geometry Logical, whether to return the result as an \code{sf} object with the
+#' matched address point geometry. Default is \code{FALSE}.
 #' @param ... Additional arguments (currently unused)
 #' @return Depending on the `output` parameter, either a single address string, a data frame with address components for the closest match, or a data frame with all matches within the match radius.
+#'
+#' @section Match precision: Results carry a `geom_source` column naming the
+#' point each match was measured from. `"building"` is NAR's building
+#' representative point, specific to the address. `"blockface"` is the centroid
+#' of one side of a street between two intersections, used for the ~7% of
+#' addresses that have no building point; it is shared by every address on that
+#' blockface -- a median of 3.9 and as many as several hundred -- so those rows
+#' are a street-segment approximation and their `dist` is not comparable to a
+#' building match. Filter on `geom_source` when only precise matches will do.
+#' Databases built before schema version 3 have no blockface fallback and no
+#' `geom_source` column.
 #' @export
 #' @examples
 #' \dontrun{
@@ -24,7 +42,7 @@
 #' print(address)
 #' }
 
-reverse_geocode <- function(x, match_radius = 100, output = "multiple", source = "nar", ...) {
+reverse_geocode <- function(x, match_radius = 100, output = "multiple", source = "nar", geometry = FALSE, crs = 4326, ...) {
   source <- match.arg(
     source,
     choices = c("nar")
@@ -40,29 +58,30 @@ reverse_geocode <- function(x, match_radius = 100, output = "multiple", source =
     stop("Please specify exactly one valid output type.")
   }
   if (source == "nar") {
-    if (inherits(x, "sf") || inherits(x, "sfc")) {
-      crs <- sf::st_crs(x)
-      if (!is.na(crs) && crs$epsg != 4326) {
-        x <- sf::st_transform(x, 4326)
-      }
-      xx <- sf::st_coordinates(x)
-    } else if (inherits(x, "numeric") && length(x) == 2) {
-      xx <- x
+    con <- nar_connection()
+    on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+    # Reproject straight to the CRS the addresses are stored in. Going via
+    # lon/lat would transform twice and pin the intermediate step to a datum the
+    # caller never asked for.
+    xy <- nar_project(x, crs = crs, storage_crs = nar_crs(con))
+
+    matches <- con |>
+      tbl("Addresses") |>
+      nar_within_radius(xy[1], xy[2], match_radius)
+
+    if (geometry) {
+      results <- matches |> collect_nar()
+      results <- results[order(results$dist), , drop = FALSE]
+      geom_col <- sf::st_geometry(results)
+      results <- sf::st_drop_geometry(results)
     } else {
-      stop("Input x must be an sf POINT object or a vector with lon/lat.")
+      results <- matches |>
+        select(-"geom", -dplyr::any_of(c("x", "y"))) |>
+        collect() |>
+        arrange(.data$dist)
+      geom_col <- NULL
     }
-    x_coord <- xx[1]
-    y_coord <- xx[2]
-    con <- nar_connection() |>
-      tbl("Addresses")
-
-    results <- con |>
-      filter(st_distance(.data$geom,lat_lon(x_coord,y_coord))<=match_radius) |>
-      mutate(dist=st_distance(.data$geom,lat_lon(x_coord,y_coord))) |>
-      arrange(.data$dist) |>
-      collect()
-
-    con[["src"]][["con"]] |> DBI::dbDisconnect()
 
   } else {
     stop("Unsupported source. Please use 'nar'.")
@@ -77,7 +96,7 @@ reverse_geocode <- function(x, match_radius = 100, output = "multiple", source =
   }
 
   results <- results |>
-    mutate(across(everything(),\(x)ifelse(x=="",NA_character_,x))) |>
+    mutate(across(where(is.character),\(x)ifelse(x=="",NA_character_,x))) |>
     rowwise() |>
     mutate(address1=ifelse(is.na(.data$APT_NO_LABEL),
                           "",paste0(.data$APT_NO_LABEL,"-"))) |>
@@ -86,7 +105,12 @@ reverse_geocode <- function(x, match_radius = 100, output = "multiple", source =
                            collapse=" ")) |>
     mutate(address=paste0(.data$address1,.data$address2,", ",.data$MAIL_MUN_NAME," ",.data$MAIL_POSTAL_CODE),
            .after="ADDR_GUID") |>
-    select(-matches("address\\d+"))
+    select(-matches("address\\d+")) |>
+    ungroup()
+
+  if (!is.null(geom_col)) {
+    results <- sf::st_sf(results, geometry = geom_col)
+  }
 
   if (output == "address") {
     return(results$address[1])

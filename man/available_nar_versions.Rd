@@ -16,5 +16,7 @@ A tibble with available NAR versions and their URLs
 Scrape availabe NAR versions from the StatCan website
 }
 \examples{
+\dontrun{
 versions <- available_nar_versions()
+}
 }
