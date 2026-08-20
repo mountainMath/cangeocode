@@ -1,0 +1,188 @@
+---
+title: "Querying the NAR database directly"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Querying the NAR database directly}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+```
+
+`reverse_geocode()` answers one question — what is near this point — but the
+database behind it holds every civic address in the country and is open to any
+query you care to write. `nar_connection()` returns a plain DBI connection, so
+the whole dplyr vocabulary works against it, evaluated inside DuckDB rather
+than in R.
+
+This vignette assumes you have already worked through
+`vignette("cangeocode")`, in particular the `NAR_CACHE_PATH` setup and the
+one-time import.
+
+```{r connect, message = FALSE}
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+## The two tables
+
+```{r tables}
+DBI::dbListTables(con)
+```
+
+**`Addresses`** has one row per civic address — the street name and number, the
+mailing address, the municipality, the postal code, and the point geometry.
+
+```{r addresses-cols}
+tbl(con, "Addresses") |> colnames()
+```
+
+**`Locations`** has one row per *location*, which is what NAR calls a distinct
+site. Several addresses can share one (an apartment building is the obvious
+case). It carries the census and electoral geography that `Addresses` does not:
+census subdivision code, federal electoral district, economic region.
+
+```{r locations-cols}
+tbl(con, "Locations") |> colnames()
+```
+
+`LOC_GUID` joins the two, and `ADDR_GUID` is the address key.
+
+```{r scale}
+tbl(con, "Addresses") |> count() |> collect()
+```
+
+Column names are kept exactly as StatCan ships them, in
+`SCREAMING_SNAKE_CASE`, so the NAR User Guide reads directly onto what you see
+here.
+
+## Filtering
+
+Anything dplyr can express becomes SQL. Nothing is fetched until you collect.
+
+```{r filter}
+kingsway <- tbl(con, "Addresses") |>
+  filter(MAIL_MUN_NAME == "VANCOUVER", MAIL_STREET_NAME == "KINGSWAY")
+
+kingsway |> count() |> collect()
+```
+
+Aggregation runs in the database too, over all 17 million rows, and stays fast
+because DuckDB scans columns rather than rows.
+
+```{r aggregate}
+tbl(con, "Addresses") |>
+  count(PROV_CODE, sort = TRUE) |>
+  head(5) |>
+  collect()
+```
+
+You can inspect the generated SQL at any point with `show_query()`, which is
+often the quickest way to see whether a verb translated the way you expected.
+
+```{r show-query}
+kingsway |> count() |> show_query()
+```
+
+## Joining to `Locations`
+
+Join when you need the geography that only `Locations` carries.
+
+```{r join}
+tbl(con, "Addresses") |>
+  filter(MAIL_MUN_NAME == "VANCOUVER", MAIL_STREET_NAME == "KINGSWAY") |>
+  left_join(tbl(con, "Locations") |> select(LOC_GUID, FED_ENG_NAME, ER_ENG_NAME),
+            by = "LOC_GUID") |>
+  count(FED_ENG_NAME, sort = TRUE) |>
+  collect()
+```
+
+## Getting the geometry out: `collect_nar()`
+
+`collect()` brings back a plain data frame, and the `geom` column arrives as
+something unusable — DuckDB geometry has no R representation. Use
+`collect_nar()` instead. It transfers the geometry as WKB, reads the storage
+CRS from the database rather than assuming one, and hands you an `sf` object.
+
+```{r collect-nar}
+addresses <- tbl(con, "Addresses") |>
+  filter(MAIL_MUN_NAME == "VANCOUVER", MAIL_STREET_NAME == "KINGSWAY") |>
+  select(ADDR_GUID, CIVIC_NO, MAIL_STREET_NAME, MAIL_POSTAL_CODE,
+         geom_source, geom) |>
+  collect_nar()
+
+addresses
+```
+
+```{r crs}
+sf::st_crs(addresses)$input
+```
+
+EPSG:3347 is Statistics Canada Lambert, a projected CRS in metres — which is
+why distances from `reverse_geocode()` need no conversion.
+
+Pass `crs` to reproject on the way out. This happens inside DuckDB, and the
+argument accepts a bare EPSG number, an authority string, or an `sf::st_crs()`
+object.
+
+```{r reproject}
+tbl(con, "Addresses") |>
+  filter(MAIL_MUN_NAME == "VANCOUVER", MAIL_STREET_NAME == "KINGSWAY") |>
+  select(ADDR_GUID, geom) |>
+  head(3) |>
+  collect_nar(crs = 4326)
+```
+
+`collect_nar()` needs a lazy table still attached to its connection — it looks
+the connection up to read the CRS. Handed a data frame you have already
+collected, it says so rather than failing somewhere deep in dbplyr.
+
+```{r collected-error, error = TRUE}
+already_collected <- tbl(con, "Addresses") |> head(1) |> collect()
+collect_nar(already_collected)
+```
+
+### Addresses with no geometry
+
+About 65,000 addresses have neither a building nor a blockface point.
+`collect_nar()` maps their `NULL` geometry to an **empty point** rather than
+dropping the row, so counts stay honest. Filter them out with
+`sf::st_is_empty()` before anything that expects real coordinates.
+
+```{r empty-geometry}
+tbl(con, "Addresses") |>
+  filter(is.na(geom_source)) |>
+  select(ADDR_GUID, MAIL_MUN_NAME, geom) |>
+  head(3) |>
+  collect_nar() |>
+  mutate(empty = sf::st_is_empty(geom))
+```
+
+## A note on internal columns
+
+`Addresses` and `Locations` both carry `x` and `y` columns. They duplicate
+`geom` and exist only to let DuckDB skip whole blocks of rows during a radius
+query — the single largest performance win in the package. They are **dropped
+at the collection boundary** by both `collect_nar()` and `reverse_geocode()`,
+because a reprojected result would leave them silently stale. Treat them as
+package internals rather than data.
+
+## Read-only connections
+
+The connection is opened read-only, so the database cannot be modified by
+accident and several R sessions can query the same file at once. Writing to it
+is an error:
+
+```{r read-only, error = TRUE}
+DBI::dbExecute(con, "CREATE TABLE scratch (id INTEGER)")
+```
+
+Materialise anything you want to keep in R, or in a database of your own.
+
+```{r disconnect}
+DBI::dbDisconnect(con)
+```

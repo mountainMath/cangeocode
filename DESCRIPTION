@@ -14,7 +14,9 @@ Authors@R: c(
       role = c("aut", "cre")
     )
   )
-Description: Implement a range of methods to help geocode and reverser geocode addresses in Canada. Makes use of the NAR, road network files, as well as online geocoders.
+Description: Implement a range of methods to help geocode and reverse geocode addresses in Canada. Makes use of the NAR, road network files, as well as online geocoders.
+URL: https://github.com/mountainMath/cangeocode
+BugReports: https://github.com/mountainMath/cangeocode/issues
 License: MIT + file LICENSE
 Encoding: UTF-8
 ByteCompile: yes
@@ -40,5 +42,6 @@ Suggests:
     scales,
     testthat (>= 3.0.0),
     withr
+VignetteBuilder: knitr
 Config/roxygen2/version: 8.0.0
 Config/testthat/edition: 3

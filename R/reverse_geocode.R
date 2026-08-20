@@ -32,9 +32,9 @@
 #' representative point, specific to the address. `"blockface"` is the centroid
 #' of one side of a street between two intersections, used for the ~7% of
 #' addresses that have no building point; it is shared by every address on that
-#' blockface -- a median of 3.9 and as many as several hundred -- so those rows
-#' are a street-segment approximation and their `dist` is not comparable to a
-#' building match. Filter on `geom_source` when only precise matches will do.
+#' blockface -- a median of 2, a mean of 3.9, and as many as 578 -- so those
+#' rows are a street-segment approximation and their `dist` is not comparable
+#' to a building match. Filter on `geom_source` when only precise matches will do.
 #' Databases built before schema version 3 have no blockface fallback and no
 #' `geom_source` column.
 #' @export

@@ -63,6 +63,24 @@ have to fetch the extension. Fixture geometry is fixed: `addr1` has a building p
 only a blockface point 50 m away, `addr3` none at all — that 50 m gap is what the radius
 boundary tests key off.
 
+## Vignettes
+
+Both vignettes query the real ~5 GB database, which `R CMD build` cannot do, so they are
+**pre-computed**: the sources are `vignettes/<name>.Rmd.orig`, `vignettes/precompute.R` knits them
+against a local NAR database, and the resulting `<name>.Rmd` — output already inlined, no live
+chunks — is what ships and what is committed.
+
+```r
+Rscript vignettes/precompute.R   # needs NAR_CACHE_PATH and an imported database
+```
+
+**Never edit `vignettes/*.Rmd` by hand** — edit the `.Rmd.orig` and re-knit, or the next
+precompute silently discards the change. The `.orig` files and `precompute.R` are `.Rbuildignore`d;
+`map-1.png` is not, since the getting-started vignette references it. Re-run precompute after
+importing a new NAR release: the vignettes quote row counts and coverage figures from whatever
+database was open at knit time. `devtools::install()` first — precompute runs `library(cangeocode)`
+against the installed package, not `load_all()`.
+
 ## Architecture
 
 ### `R/geo_helpers.R` — the spatial layer (start here)
