@@ -35,6 +35,15 @@ over the wire (the package raises R's timeout to 20 minutes, because the
 StatCan connection can be slow) and roughly **5 GB on disk** for the 2026-06
 release. Every call after that opens the existing database instantly.
 
+## Documentation
+
+Full reference and articles: <https://mountainmath.github.io/cangeocode/>
+
+- [Getting started](https://mountainmath.github.io/cangeocode/articles/cangeocode.html)
+  (`vignette("cangeocode")`) — setup, reverse geocoding, output types, precision
+- [Querying the NAR database directly](https://mountainmath.github.io/cangeocode/articles/querying-nar.html)
+  (`vignette("querying-nar")`) — using the database with dplyr and `sf`
+
 ## Example
 
 Find the addresses closest to a coordinate:
@@ -87,15 +96,6 @@ side of a street between two intersections — which is shared by every address
 on that stretch and is a good deal coarser. Results say which was used in the
 `geom_source` column, so filter on it when a `dist` needs to mean what it
 appears to mean. A further ~65,000 addresses have no coordinates at all.
-
-## Documentation
-
-Full reference and articles: <https://mountainmath.github.io/cangeocode/>
-
-- [Getting started](https://mountainmath.github.io/cangeocode/articles/cangeocode.html)
-  (`vignette("cangeocode")`) — setup, reverse geocoding, output types, precision
-- [Querying the NAR database directly](https://mountainmath.github.io/cangeocode/articles/querying-nar.html)
-  (`vignette("querying-nar")`) — using the database with dplyr and `sf`
 
 ## Data source
 
