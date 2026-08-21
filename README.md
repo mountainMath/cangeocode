@@ -90,8 +90,12 @@ appears to mean. A further ~65,000 addresses have no coordinates at all.
 
 ## Documentation
 
-- `vignette("cangeocode")` — setup, reverse geocoding, output types, precision
-- `vignette("querying-nar")` — using the database directly with dplyr and `sf`
+Full reference and articles: <https://mountainmath.github.io/cangeocode/>
+
+- [Getting started](https://mountainmath.github.io/cangeocode/articles/cangeocode.html)
+  (`vignette("cangeocode")`) — setup, reverse geocoding, output types, precision
+- [Querying the NAR database directly](https://mountainmath.github.io/cangeocode/articles/querying-nar.html)
+  (`vignette("querying-nar")`) — using the database with dplyr and `sf`
 
 ## Data source
 
