@@ -15,7 +15,7 @@ Authors@R: c(
     )
   )
 Description: Implement a range of methods to help geocode and reverse geocode addresses in Canada. Makes use of the NAR, road network files, as well as online geocoders.
-URL: https://github.com/mountainMath/cangeocode
+URL: https://mountainmath.github.io/cangeocode/, https://github.com/mountainMath/cangeocode
 BugReports: https://github.com/mountainMath/cangeocode/issues
 License: MIT + file LICENSE
 Encoding: UTF-8

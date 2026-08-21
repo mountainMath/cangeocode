@@ -4,3 +4,6 @@
 ^CLAUDE\.md$
 ^vignettes/.*\.Rmd\.orig$
 ^vignettes/precompute\.R$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$

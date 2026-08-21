@@ -1,0 +1,20 @@
+url: https://mountainmath.github.io/cangeocode/
+
+template:
+  bootstrap: 5
+
+reference:
+- title: Reverse geocoding
+  desc: >
+    Find the addresses nearest a coordinate.
+  contents:
+  - reverse_geocode
+
+- title: The NAR database
+  desc: >
+    Download and open a National Address Repository release, and get query
+    results back as `sf`.
+  contents:
+  - nar_connection
+  - available_nar_versions
+  - collect_nar
