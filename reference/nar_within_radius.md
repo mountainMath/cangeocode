@@ -1,0 +1,58 @@
+# Filter a NAR table to rows within a radius of a point
+
+Takes coordinates already in the storage CRS – use \[nar_project()\] to
+get there – and filters with \`ST_DWithin\`, the extension's native
+distance predicate, which avoids the square root an explicit
+\`ST_Distance\` comparison performs.
+
+When the table carries plain \`x\`/\`y\` \`DOUBLE\` columns, a
+bounding-box prefilter is applied first. This is what makes radius
+queries fast, and it is not an index: DuckDB keeps min/max zonemaps per
+row group for numeric columns and skips whole row groups whose range
+cannot satisfy the comparison. Measured over 17.3M addresses this cuts a
+query from ~0.21s to ~0.04s, consistently across the country. The box is
+in the same planar, metric CRS as the \`ST_Distance\` that follows it,
+so it cannot exclude a row the distance predicate would have kept.
+
+This deliberately does \*not\* route through the RTREE index. Only
+\`ST_Intersects\`-family predicates can drive that index, and while a
+bounding-box prefilter does produce an index scan, it is slower here at
+every radius once the row payload is fetched: the index yields row ids
+that must then be randomly accessed across a ~5 GB file, whereas
+DuckDB's parallel columnar scan evaluates the predicate over 17M rows in
+~0.25s and stays flat as the radius grows (measured: 0.24s vs 0.38s at
+100m, 0.25s vs 1.5s at 1000m). Neither an ART index on \`x\` nor
+ordering the table along a Hilbert curve changed the timings at all. The
+RTREE index still pays off for \`count\`/existence queries that never
+touch the rows, which is why it is still built at import time.
+
+## Usage
+
+``` r
+nar_within_radius(tbl, x, y, radius)
+```
+
+## Arguments
+
+- tbl:
+
+  A lazy table with a \`geom\` column
+
+- x:
+
+  Easting of the search centre, in the storage CRS
+
+- y:
+
+  Northing of the search centre, in the storage CRS
+
+- radius:
+
+  Search radius in metres
+
+## Value
+
+A lazy table with an added \`dist\` column. Ordering is left to the
+caller: any further verb wraps this in a subquery, and DuckDB drops
+\`ORDER BY\` in subqueries without \`LIMIT\`, so sorting here would be
+silently discarded rather than honoured.

@@ -1,0 +1,106 @@
+# Reverse Geocode Coordinates to Address
+
+Determines closest address(s) to given coordinates using the NAR dataset
+based on maximym match radius
+
+## Usage
+
+``` r
+reverse_geocode(
+  x,
+  match_radius = 100,
+  output = "multiple",
+  source = "nar",
+  geometry = FALSE,
+  crs = 4326,
+  version = "latest",
+  con = NULL,
+  ...
+)
+```
+
+## Arguments
+
+- x:
+
+  An \`sf\` POINT object with coordinates to reverse geocode, or a
+  length-2 numeric vector of longitude and latitude
+
+- match_radius:
+
+  Maximum distance (in meters) to search for matching addresses (default
+  is 100 meters)
+
+- output:
+
+  Type of output to return. Options are "address" (returns a single
+  formatted address string), "components" (returns a data frame with
+  address components for the closest match), or "multiple" (returns a
+  data frame with all matches within the match radius). Default is
+  "multiple".
+
+- source:
+
+  Source dataset to use for reverse geocoding. Currently only "nar"
+  (National Address Repository) is supported.
+
+- geometry:
+
+  Logical, whether to return the result as an `sf` object with the
+  matched address point geometry. Default is `FALSE`.
+
+- crs:
+
+  CRS of \`x\`, used when \`x\` is a bare numeric vector or an \`sf\`
+  object without a CRS. Defaults to EPSG:4326, the longitude/latitude
+  that GPS receivers and web maps report. An \`sf\` object that carries
+  its own CRS is reprojected from that CRS and this argument is ignored.
+
+- version:
+
+  NAR version to query, passed to \[nar_connection()\]. Ignored when
+  `con` is supplied.
+
+- con:
+
+  An open NAR connection to reuse. Supplying one avoids reopening the
+  database on every call, which matters when reverse geocoding many
+  points in a loop. The caller keeps ownership: a connection passed in
+  here is left open, while one opened internally is closed again before
+  returning.
+
+- ...:
+
+  Additional arguments (currently unused)
+
+## Value
+
+Depending on the \`output\` parameter, either a single address string, a
+data frame with address components for the closest match, or a data
+frame with all matches within the match radius.
+
+## Match precision
+
+Results carry a \`geom_source\` column naming the point each match was
+measured from. \`"building"\` is NAR's building representative point,
+specific to the address. \`"blockface"\` is the centroid of one side of
+a street between two intersections, used for the ~7 addresses that have
+no building point; it is shared by every address on that blockface – a
+median of 2, a mean of 3.9, and as many as 578 – so those rows are a
+street-segment approximation and their \`dist\` is not comparable to a
+building match. Filter on \`geom_source\` when only precise matches will
+do. Databases built before schema version 3 have no blockface fallback
+and no \`geom_source\` column.
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+library(sf)
+# Create an sf POINT object with coordinates to reverse geocode
+point <- st_sfc(st_point(c(-75.6972, 45.4215)), crs = 4326)
+# Reverse geocode the point to get the closest address
+address <- reverse_geocode(point, match_radius = 200, output = "address")
+print(address)
+} # }
+```

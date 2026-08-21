@@ -1,0 +1,27 @@
+# CRS of NAR longitude/latitude columns
+
+NAR's \`BG_LATITUDE\`/\`BG_LONGITUDE\` are NAD83 geographic coordinates
+(EPSG:4269), the same datum as the \`BG_X\`/\`BG_Y\` projected
+coordinates in EPSG:3347. Naming the datum correctly matters: EPSG:4269
+to EPSG:3347 is a pure change of projection that PROJ reports at
+accuracy 0, whereas going through a WGS84 identifier invites a ballpark
+datum transformation of a metre or so.
+
+This was checked against the data rather than assumed. For NAR locations
+that have exactly one address, the location's own lon/lat and the
+address's own \`BG_X\`/\`BG_Y\` describe the same point, so re-deriving
+the projected coordinate from the lon/lat and measuring the residual
+identifies the datum. Over 300,000 such records the median residual is
+0.057 m when the lon/lat are read as EPSG:4269 – that is just NAR's own
+rounding of lon/lat to six decimals – against 1.08 m when read as
+OGC:CRS84.
+
+## Usage
+
+``` r
+nar_lonlat_crs()
+```
+
+## Value
+
+CRS identifier string

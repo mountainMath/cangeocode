@@ -1,0 +1,304 @@
+# Querying the NAR database directly
+
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+answers one question — what is near this point — but the database behind
+it holds every civic address in the country and is open to any query you
+care to write.
+[`nar_connection()`](https://mountainmath.github.io/cangeocode/reference/nar_connection.md)
+returns a plain DBI connection, so the whole dplyr vocabulary works
+against it, evaluated inside DuckDB rather than in R.
+
+This vignette assumes you have already worked through
+[`vignette("cangeocode")`](https://mountainmath.github.io/cangeocode/articles/cangeocode.md),
+in particular the `NAR_CACHE_PATH` setup and the one-time import.
+
+``` r
+
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+## The two tables
+
+``` r
+
+DBI::dbListTables(con)
+#> [1] "Addresses"    "Locations"    "nar_metadata"
+```
+
+**`Addresses`** has one row per civic address — the street name and
+number, the mailing address, the municipality, the postal code, and the
+point geometry.
+
+``` r
+
+tbl(con, "Addresses") |> colnames()
+#>  [1] "LOC_GUID"             "ADDR_GUID"            "APT_NO_LABEL"        
+#>  [4] "CIVIC_NO"             "CIVIC_NO_SUFFIX"      "OFFICIAL_STREET_NAME"
+#>  [7] "OFFICIAL_STREET_TYPE" "OFFICIAL_STREET_DIR"  "PROV_CODE"           
+#> [10] "CSD_ENG_NAME"         "CSD_FRE_NAME"         "CSD_TYPE_ENG_CODE"   
+#> [13] "CSD_TYPE_FRE_CODE"    "MAIL_STREET_NAME"     "MAIL_STREET_TYPE"    
+#> [16] "MAIL_STREET_DIR"      "MAIL_MUN_NAME"        "MAIL_PROV_ABVN"      
+#> [19] "MAIL_POSTAL_CODE"     "BG_DLS_LSD"           "BG_DLS_QTR"          
+#> [22] "BG_DLS_SCTN"          "BG_DLS_TWNSHP"        "BG_DLS_RNG"          
+#> [25] "BG_DLS_MRD"           "BF_REPPOINT_X"        "BF_REPPOINT_Y"       
+#> [28] "BU_N_CIVIC_ADD"       "BU_USE"               "x"                   
+#> [31] "y"                    "geom_source"          "geom"
+```
+
+**`Locations`** has one row per *location*, which is what NAR calls a
+distinct site. Several addresses can share one (an apartment building is
+the obvious case). It carries the census and electoral geography that
+`Addresses` does not: census subdivision code, federal electoral
+district, economic region.
+
+``` r
+
+tbl(con, "Locations") |> colnames()
+#>  [1] "LOC_GUID"              "CSD_CODE"              "FED_CODE"             
+#>  [4] "FED_ENG_NAME"          "FED_FRE_NAME"          "ER_CODE"              
+#>  [7] "ER_ENG_NAME"           "ER_FRE_NAME"           "BF_REPPOINT_LATITUDE" 
+#> [10] "BF_REPPOINT_LONGITUDE" "geom"                  "x"                    
+#> [13] "y"
+```
+
+`LOC_GUID` joins the two, and `ADDR_GUID` is the address key.
+
+``` r
+
+tbl(con, "Addresses") |> count() |> collect()
+#> # A tibble: 1 × 1
+#>          n
+#>      <dbl>
+#> 1 17362476
+```
+
+Column names are kept exactly as StatCan ships them, in
+`SCREAMING_SNAKE_CASE`, so the NAR User Guide reads directly onto what
+you see here.
+
+## Filtering
+
+Anything dplyr can express becomes SQL. Nothing is fetched until you
+collect.
+
+``` r
+
+kingsway <- tbl(con, "Addresses") |>
+  filter(MAIL_MUN_NAME == "VANCOUVER", MAIL_STREET_NAME == "KINGSWAY")
+
+kingsway |> count() |> collect()
+#> # A tibble: 1 × 1
+#>       n
+#>   <dbl>
+#> 1  2555
+```
+
+Aggregation runs in the database too, over all 17 million rows, and
+stays fast because DuckDB scans columns rather than rows.
+
+``` r
+
+tbl(con, "Addresses") |>
+  count(PROV_CODE, sort = TRUE) |>
+  head(5) |>
+  collect()
+#> # A tibble: 5 × 2
+#>   PROV_CODE       n
+#>   <chr>       <dbl>
+#> 1 35        6246543
+#> 2 24        4568811
+#> 3 59        2371842
+#> 4 48        1900424
+#> 5 46         572158
+```
+
+You can inspect the generated SQL at any point with
+[`show_query()`](https://dplyr.tidyverse.org/reference/explain.html),
+which is often the quickest way to see whether a verb translated the way
+you expected.
+
+``` r
+
+kingsway |> count() |> show_query()
+#> <SQL>
+#> SELECT COUNT(*) AS n
+#> FROM Addresses
+#> WHERE (MAIL_MUN_NAME = 'VANCOUVER') AND (MAIL_STREET_NAME = 'KINGSWAY')
+```
+
+## Joining to `Locations`
+
+Join when you need the geography that only `Locations` carries.
+
+``` r
+
+tbl(con, "Addresses") |>
+  filter(MAIL_MUN_NAME == "VANCOUVER", MAIL_STREET_NAME == "KINGSWAY") |>
+  left_join(tbl(con, "Locations") |> select(LOC_GUID, FED_ENG_NAME, ER_ENG_NAME),
+            by = "LOC_GUID") |>
+  count(FED_ENG_NAME, sort = TRUE) |>
+  collect()
+#> # A tibble: 3 × 2
+#>   FED_ENG_NAME                           n
+#>   <chr>                              <dbl>
+#> 1 Vancouver Kingsway                  2167
+#> 2 Vancouver East                       214
+#> 3 Vancouver Fraserview—South Burnaby   174
+```
+
+## Getting the geometry out: `collect_nar()`
+
+[`collect()`](https://dplyr.tidyverse.org/reference/compute.html) brings
+back a plain data frame, and the `geom` column arrives as something
+unusable — DuckDB geometry has no R representation. Use
+[`collect_nar()`](https://mountainmath.github.io/cangeocode/reference/collect_nar.md)
+instead. It transfers the geometry as WKB, reads the storage CRS from
+the database rather than assuming one, and hands you an `sf` object.
+
+``` r
+
+addresses <- tbl(con, "Addresses") |>
+  filter(MAIL_MUN_NAME == "VANCOUVER", MAIL_STREET_NAME == "KINGSWAY") |>
+  select(ADDR_GUID, CIVIC_NO, MAIL_STREET_NAME, MAIL_POSTAL_CODE,
+         geom_source, geom) |>
+  collect_nar()
+
+addresses
+#> Simple feature collection with 2555 features and 5 fields
+#> Geometry type: POINT
+#> Dimension:     XY
+#> Bounding box:  xmin: 4019124 ymin: 1999098 xmax: 4022369 ymax: 2004787
+#> Projected CRS: NAD83 / Statistics Canada Lambert
+#> # A tibble: 2,555 × 6
+#>    ADDR_GUID              CIVIC_NO MAIL_STREET_NAME MAIL_POSTAL_CODE geom_source
+#>    <chr>                     <dbl> <chr>            <chr>            <chr>      
+#>  1 c5fd5fb6-8011-4e7f-8d…     1929 KINGSWAY         V5N2T1           building   
+#>  2 d96ea3dc-1269-4dc4-86…     1929 KINGSWAY         V5N2T1           building   
+#>  3 28afd7a1-c85b-40cd-b4…     1155 KINGSWAY         V5V3C9           building   
+#>  4 9821cc62-94a7-4515-a3…     1155 KINGSWAY         V5V3C9           building   
+#>  5 13255ff9-72fe-4753-9b…     1163 KINGSWAY         V5V3C9           building   
+#>  6 7849e06b-8c1d-4b0a-93…     1282 KINGSWAY         V5V3E1           building   
+#>  7 87a821b4-e0a1-4377-b6…     1290 KINGSWAY         V5V3E1           building   
+#>  8 842f7475-8db0-4851-b8…     1350 KINGSWAY         V5V3E4           building   
+#>  9 baf08b63-2b9b-483d-bf…     1350 KINGSWAY         V5V3E4           building   
+#> 10 89ef9a3c-206a-48df-af…     1350 KINGSWAY         V5V3E4           building   
+#> # ℹ 2,545 more rows
+#> # ℹ 1 more variable: geom <POINT [m]>
+```
+
+``` r
+
+sf::st_crs(addresses)$input
+#> [1] "EPSG:3347"
+```
+
+EPSG:3347 is Statistics Canada Lambert, a projected CRS in metres —
+which is why distances from
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+need no conversion.
+
+Pass `crs` to reproject on the way out. This happens inside DuckDB, and
+the argument accepts a bare EPSG number, an authority string, or an
+[`sf::st_crs()`](https://r-spatial.github.io/sf/reference/st_crs.html)
+object.
+
+``` r
+
+tbl(con, "Addresses") |>
+  filter(MAIL_MUN_NAME == "VANCOUVER", MAIL_STREET_NAME == "KINGSWAY") |>
+  select(ADDR_GUID, geom) |>
+  head(3) |>
+  collect_nar(crs = 4326)
+#> Simple feature collection with 3 features and 1 field
+#> Geometry type: POINT
+#> Dimension:     XY
+#> Bounding box:  xmin: -123.0806 ymin: 49.24591 xmax: -123.0661 ymax: 49.25274
+#> Geodetic CRS:  WGS 84
+#> # A tibble: 3 × 2
+#>   ADDR_GUID                                            geom
+#>   <chr>                                         <POINT [°]>
+#> 1 c5fd5fb6-8011-4e7f-8d72-dcc7d4f569e0 (-123.0661 49.24591)
+#> 2 d96ea3dc-1269-4dc4-8643-9c85bd6c09ba (-123.0661 49.24591)
+#> 3 28afd7a1-c85b-40cd-b4c4-854d07246870 (-123.0806 49.25274)
+```
+
+[`collect_nar()`](https://mountainmath.github.io/cangeocode/reference/collect_nar.md)
+needs a lazy table still attached to its connection — it looks the
+connection up to read the CRS. Handed a data frame you have already
+collected, it says so rather than failing somewhere deep in dbplyr.
+
+``` r
+
+already_collected <- tbl(con, "Addresses") |> head(1) |> collect()
+collect_nar(already_collected)
+#> Error in `collect_nar()`:
+#> ! collect_nar() needs a lazy table backed by a NAR database connection; got an object that has already been collected. Call it directly on the result of dplyr::tbl(con, ...), and use sf::st_transform() to reproject afterwards.
+```
+
+### Addresses with no geometry
+
+About 65,000 addresses have neither a building nor a blockface point.
+[`collect_nar()`](https://mountainmath.github.io/cangeocode/reference/collect_nar.md)
+maps their `NULL` geometry to an **empty point** rather than dropping
+the row, so counts stay honest. Filter them out with
+[`sf::st_is_empty()`](https://r-spatial.github.io/sf/reference/geos_query.html)
+before anything that expects real coordinates.
+
+``` r
+
+tbl(con, "Addresses") |>
+  filter(is.na(geom_source)) |>
+  select(ADDR_GUID, MAIL_MUN_NAME, geom) |>
+  head(3) |>
+  collect_nar() |>
+  mutate(empty = sf::st_is_empty(geom))
+#> Simple feature collection with 3 features and 3 fields (with 3 geometries empty)
+#> Geometry type: POINT
+#> Dimension:     XY
+#> Bounding box:  xmin: NA ymin: NA xmax: NA ymax: NA
+#> Projected CRS: NAD83 / Statistics Canada Lambert
+#> # A tibble: 3 × 4
+#>   ADDR_GUID                        MAIL_MUN_NAME        geom empty
+#> * <chr>                            <chr>         <POINT [m]> <lgl>
+#> 1 a1529ed5-d530-4c43-8912-79b6ab3… CORNER BROOK        EMPTY TRUE 
+#> 2 fbae7224-13cd-4461-abd3-85051bd… CORNER BROOK        EMPTY TRUE 
+#> 3 7f72ddd1-ce97-4692-a69a-7f2d3a7… CORNER BROOK        EMPTY TRUE
+```
+
+## A note on internal columns
+
+`Addresses` and `Locations` both carry `x` and `y` columns. They
+duplicate `geom` and exist only to let DuckDB skip whole blocks of rows
+during a radius query — the single largest performance win in the
+package. They are **dropped at the collection boundary** by both
+[`collect_nar()`](https://mountainmath.github.io/cangeocode/reference/collect_nar.md)
+and
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md),
+because a reprojected result would leave them silently stale. Treat them
+as package internals rather than data.
+
+## Read-only connections
+
+The connection is opened read-only, so the database cannot be modified
+by accident and several R sessions can query the same file at once.
+Writing to it is an error:
+
+``` r
+
+DBI::dbExecute(con, "CREATE TABLE scratch (id INTEGER)")
+#> Error in `duckdb_result()`:
+#> ! Invalid Error: Invalid Input Error: Cannot execute statement of type "CREATE" on database "2026-06" which is attached in read-only mode!
+#> ℹ Context: rapi_execute
+#> ℹ Error type: INVALID
+```
+
+Materialise anything you want to keep in R, or in a database of your
+own.
+
+``` r
+
+DBI::dbDisconnect(con)
+```
