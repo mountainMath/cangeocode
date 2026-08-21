@@ -2,6 +2,7 @@
 # cangeocode
 
 <!-- badges: start -->
+[![R-CMD-check](https://github.com/mountainMath/cangeocode/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/mountainMath/cangeocode/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 
 `cangeocode` geocodes and reverse geocodes Canadian addresses. It is built on

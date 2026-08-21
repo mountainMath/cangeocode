@@ -1,6 +1,6 @@
 Package: cangeocode
 Type: Package
-Title: Geocode and reverse geocode addresses in Canada
+Title: Geocode and Reverse Geocode Addresses in Canada
 Version: 0.1.0
 Authors@R: c(
     person(

@@ -1,9 +1,10 @@
 ^.*\.Rproj$
 ^\.Rproj\.user$
 ^LICENSE\.md$
-^CLAUDE\.md$
+^\.claude$
 ^vignettes/.*\.Rmd\.orig$
 ^vignettes/precompute\.R$
 ^_pkgdown\.yml$
 ^docs$
 ^pkgdown$
+^\.github$
