@@ -91,10 +91,17 @@ addresses have no coordinates at all.
 
 ## Documentation
 
-- [`vignette("cangeocode")`](https://mountainmath.github.io/cangeocode/articles/cangeocode.md)
+Full reference and articles:
+<https://mountainmath.github.io/cangeocode/>
+
+- [Getting
+  started](https://mountainmath.github.io/cangeocode/articles/cangeocode.html)
+  ([`vignette("cangeocode")`](https://mountainmath.github.io/cangeocode/articles/cangeocode.md))
   — setup, reverse geocoding, output types, precision
-- [`vignette("querying-nar")`](https://mountainmath.github.io/cangeocode/articles/querying-nar.md)
-  — using the database directly with dplyr and `sf`
+- [Querying the NAR database
+  directly](https://mountainmath.github.io/cangeocode/articles/querying-nar.html)
+  ([`vignette("querying-nar")`](https://mountainmath.github.io/cangeocode/articles/querying-nar.md))
+  — using the database with dplyr and `sf`
 
 ## Data source
 
