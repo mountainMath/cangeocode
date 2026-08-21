@@ -106,9 +106,13 @@ test_that("a cached database is reused rather than reimported", {
   DBI::dbDisconnect(con)
   expect_length(list.files(cache, pattern = "\\.duckdb$"), 1)
 
-  # A second call must not report that it is importing again.
-  expect_message(con <- nar_connection(version = "test-01"), NA)
+  # A second call must not report that it is importing again. Asserting outright
+  # silence would be wrong: duckdb informs a machine with no ~/.duckdb that it is
+  # keeping downloaded extensions in a temp dir, which says nothing about whether
+  # we reimported. Match the import messages instead.
+  msgs <- testthat::capture_messages(con <- nar_connection(version = "test-01"))
   DBI::dbDisconnect(con)
+  expect_false(any(grepl("Downloading|Importing|Indexing|successfully imported", msgs)))
 })
 
 test_that("a failed import leaves no cache behind and spares the caller's exdir", {
