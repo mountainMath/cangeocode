@@ -73,6 +73,18 @@
 <p>The first call then downloads the NAR release from StatCan and imports it. <strong>Expect this to take a while and to use real disk</strong> — a few hundred megabytes over the wire (the package raises R’s timeout to 20 minutes, because the StatCan connection can be slow) and roughly <strong>5 GB on disk</strong> for the 2026-06 release. Every call after that opens the existing database instantly.</p>
 </div>
 <div class="section level2">
+<h2 id="documentation">Documentation<a class="anchor" aria-label="anchor" href="#documentation"></a>
+</h2>
+<p>Full reference and articles: <a href="https://mountainmath.github.io/cangeocode/" class="uri">https://mountainmath.github.io/cangeocode/</a></p>
+<ul>
+<li>
+<a href="https://mountainmath.github.io/cangeocode/articles/cangeocode.html">Getting started</a> (<code><a href="articles/cangeocode.html">vignette("cangeocode")</a></code>) — setup, reverse geocoding, output types, precision</li>
+<li>
+<a href="https://mountainmath.github.io/cangeocode/articles/querying-nar.html">Querying the NAR database directly</a> (<code><a href="articles/querying-nar.html">vignette("querying-nar")</a></code>) — using the database with dplyr and <code>sf</code>
+</li>
+</ul>
+</div>
+<div class="section level2">
 <h2 id="example">Example<a class="anchor" aria-label="anchor" href="#example"></a>
 </h2>
 <p>Find the addresses closest to a coordinate:</p>
@@ -107,18 +119,6 @@
 <h2 id="match-precision">Match precision<a class="anchor" aria-label="anchor" href="#match-precision"></a>
 </h2>
 <p>Most NAR addresses carry a point for the building itself. About 7% do not, and for those the package falls back to the <strong>blockface</strong> point — the centre of one side of a street between two intersections — which is shared by every address on that stretch and is a good deal coarser. Results say which was used in the <code>geom_source</code> column, so filter on it when a <code>dist</code> needs to mean what it appears to mean. A further ~65,000 addresses have no coordinates at all.</p>
-</div>
-<div class="section level2">
-<h2 id="documentation">Documentation<a class="anchor" aria-label="anchor" href="#documentation"></a>
-</h2>
-<p>Full reference and articles: <a href="https://mountainmath.github.io/cangeocode/" class="uri">https://mountainmath.github.io/cangeocode/</a></p>
-<ul>
-<li>
-<a href="https://mountainmath.github.io/cangeocode/articles/cangeocode.html">Getting started</a> (<code><a href="articles/cangeocode.html">vignette("cangeocode")</a></code>) — setup, reverse geocoding, output types, precision</li>
-<li>
-<a href="https://mountainmath.github.io/cangeocode/articles/querying-nar.html">Querying the NAR database directly</a> (<code><a href="articles/querying-nar.html">vignette("querying-nar")</a></code>) — using the database with dplyr and <code>sf</code>
-</li>
-</ul>
 </div>
 <div class="section level2">
 <h2 id="data-source">Data source<a class="anchor" aria-label="anchor" href="#data-source"></a>
