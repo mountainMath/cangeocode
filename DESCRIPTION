@@ -34,6 +34,7 @@ Imports:
     dbplyr (>= 2.5),
     rlang,
     sf,
+    stringi (>= 1.7),
     xml2
 Suggests: 
     knitr,

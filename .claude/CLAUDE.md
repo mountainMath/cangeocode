@@ -277,6 +277,60 @@ with `nar_con()` in order to read the storage CRS and register the macros. Hande
 already-collected data frame it raises an explicit error pointing at `sf::st_transform()` instead
 of failing deep inside dbplyr.
 
+### Numbered rural roads and the pattern recognizer
+
+`R/normalize_address.R` has a `nar_take_numbered_road()` step, hooked in **after the civic number
+and before the direction/type steps**, that handles the roads NAR files with *no street type at
+all*: `OFFICIAL_STREET_NAME = "Range Road 272"`, `OFFICIAL_STREET_TYPE` empty. A hit returns
+immediately and skips the direction and type steps entirely — measured, these roads carry a
+direction 113 times against 99,556 blanks. Left to the ordinary path, `RANGE ROAD 272` reads as
+name `RANGE`, type `RD`, plus a stray `272` nobody claims.
+
+The crosswalk is `nar_lex_numbered_roads` in `data-raw/build_lexicons.R`, sized from the `Streets`
+table: Range Road (AB 65,464 / SK 258), Route (NB 51,000), Township Road (AB 33,599), Concession
+(ON 7,490), Mun (MB 963), County Road (550), Concession Road (442), Regional Road (249). Plus one
+open family in the function itself — `<Word> {ROAD|SIDEROAD|CONCESSION} <number>`, which is what
+Bruce Road 3 and Southgate Sideroad 21 are.
+
+**Two collisions define the shape of this, and both are load-bearing:**
+
+- **`HIGHWAY` is deliberately not in the lexicon.** `Highway 7` is filed the *ordinary* way, as
+  name `7` with type `HWY` (115,175 rows). Adding it would break the commonest numbered road in
+  the country to fix none of the others.
+- **`ROUTE` is province-gated to NB.** New Brunswick writes typeless `Route 105` (51,000 rows);
+  Quebec files `Route 132` as name `132`, type `ROUTE` (113,827 rows). Same five characters,
+  opposite parses. Lexicon rows carry a `prov` that is empty for everyone else, and **a row with a
+  `prov` set does not fire when the province is unknown** — that leaves the commoner reading in
+  place rather than guessing.
+
+Every match requires a **trailing bare number** (one optional letter, `212A`). That requirement is
+what keeps `CONCESSION`, `SIDEROAD` and `ROUTE` — all real street types — from being stolen: a
+type-bearing street never ends in a loose number.
+
+Two numbers in front of the phrase means **the first is the civic number and the second belongs to
+the name**: NAR really does have a street called `53222 Range Road 272`, whose addresses carry
+their own small civic numbers. One number means it is just the civic number.
+
+`R/normalize_pattern.R` sorts each parse into one of twelve buckets, exported as
+`address_pattern()` and carried as the `pattern` column on `normalize_address()`. Buckets are
+assigned by **priority, most specific first** (`nar_address_patterns()` is the order; the
+assignments in `nar_address_pattern()` run backwards through it so earlier tests overwrite later
+ones). The regional forms are checked before the ordinary ones so `grid`, `french_street` and
+`numbered_road` describe the genuinely unusual addresses instead of being swamped by the
+`civic_street` majority they overlap.
+
+Two of the buckets exist to say *this will never resolve*: `po_box` and `rural_route` are delivery
+instructions and **NAR contains neither**. Measured in the eval they confirm at 25% and 29% against
+87% for `civic_street`, which is the point — they separate "this address is wrong" from "this
+address was never going to be in the gazetteer". `nar_delivery_marks()` anchors `BOX` to the start
+of a comma segment *and* requires a number after it, or Markham's Box Grove Bypass becomes a post
+office box.
+
+Traits (`numbered_road`, `type_leads`, `intersection`) are accumulated **during** the parse and
+threaded out on `nar_parse_one()`'s `traits` column, because they record *how* a string parsed and
+several forms end in identical columns. The pattern is computed once, in `nar_parse_rules()`,
+before the gazetteer runs — it describes the parse, not the corrected result.
+
 ### `R/misc.R`
 
 Package-level `@import dplyr` / `@importFrom` block, a no-op `ignore_unused_imports()` that

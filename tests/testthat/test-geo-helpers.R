@@ -2,7 +2,7 @@ test_that("package CRS constants are the ones the schema depends on", {
   expect_equal(nar_storage_crs(), "EPSG:3347")
   # NAD83, not OGC:CRS84 -- established from NAR's own BG_X/BG_Y, see issue #4.
   expect_equal(nar_lonlat_crs(), "EPSG:4269")
-  expect_equal(nar_schema_version(), 3L)
+  expect_equal(nar_schema_version(), 5L)
 })
 
 test_that("nar_project accepts the three supported input shapes identically", {

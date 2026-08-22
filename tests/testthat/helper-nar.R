@@ -18,15 +18,24 @@ nar_address_header <- function(blockface = FALSE) {
 #   addr1  building point, and (in the blockface layout) a blockface point too
 #   addr2  no building point -- falls back to the blockface point when present
 #   addr3  neither, so no geometry under either layout
+#
+# addr3 also sits on a different street under a *different mailing city* inside
+# the same CSD -- the many-to-many that MunAlias exists for. Both directions are
+# in the fixture: SOUTHLANDS is a mailing city that is not a CSD, and Vancouver
+# is a CSD that covers mail addressed to two different cities.
 nar_address_rows <- function(blockface = FALSE) {
-  base <- function(guid, civic, x, y) {
-    c(sub("addr", "loc", guid), guid, "", civic, "", "KING EDWARD", "AVE", "W",
-      "BC", "Vancouver", "Vancouver", "CY", "CV", "KING EDWARD", "AVE", "W",
-      "VANCOUVER", "BC", "V6S1N3", "", "", "", "", "", "", x, y, "1", "1")
+  base <- function(guid, civic, x, y,
+                   street = "KING EDWARD", type = "AVE", dir = "W",
+                   mail_mun = "VANCOUVER", postal = "V6S1N3") {
+    c(sub("addr", "loc", guid), guid, "", civic, "", street, type, dir,
+      "BC", "Vancouver", "Vancouver", "CY", "CV", street, type, dir,
+      mail_mun, "BC", postal, "", "", "", "", "", "", x, y, "1", "1")
   }
   rows <- list(base("addr1", "4001", "4012046.46456561", "2006868.65510961"),
                base("addr2", "4002", "", ""),
-               base("addr3", "4003", "", ""))
+               base("addr3", "4003", "", "",
+                    street = "MUSQUEAM", type = "DR", dir = "",
+                    mail_mun = "SOUTHLANDS", postal = "V6N3T7"))
   if (blockface) {
     bf <- list(c("4012086.46456561", "2006838.65510961"),
                c("4012086.46456561", "2006838.65510961"),

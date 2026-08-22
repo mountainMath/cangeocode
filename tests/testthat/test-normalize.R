@@ -1,0 +1,407 @@
+# Layer 1 needs no database at all; only the gazetteer tests take a connection.
+
+test_that("normalize_address splits the unit off the civic number", {
+  # Every one of these is a form a local LLM got wrong in testing: the unit is
+  # silently swallowed and the civic number lost, which then fails to join.
+  r <- normalize_address(c("302-1055 W Georgia St, Vancouver, BC",
+                           "Apt 302, 1055 W Georgia St, Vancouver, BC",
+                           "#302 1055 W Georgia St, Vancouver, BC",
+                           "302 - 1055 W Georgia St, Vancouver, BC",
+                           "1055 W Georgia St Suite 302, Vancouver, BC"))
+  expect_equal(r$APT_NO_LABEL, rep("302", 5))
+  expect_equal(r$CIVIC_NO, rep(1055, 5))
+  expect_equal(r$STREET_NAME, rep("GEORGIA", 5))
+  expect_equal(r$STREET_TYPE, rep("ST", 5))
+  expect_equal(r$STREET_DIR, rep("W", 5))
+})
+
+test_that("street type and direction canonicalize by province language", {
+  # The same word normalizes differently either side of the Ottawa river:
+  # NAR writes AVE/BLVD/W in Ontario and AV/BOUL/O in Quebec.
+  on <- normalize_address("100 Principale Avenue West, Ottawa, ON")
+  qc <- normalize_address("100 Principale Avenue West, Gatineau, QC")
+  expect_equal(on$STREET_TYPE, "AVE")
+  expect_equal(qc$STREET_TYPE, "AV")
+  expect_equal(on$STREET_DIR, "W")
+  expect_equal(qc$STREET_DIR, "O")
+
+  expect_equal(normalize_address("1 Boulevard Charest, Quebec, QC")$STREET_TYPE, "BOUL")
+  expect_equal(normalize_address("1 Boulevard Main, Toronto, ON")$STREET_TYPE, "BLVD")
+})
+
+test_that("French street types lead the name and English types trail it", {
+  fr <- normalize_address("12 Rue Notre-Dame Est, Montreal, QC")
+  expect_equal(fr$STREET_NAME, "NOTRE-DAME")
+  expect_equal(fr$STREET_TYPE, "RUE")
+  expect_equal(fr$STREET_DIR, "E")
+
+  en <- normalize_address("12 Queen Street East, Toronto, ON")
+  expect_equal(en$STREET_NAME, "QUEEN")
+  expect_equal(en$STREET_TYPE, "ST")
+  expect_equal(en$STREET_DIR, "E")
+})
+
+test_that("a street type word inside the name is not mistaken for the type", {
+  # PARK and GREEN are both real NAR types, so a naive left-to-right scan takes
+  # them and orphans the actual type.
+  expect_equal(normalize_address("44 High Park Ave, Toronto, ON")$STREET_NAME, "HIGH PARK")
+  expect_equal(normalize_address("44 High Park Ave, Toronto, ON")$STREET_TYPE, "AVE")
+  expect_equal(normalize_address("44 Green Lane, Thornhill, ON")$STREET_NAME, "GREEN")
+  expect_equal(normalize_address("44 Green Lane, Thornhill, ON")$STREET_TYPE, "LANE")
+  # A street whose whole name is a type word keeps its name.
+  expect_equal(normalize_address("44 Park, Toronto, ON")$STREET_NAME, "PARK")
+})
+
+test_that("civic suffixes are read only in the forms NAR stores", {
+  # CIVIC_NO_SUFFIX holds a single letter or 1/2 and nothing else.
+  a <- normalize_address("990A King Edward Ave, Ottawa, ON")
+  expect_equal(a$CIVIC_NO, 990)
+  expect_equal(a$CIVIC_NO_SUFFIX, "A")
+
+  h <- normalize_address("12 1/2 Rue Notre-Dame, Montreal, QC")
+  expect_equal(h$CIVIC_NO, 12)
+  expect_equal(h$CIVIC_NO_SUFFIX, "1/2")
+
+  # A *spaced* letter is a direction, not a suffix -- NAR has 235 W suffixes
+  # against hundreds of thousands of W directions.
+  w <- normalize_address("1055 W Georgia St, Vancouver, BC")
+  expect_true(is.na(w$CIVIC_NO_SUFFIX))
+  expect_equal(w$STREET_DIR, "W")
+})
+
+test_that("postal codes are extracted to NAR's six-character form", {
+  r <- normalize_address(c("1055 W Georgia St, Vancouver, BC V6E 3P3",
+                           "12 Rue Notre-Dame, Montreal, QC H2Y1C6",
+                           "1 Main St, Halifax, NS"))
+  expect_equal(r$POSTAL_CODE, c("V6E3P3", "H2Y1C6", NA))
+})
+
+test_that("a postal code lands on the row it came from", {
+  # regmatches() returns one element per match rather than per input, so a
+  # careless subset shifts every code onto a later row.
+  r <- normalize_address(c("1 Main St, Halifax, NS",
+                           "2 Main St, Halifax, NS B3H 1A1",
+                           "3 Main St, Halifax, NS"))
+  expect_equal(r$POSTAL_CODE, c(NA, "B3H1A1", NA))
+})
+
+test_that("province names are read only where a province can be", {
+  expect_equal(normalize_address("1 Main St, Kingston, Ontario")$PROV_ABVN, "ON")
+  expect_equal(normalize_address("1 Main St, Montreal, Quebec")$PROV_ABVN, "QC")
+  expect_equal(normalize_address("1 Main St, Vancouver, British Columbia")$PROV_ABVN, "BC")
+  # "Ontario Street" in Kingston is a street, not a province.
+  r <- normalize_address("55 Ontario Street, Kingston, ON")
+  expect_equal(r$STREET_NAME, "ONTARIO")
+  expect_equal(r$MUN_NAME, "KINGSTON")
+})
+
+test_that("accents survive normalization", {
+  # NAR stores MONTÉE and CÔTE accented, so folding is a matching device only.
+  expect_equal(normalize_address("45 Montee du Lac, Saint-Sauveur, QC")$STREET_TYPE, "MONTÉE")
+  expect_equal(normalize_address("45 Montée du Lac, Saint-Sauveur, QC")$STREET_TYPE, "MONTÉE")
+  expect_equal(normalize_address("45 Cote Sainte-Catherine, Montreal, QC")$STREET_TYPE, "CÔTE")
+})
+
+test_that("comma-less addresses still split street from municipality", {
+  r <- normalize_address("unit 4b 100 queen street west toronto on")
+  expect_equal(r$APT_NO_LABEL, "4B")
+  expect_equal(r$CIVIC_NO, 100)
+  expect_equal(r$STREET_NAME, "QUEEN")
+  expect_equal(r$STREET_TYPE, "ST")
+  expect_equal(r$STREET_DIR, "W")
+  expect_equal(r$MUN_NAME, "TORONTO")
+  expect_equal(r$PROV_ABVN, "ON")
+})
+
+test_that("bare unit labels are kept verbatim", {
+  # BSMT alone accounts for 137,413 NAR rows.
+  expect_equal(normalize_address("BSMT 44 High Park Ave, Toronto, ON")$APT_NO_LABEL, "BSMT")
+})
+
+test_that("normalize_address returns one row per input and the documented shape", {
+  x <- c("1 Main St, Halifax, NS", "", NA_character_, "not an address at all")
+  r <- normalize_address(x)
+  expect_equal(nrow(r), length(x))
+  expect_equal(r$input, x)
+  expect_true(all(nar_normalized_columns() %in% names(r)))
+  expect_true(all(c("confidence", "parse_source") %in% names(r)))
+  expect_true(all(r$confidence >= 0 & r$confidence <= 1))
+})
+
+test_that("normalize_address rejects non-character input", {
+  expect_error(normalize_address(list(1, 2)), "character vector")
+})
+
+# --- Layer 2 ---------------------------------------------------------------
+
+test_that("the gazetteer resolves against the streets NAR actually has", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  # The fixture holds three addresses on KING EDWARD AVE W in Vancouver.
+  r <- normalize_address("4001 King Edward Avenue West, Vancouver, BC", con = con)
+  expect_equal(r$STREET_NAME, "KING EDWARD")
+  expect_equal(r$STREET_TYPE, "AVE")
+  expect_equal(r$STREET_DIR, "W")
+  expect_equal(r$MUN_NAME, "VANCOUVER")
+  expect_equal(r$parse_source, "gazetteer")
+
+  # A misspelling the rules cannot see is corrected by the gazetteer.
+  m <- normalize_address("4001 King Edwrd Avenue West, Vancouver, BC", con = con)
+  expect_equal(m$STREET_NAME, "KING EDWARD")
+  expect_equal(m$parse_source, "gazetteer")
+})
+
+test_that("the gazetteer declines rather than substituting a wrong street", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  # Nothing in the fixture resembles this, so the rules result must stand.
+  r <- normalize_address("100 Zzyzx Boulevard, Vancouver, BC", con = con)
+  expect_equal(r$parse_source, "rules")
+  expect_equal(r$STREET_NAME, "ZZYZX")
+})
+
+test_that("a postal code supplies the municipality when the string omits it", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  r <- normalize_address("4001 King Edward Avenue West, V6S 1N3", con = con)
+  expect_equal(r$MUN_NAME, "VANCOUVER")
+  expect_equal(r$STREET_NAME, "KING EDWARD")
+})
+
+test_that("gazetteer resolution is skipped, with a warning, on older databases", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+  # The connection is read-only, so the table cannot actually be dropped; mock
+  # the capability probe instead.
+  local_mocked_bindings(nar_has_streets = function(con) FALSE)
+
+  expect_warning(r <- normalize_address("4001 King Edward Ave W, Vancouver, BC", con = con),
+                 "schema version 4")
+  expect_equal(r$parse_source, "rules")
+})
+
+test_that("a missing postal code costs nothing when the string names the place", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  # The postal code is never an input the normalizer needs: it only ever stands
+  # in for a municipality the string did not name. With one named, dropping it
+  # -- and the province with it -- must change nothing.
+  full <- normalize_address("4001 King Edward Ave W, Vancouver, BC V6S 1N3", con = con)
+  none <- normalize_address("4001 King Edward Ave W, Vancouver", con = con)
+
+  fields <- c("CIVIC_NO", "STREET_NAME", "STREET_TYPE", "STREET_DIR",
+              "MUN_NAME", "PROV_ABVN", "confidence", "parse_source")
+  expect_equal(none[fields], full[fields])
+  expect_equal(none$parse_source, "gazetteer")
+  expect_true(is.na(none$POSTAL_CODE))
+})
+
+test_that("a street with neither postal code nor municipality still resolves", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  bare <- normalize_address("4001 King Edward Ave W", con = con)
+
+  expect_equal(bare$parse_source, "gazetteer")
+  expect_equal(bare$STREET_NAME, "KING EDWARD")
+  expect_equal(bare$STREET_TYPE, "AVE")
+  expect_equal(bare$STREET_DIR, "W")
+  # Scored below a match that had a locality to confirm it against.
+  expect_lt(bare$confidence, 1)
+  # ... and the locality it never had is left absent rather than guessed at.
+  expect_true(is.na(bare$MUN_NAME))
+  expect_true(is.na(bare$PROV_ABVN))
+})
+
+test_that("without a locality the match must be exact, not merely close", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  # With a municipality to restrict candidates to, a misspelling is corrected.
+  expect_equal(normalize_address("4001 King Edwrd Ave W, Vancouver", con = con)$STREET_NAME,
+               "KING EDWARD")
+  # Without one there is nothing to bound a fuzzy search with, so the same
+  # misspelling is left alone rather than matched against all of Canada.
+  loose <- normalize_address("4001 King Edwrd Ave W", con = con)
+  expect_equal(loose$parse_source, "rules")
+  expect_equal(loose$STREET_NAME, "KING EDWRD")
+})
+
+test_that("a civic number outside every candidate's range declines the match", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  # KING EDWARD runs 4001-4002. Without a locality the civic number is the only
+  # corroboration left, so one that fits no street of that name must not resolve.
+  expect_equal(normalize_address("999999 King Edward Ave W", con = con)$parse_source,
+               "rules")
+})
+
+test_that("a mailing city and its CSD reach each other in both directions", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  # The fixture's CSD is Vancouver; KING EDWARD is mailed to VANCOUVER and
+  # MUSQUEAM to SOUTHLANDS. Neither name is the other's, and a match keyed on
+  # MAIL_MUN_NAME alone would find only half of each pair.
+
+  # Writing the CSD name for a street NAR files under another mailing city ...
+  csd <- normalize_address("4003 Musqueam Dr, Vancouver, BC", con = con)
+  expect_equal(csd$parse_source, "gazetteer")
+  expect_equal(csd$STREET_NAME, "MUSQUEAM")
+  # ... and the answer comes back keyed the way NAR keys it, not the way it was
+  # asked, because that is the value a join to Addresses needs.
+  expect_equal(csd$MUN_NAME, "SOUTHLANDS")
+
+  # ... and the reverse: a mailing city that is no CSD, naming a street mailed
+  # to a different city in the same one.
+  mail <- normalize_address("4001 King Edward Ave W, Southlands, BC", con = con)
+  expect_equal(mail$parse_source, "gazetteer")
+  expect_equal(mail$STREET_NAME, "KING EDWARD")
+  expect_equal(mail$MUN_NAME, "VANCOUVER")
+})
+
+test_that("the name as written still outranks the jurisdiction it widens to", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE)
+
+  # Widening to the CSD pulls in MUSQUEAM alongside KING EDWARD. A probe that
+  # names VANCOUVER exactly must not be handed the neighbouring mailing city's
+  # street just because the alias join made it reachable.
+  r <- normalize_address("4001 King Edward Ave W, Vancouver, BC", con = con)
+
+  expect_equal(r$MUN_NAME, "VANCOUVER")
+})
+
+test_that("a comma-delimited unit is lifted before the municipality is chosen", {
+  # The form real filings use constantly: the unit sits in its own segment,
+  # which leaves the last segment as the municipality only if it comes out
+  # first. Each of these read its street name as "<NAME> <unit>" before.
+  r <- normalize_address(c("9320 Boulevard Saint-Laurent, 320, Montreal, QC",
+                           "1980 Sherbrooke Street West, # 500, Montreal, QC",
+                           "7777 Boul Decarie, 5th Floor, Montreal, QC",
+                           "302, 1055 W Georgia St, Vancouver, BC"))
+
+  expect_equal(r$APT_NO_LABEL, c("320", "500", "5TH", "302"))
+  expect_equal(r$STREET_NAME, c("SAINT-LAURENT", "SHERBROOKE", "DECARIE", "GEORGIA"))
+  expect_equal(r$MUN_NAME, c("MONTREAL", "MONTREAL", "MONTREAL", "VANCOUVER"))
+})
+
+test_that("lifting a unit segment never consumes the whole address", {
+  # A unit segment is only ever lifted when something is left to be the
+  # address. "Suite 302" alone is all there is, so it stays put.
+  r <- normalize_address(c("Suite 302", "1055 W Georgia St, Suite 302"))
+
+  expect_true(is.na(r$CIVIC_NO[1]))
+  # ... and with a street present it comes out, leaving no municipality behind
+  # rather than promoting the unit into one.
+  expect_equal(r$APT_NO_LABEL[2], "302")
+  expect_equal(r$STREET_NAME[2], "GEORGIA")
+  expect_true(is.na(r$MUN_NAME[2]))
+})
+
+test_that("a trailing country does not displace the municipality", {
+  # "Canada" takes the last comma segment, which is the slot the municipality
+  # is read from -- so leaving it in place costs the city, not just the noise.
+  r <- normalize_address(c("2805 Cedarwood Dr, Ottawa, ON, Canada",
+                           "1871 13th Ave W, Vancouver, British Columbia, Canada",
+                           "201-676 Richmond St W, Toronto, M6J 1C3, Canada"))
+
+  expect_equal(r$MUN_NAME, c("OTTAWA", "VANCOUVER", "TORONTO"))
+  expect_equal(r$PROV_ABVN, c("ON", "BC", NA))
+  expect_equal(r$STREET_NAME, c("CEDARWOOD", "13TH", "RICHMOND"))
+})
+
+test_that("a leading bare number is the civic number, not a unit", {
+  # The ordinary French form. Only the segment after it separates the two
+  # readings: "845, rue de Vernon" has no other candidate for a civic number,
+  # while "302, 1055 W Georgia St" already has one.
+  r <- normalize_address(c("845, rue de Vernon, Gatineau, QC",
+                           "253, Route 105, Chelsea, QC",
+                           "302, 1055 W Georgia St, Vancouver, BC"))
+
+  expect_equal(r$CIVIC_NO, c(845, 253, 1055))
+  expect_equal(r$APT_NO_LABEL, c(NA, NA, "302"))
+  expect_equal(r$MUN_NAME, c("GATINEAU", "CHELSEA", "VANCOUVER"))
+})
+
+test_that("a numbered rural road keeps its number and takes no street type", {
+  r <- normalize_address(c("385074 Range Road 42, Rocky View County, AB",
+                           "12 Township Road 514, Parkland County, AB",
+                           "1234 Concession 5, Puslinch, ON",
+                           "77 County Rd 21, Prince Edward County, ON",
+                           "45 Bruce Road 3, Kincardine, ON"))
+  expect_equal(r$STREET_NAME, c("RANGE ROAD 42", "TOWNSHIP ROAD 514",
+                                "CONCESSION 5", "COUNTY ROAD 21",
+                                "BRUCE ROAD 3"))
+  expect_true(all(is.na(r$STREET_TYPE)))
+  expect_equal(r$CIVIC_NO, c(385074, 12, 1234, 77, 45))
+  expect_true(all(r$pattern == "numbered_road"))
+})
+
+test_that("a second number in front of a range road belongs to the name", {
+  # NAR really does file 53222 Range Road 272 as one street, whose addresses
+  # carry their own small civic numbers. One number is the civic number; two
+  # means the first is civic and the second is part of the name.
+  r <- normalize_address(c("53222 Range Road 272, Spruce Grove, AB",
+                           "73 53279 Range Road 225, Sherwood Park, AB"))
+  expect_equal(r$CIVIC_NO, c(53222, 73))
+  expect_equal(r$STREET_NAME, c("RANGE ROAD 272", "53279 RANGE ROAD 225"))
+})
+
+test_that("Route is a typeless road in New Brunswick and a street type in Quebec", {
+  # 51,000 NB addresses against 113,827 QC ones, spelled identically. Only the
+  # province tells them apart, so an unknown province keeps the commoner
+  # reading rather than guessing.
+  r <- normalize_address(c("1585 Route 105, Fredericton, NB",
+                           "253, Route 105, Chelsea, QC",
+                           "1585 Route 105"))
+  expect_equal(r$STREET_NAME, c("ROUTE 105", "105", "105"))
+  expect_equal(r$STREET_TYPE, c(NA, "ROUTE", "RTE"))
+})
+
+test_that("a numbered highway is left to the ordinary street-type path", {
+  # NAR stores Highway 7 as name 7, type HWY -- 115,175 rows. Treating it like
+  # a range road would break the commonest numbered road in the country.
+  r <- normalize_address("100 Highway 7, Markham, ON")
+  expect_equal(r$STREET_NAME, "7")
+  expect_equal(r$STREET_TYPE, "HWY")
+})
+
+test_that("the recognizer sorts each address into its most specific bucket", {
+  cases <- c(
+    po_box         = "PO Box 40, Iqaluit, NU X0A 0H0",
+    po_box         = "General Delivery, Whitehorse, YT",
+    rural_route    = "RR 3, Site 4, Comp 5, Kelowna, BC",
+    intersection   = "King St W & Bay St, Toronto, ON",
+    numbered_road  = "53222 Range Road 272, Spruce Grove, AB",
+    grid           = "9819 96A Street NW, Edmonton, AB",
+    numeric_street = "67 West 25th Ave, Vancouver, BC",
+    french_street  = "845, rue de Vernon, Gatineau, QC",
+    unit_civic     = "302-1055 W Georgia St, Vancouver, BC",
+    civic_street   = "100 Queen Street West, Toronto, ON",
+    street_only    = "Musqueam Drive, Vancouver, BC",
+    postal_only    = "V6E 3P3",
+    unparsed       = ""
+  )
+  expect_equal(as.character(address_pattern(cases)), names(cases))
+})
+
+test_that("a street name that opens with a delivery word is not a PO box", {
+  # Box Grove Bypass is a real street in Markham; BOX only marks a post office
+  # box when a number follows it.
+  expect_equal(as.character(address_pattern("Box Grove Bypass, Markham, ON")),
+               "street_only")
+})
+
+test_that("the pattern survives gazetteer resolution", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection()
+  r <- normalize_address("4001 King Edward Ave W, Vancouver, BC", con = con)
+  expect_equal(r$parse_source, "gazetteer")
+  expect_equal(as.character(r$pattern), "civic_street")
+})

@@ -114,7 +114,7 @@ nar_crs_string <- function(crs) {
 #' Databases built by earlier versions still work; see [nar_within_radius()].
 #' @return Integer schema version
 #' @keywords internal
-nar_schema_version <- function() 3L
+nar_schema_version <- function() 5L
 
 #' Read NAR database metadata
 #'

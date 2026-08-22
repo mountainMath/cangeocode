@@ -151,6 +151,90 @@ nar_connection <- function(version="latest", refresh=FALSE) {
     DBI::dbExecute(con, "CREATE INDEX loc_geom_idx ON Locations USING RTREE (geom);")
     DBI::dbExecute(con, "CREATE INDEX loc_loc_guid_idx ON Locations (LOC_GUID);")
 
+    # The street gazetteer that normalize_address() resolves against: one row
+    # per distinct street, which is 374k rows against the address table's 17.4M.
+    # Both name families are carried because neither is complete on its own --
+    # MAIL_STREET_NAME is empty for 957k addresses while OFFICIAL_STREET_NAME is
+    # empty for 95, and where both are present they still differ beyond case for
+    # 530k. A parser that only knew one of them would fail to match the other.
+    #
+    # NAME_FOLD is the join key: accent- and case-insensitive, so a user typing
+    # an accent-free query string reaches the accented stored name. It is
+    # materialized rather than computed per query so the join can use the index.
+    message("Building street gazetteer.")
+    # MUN_KEY is the jurisdictional bucket a street sits in -- the CSD, which is
+    # a statistical boundary drawn from jurisdictional divisions. It is what
+    # candidate streets are restricted to, rather than the mailing city, because
+    # the two do not nest: see MunAlias below.
+    DBI::dbExecute(con, "
+      CREATE TABLE Streets AS
+      SELECT OFFICIAL_STREET_NAME, OFFICIAL_STREET_TYPE, OFFICIAL_STREET_DIR,
+             MAIL_STREET_NAME, MAIL_STREET_TYPE, MAIL_STREET_DIR,
+             MAIL_MUN_NAME, MAIL_PROV_ABVN, PROV_CODE, CSD_ENG_NAME,
+             PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME AS MUN_KEY,
+             strip_accents(upper(OFFICIAL_STREET_NAME)) AS NAME_FOLD,
+             strip_accents(upper(MAIL_STREET_NAME)) AS MAIL_NAME_FOLD,
+             count(*) AS N_ADDRESSES,
+             min(CIVIC_NO) AS MIN_CIVIC_NO,
+             max(CIVIC_NO) AS MAX_CIVIC_NO
+      FROM Addresses
+      GROUP BY ALL;")
+    DBI::dbExecute(con, "CREATE INDEX str_name_idx ON Streets (NAME_FOLD);")
+    DBI::dbExecute(con, "CREATE INDEX str_mail_name_idx ON Streets (MAIL_NAME_FOLD);")
+    DBI::dbExecute(con, "CREATE INDEX str_mun_key_idx ON Streets (MUN_KEY);")
+
+    # Every name a locality answers to, mapped to the buckets it can mean.
+    #
+    # A mailing city and a CSD are different kinds of object and neither
+    # contains the other. One mailing city can span several jurisdictions, one
+    # jurisdiction carries many mailing cities, and amalgamation left legacy
+    # names alive on both sides -- people still write Scarborough, and NAR still
+    # files it that way, while the CSD has been Toronto for decades. Treating
+    # the municipality as a single canonical string therefore loses matches in
+    # both directions, so it is stored as an alias set instead: mailing city,
+    # English CSD name and French CSD name all become lookup keys onto the same
+    # MUN_KEY, and a name that means several buckets simply returns all of them.
+    DBI::dbExecute(con, "
+      CREATE TABLE MunAlias AS
+      SELECT NAME_FOLD, PROV_ABVN, MUN_KEY, sum(n) AS N_ADDRESSES
+      FROM (
+        SELECT strip_accents(upper(MAIL_MUN_NAME)) AS NAME_FOLD,
+               MAIL_PROV_ABVN AS PROV_ABVN,
+               PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME AS MUN_KEY,
+               count(*) AS n
+          FROM Addresses
+         WHERE length(MAIL_MUN_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
+         GROUP BY ALL
+        UNION ALL
+        SELECT strip_accents(upper(CSD_ENG_NAME)), MAIL_PROV_ABVN,
+               PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME, count(*)
+          FROM Addresses
+         WHERE length(CSD_ENG_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
+         GROUP BY ALL
+        UNION ALL
+        SELECT strip_accents(upper(CSD_FRE_NAME)), MAIL_PROV_ABVN,
+               PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME, count(*)
+          FROM Addresses
+         WHERE length(CSD_FRE_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
+         GROUP BY ALL
+      )
+      GROUP BY ALL;")
+    DBI::dbExecute(con, "CREATE INDEX mun_alias_idx ON MunAlias (NAME_FOLD);")
+
+    # Forward-sortation-area to municipality. 10k rows for 1,672 FSAs, and the
+    # median FSA maps to exactly one municipality, so a postal code in the input
+    # pins the municipality even when the string never names it -- which is what
+    # makes a comma-less address resolvable.
+    DBI::dbExecute(con, "
+      CREATE TABLE PostalMun AS
+      SELECT substr(MAIL_POSTAL_CODE, 1, 3) AS FSA,
+             MAIL_MUN_NAME, MAIL_PROV_ABVN,
+             count(*) AS N_ADDRESSES
+      FROM Addresses
+      WHERE length(MAIL_POSTAL_CODE) = 6 AND length(MAIL_MUN_NAME) > 0
+      GROUP BY ALL;")
+    DBI::dbExecute(con, "CREATE INDEX pm_fsa_idx ON PostalMun (FSA);")
+
 
 
     # Checkpoint and fully shut down before reopening read-only: any WAL left
@@ -175,6 +259,9 @@ nar_connection <- function(version="latest", refresh=FALSE) {
   }
 
   con <- DBI::dbConnect(duckdb::duckdb(dbdir=nar_path, read_only = TRUE))
+  # Streets is deliberately not required: it arrived in schema version 4, and a
+  # version 3 database stays perfectly usable, just without gazetteer
+  # resolution in normalize_address().
   missing_tables <- setdiff(c("Addresses", "Locations"), DBI::dbListTables(con))
   if (length(missing_tables)) {
     DBI::dbDisconnect(con, shutdown = TRUE)

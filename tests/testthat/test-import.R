@@ -3,10 +3,13 @@ test_that("import builds the expected tables, indexes and metadata", {
   con <- local_nar_connection(blockface = TRUE)
 
   expect_setequal(DBI::dbListTables(con),
-                  c("Addresses", "Locations", "nar_metadata"))
+                  c("Addresses", "Locations", "Streets", "MunAlias", "PostalMun",
+                    "nar_metadata"))
   expect_setequal(DBI::dbGetQuery(con, "SELECT index_name FROM duckdb_indexes()")$index_name,
-                  c("add_geom_idx", "add_loc_guid_idx", "loc_geom_idx", "loc_loc_guid_idx"))
-  expect_equal(nar_meta_value(con, "schema_version"), "3")
+                  c("add_geom_idx", "add_loc_guid_idx", "loc_geom_idx", "loc_loc_guid_idx",
+                    "str_name_idx", "str_mail_name_idx", "str_mun_key_idx",
+                    "mun_alias_idx", "pm_fsa_idx"))
+  expect_equal(nar_meta_value(con, "schema_version"), "5")
   expect_equal(nar_meta_value(con, "crs"), nar_storage_crs())
   expect_equal(nar_meta_value(con, "lonlat_crs"), nar_lonlat_crs())
   expect_equal(nar_meta_value(con, "version"), "test-01")
