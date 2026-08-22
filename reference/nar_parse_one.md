@@ -1,0 +1,31 @@
+# Parse one normalized address string into its components
+
+Walks the tokens left to right: unit, then civic number and suffix, then
+direction, street type and name. The order matters – the unit has to
+come off before the civic number, or \`302-1055\` reads as a civic
+number of 302 and the real one is lost.
+
+## Usage
+
+``` r
+nar_parse_one(s, lang = "en", prov = NA_character_)
+```
+
+## Arguments
+
+- s:
+
+  A single normalized string, province and postal code already removed
+
+- lang:
+
+  \`"en"\` or \`"fr"\`, deciding the canonical forms
+
+- prov:
+
+  A two-letter province code, or \`NA\`. Only the numbered-road step
+  consults it, and only for the entries that are province-specific.
+
+## Value
+
+A one-row data frame of components

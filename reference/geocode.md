@@ -1,0 +1,223 @@
+# Geocode Canadian addresses to coordinates
+
+Parses each address with \[normalize_address()\] and resolves the
+result, returning one row per input in input order. \`method\` names the
+tiers to try and the order to try them in; the column \`match_method\`
+records which one answered:
+
+\* \*\*\`nar_building\`\*\* – the civic number is in NAR and carries its
+own building representative point. This is the exact match. \*
+\*\*\`nar_blockface\`\*\* – the civic number is in NAR but has only a
+blockface point, the centroid of one side of a street between two
+intersections. \* \*\*\`nar_no_geometry\`\*\* – the civic number is in
+NAR and \`ADDR_GUID\` names the record, but NAR holds no coordinates for
+it and none could be interpolated. 65k addresses are in this state. It
+is a different answer from \`none\`, which means the address was not
+found at all. \* \*\*\`nar_interpolated\`\*\* – the civic number is
+\*not\* in NAR, so the position is interpolated between the nearest
+known civic numbers of the same parity on either side of it. See the
+section below. \* \*\*\`bc_site\`\*\*, \*\*\`bc_civic\`\*\*,
+\*\*\`bc_block\`\*\*, \*\*\`bc_street\`\*\*, \*\*\`bc_locality\`\*\* –
+answered by the \`bc\` tier. See \[bc_geocode()\]. \* \*\*\`none\`\*\* –
+nothing resolved.
+
+## Usage
+
+``` r
+geocode(
+  x,
+  prov = NULL,
+  mun = NULL,
+  within = NULL,
+  method = c("nar", "nar_interpolate"),
+  geometry = FALSE,
+  crs = 4326,
+  version = "latest",
+  con = NULL,
+  ...
+)
+```
+
+## Arguments
+
+- x:
+
+  A character vector of address strings, or a data frame of already
+  parsed components as returned by \[normalize_address()\]. Passing the
+  data frame lets you parse once and geocode repeatedly, or edit a parse
+  before resolving it.
+
+- prov:
+
+  Province code(s) to constrain the search to, length 1 or
+  \`length(x)\`. \*\*Authoritative\*\*: it overrides whatever the
+  address string said, and is also passed to \[normalize_address()\],
+  where knowing the province additionally disambiguates the parse.
+
+- mun:
+
+  Municipality name(s) to constrain the search to, length 1 or
+  \`length(x)\`. \*\*Authoritative\*\*, overriding the string. Resolved
+  through NAR's alias set rather than matched against the mailing city,
+  so \`"Toronto"\` reaches the addresses NAR files under
+  \`SCARBOROUGH\`, and a name that denotes several jurisdictions means
+  all of them. Combine with \`prov\` when a name is used in more than
+  one province.
+
+- within:
+
+  A spatial restriction: an \`sf\`/\`sfc\` object, an \`st_bbox\`, or a
+  length-4 numeric \`c(xmin, ymin, xmax, ymax)\`, interpreted in \`crs\`
+  unless it carries its own. \*\*Authoritative\*\*, and applied to every
+  tier.
+
+- method:
+
+  Tiers to try, in priority order: any of \`"nar"\`,
+  \`"nar_interpolate"\` and \`"bc"\`. Default \`c("nar",
+  "nar_interpolate")\`, which is the offline pair. See the section
+  below.
+
+- geometry:
+
+  Whether to return an \`sf\` object with POINT geometry. Unmatched rows
+  get an empty point. Default \`FALSE\`, which returns \`lon\` and
+  \`lat\` columns instead.
+
+- crs:
+
+  CRS for the returned coordinates, default EPSG:4326.
+
+- version:
+
+  NAR version to query, passed to \[nar_connection()\]. Ignored when
+  \`con\` is supplied.
+
+- con:
+
+  An open NAR connection to reuse. The caller keeps ownership: a
+  connection passed in here is left open, while one opened internally is
+  closed again before returning.
+
+- ...:
+
+  Passed to \[bc_geocode()\] when \`method\` includes \`"bc"\`, which is
+  where \`min_score\`, \`api_key\` and \`rate\` go. Otherwise unused.
+
+## Value
+
+A data frame with one row per input, carrying every column
+\[normalize_address()\] returns plus \`ADDR_GUID\`, \`match_method\`,
+\`uncertainty_m\`, \`n_matches\`, and either \`lon\`/\`lat\` or an
+\`sf\` geometry column.
+
+## Choosing the tiers
+
+\`method\` is a vector of tier names in priority order. Each tier is
+offered only the rows its predecessors left without a position, so the
+order is what decides which answer wins:
+
+\* \*\*\`"nar"\`\*\* – look the civic number up in NAR directly. Answers
+\`nar_building\`, \`nar_blockface\` or \`nar_no_geometry\`. \*
+\*\*\`"nar_interpolate"\`\*\* – place a civic number NAR does not carry
+between its known neighbours. Answers \`nar_interpolated\`. \*
+\*\*\`"bc"\`\*\* – ask the Province of BC's \[Address
+Geocoder\]\[bc_geocode()\]. British Columbia only, and \*\*this makes
+one network request per unplaced BC row\*\*; nothing contacts it unless
+the tier is named. The constraints are honoured: what is sent is rebuilt
+from the components after any \`prov\`/\`mun\` override, and a point
+outside \`within\` is discarded rather than returned.
+
+The default \`c("nar", "nar_interpolate")\` is offline and prefers a
+real NAR record over an interpolated one. \`method = "nar"\` keeps only
+the addresses NAR actually carries. \`c("nar", "nar_interpolate",
+"bc")\` adds the BC service as a last resort, and \`c("bc", "nar")\`
+prefers it over NAR wherever it answers.
+
+A row NAR holds without coordinates (\`nar_no_geometry\`) is passed on
+to the next tier: knowing the address exists is worth reporting, but it
+is not worth withholding a position a later tier can supply, and the
+\`ADDR_GUID\` found survives whichever tier ends up placing the row.
+Note that the reverse costs something – a tier that never runs for a row
+reports nothing about it, so putting \`"nar"\` last means interpolated
+rows carry no \`ADDR_GUID\`.
+
+## Interpolation
+
+Only civics of the \*\*same parity\*\* are used, because odd and even
+numbers sit on opposite sides of the street and pooling them is markedly
+worse: measured by leave-one-out over all 10.6M distinct NAR civic
+points, same-side interpolation has a median error of 4.2 m against 35.2
+m for both sides pooled, and beats simply taking the nearest known civic
+(16.9 m).
+
+\*\*Extrapolation is refused.\*\* A civic number past the last known one
+on its side has no second point to interpolate against, and guessing
+from the run's spacing is close to worthless – median error 15.1 m but a
+90th percentile of 237 m, barely better than the nearest neighbour it
+would displace. Those rows fall through to the next tier rather than
+carrying a number that looks like the others. 7.3
+
+## Constraining the search
+
+\`prov\`, \`mun\` and \`within\` are assertions about where the address
+is, not hints. Each overrides whatever the string itself claimed – a row
+geocoded with \`prov = "BC"\` comes back with \`PROV_ABVN\` reading
+\`BC\` no matter what was written – and they compose, so \`prov\` plus
+\`mun\` is the province-and-postal-city case and either can be combined
+with a polygon.
+
+They earn their keep twice over. They resolve the ambiguity that
+\`n_matches\` otherwise only reports, since a bare \`100 Main St\` means
+something definite once the municipality is fixed. And \`within\` is
+close to free: the bounding box is compared against the stored
+\`x\`/\`y\` columns, which DuckDB prunes with per-row-group zonemaps
+rather than scanning – the same mechanism that makes
+\[reverse_geocode()\] fast.
+
+## Uncertainty
+
+\`uncertainty_m\` estimates the \*\*90th-percentile positional error
+this package's method introduces, relative to NAR's own building
+point.\*\* It is 0 for \`nar_building\`, 176 for \`nar_blockface\`, and
+half the distance between the two flanking civics for
+\`nar_interpolated\`.
+
+That last figure is measured, and it holds across scales: the ratio of
+error to flanking span has a 90th percentile of 0.50 in every span
+bucket from under 50 m to over 2 km (0.496–0.522). So a 40 m gap between
+neighbours gives 20 m and a 3 km gap gives 1.5 km, and filtering on
+\`uncertainty_m\` is the way to drop the interpolations that are too
+coarse to use.
+
+\*\*NAR's own error is not included and is not estimated.\*\* The User
+Guide warns that a building point "may not correspond exactly to the
+physical center of the building structure itself" – it can be the road
+access point or the driveway – and that offset is neither published nor
+consistent, so \`uncertainty_m = 0\` means "this package added nothing",
+not "this point is exact".
+
+\`n_matches\` counts the distinct NAR points that satisfied the query.
+Anything above 1 means the address was ambiguous – most often a street
+name the input did not pin to a municipality – and \`uncertainty_m\` is
+then widened to the distance from the point returned to the furthest
+rejected candidate.
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+geocode("1055 W Georgia St, Vancouver BC")
+
+# Only addresses NAR actually carries -- nothing interpolated.
+geocode(addresses, method = "nar")
+
+# Add the BC service as a last resort. Makes network requests.
+geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
+
+# Parse once, resolve many times, and keep only the precise matches.
+parsed <- normalize_address(addresses)
+g <- geocode(parsed, geometry = TRUE)
+g[g$uncertainty_m <= 25, ]
+} # }
+```

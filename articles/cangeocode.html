@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">cangeocode</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -34,9 +34,18 @@
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
   <ul class="dropdown-menu" aria-labelledby="dropdown-articles">
-<li><a class="dropdown-item" href="../articles/querying-nar.html">Querying the NAR database directly</a></li>
+<li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header" data-toc-skip>Geocoding</h6></li>
+    <li><a class="dropdown-item" href="../articles/geocoding.html">Geocoding addresses</a></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header" data-toc-skip>Address normalization</h6></li>
+    <li><a class="dropdown-item" href="../articles/address-normalization.html">Normalizing address strings</a></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header" data-toc-skip>The database</h6></li>
+    <li><a class="dropdown-item" href="../articles/querying-nar.html">Querying the NAR database directly</a></li>
   </ul>
 </li>
+<li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul>
 <ul class="navbar-nav">
 <li class="nav-item"><form class="form-inline" role="search">
@@ -306,6 +315,11 @@ keeping two releases around costs two databases’ worth of disk.
 <div class="section level2">
 <h2 id="where-to-go-next">Where to go next<a class="anchor" aria-label="anchor" href="#where-to-go-next"></a>
 </h2>
+<p><code><a href="../articles/geocoding.html">vignette("geocoding")</a></code> covers the other direction —
+<code><a href="../reference/geocode.html">geocode()</a></code>, which turns an address string into a coordinate
+and reports how it was found and what that cost, along with the address
+parser behind it and the independent BC geocoder you can check a result
+against.</p>
 <p><code><a href="../articles/querying-nar.html">vignette("querying-nar")</a></code> covers using the database
 directly — filtering the full address table with dplyr, joining to
 <code>Locations</code> for federal riding and economic region names, and

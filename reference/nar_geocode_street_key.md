@@ -1,0 +1,28 @@
+# The street key both geocoding tiers join on
+
+Shared so the two tiers cannot drift apart – an interpolation that
+selected its flanking civics from a different street than the exact tier
+searched would be a silent, invisible error.
+
+Both NAR name families are matched, as the gazetteer does, because
+neither is complete on its own. Every other component only ever
+constrains when the input supplied it: a string that never named a
+municipality is resolved against the whole province rather than being
+refused, and the ambiguity that invites is reported through
+\`n_matches\` instead.
+
+Periods come off both sides of the municipality comparison. NAR files
+ST. JOHN'S, SAULT STE. MARIE and ST. ALBERT with them while
+\`nar_norm_text()\` strips them from input, so without this those cities
+never match.
+
+## Usage
+
+``` r
+nar_geocode_street_key(name_col, bounds = "")
+```
+
+## Value
+
+A SQL fragment, with the probe aliased \`p\` and \`Addresses\` aliased
+\`a\`

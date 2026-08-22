@@ -3,13 +3,23 @@
 database. Version 2 added the `x`/`y` coordinate columns that make radius
 queries fast, and corrected the datum used to read NAR's lon/lat columns.
 Version 3 fell back to the blockface centroid for addresses with no building
-point and added `geom_source` to tell the two apart.
-Databases built by earlier versions still work; see [nar_within_radius()]."><meta property="og:description" content="Bumped when the import produces a materially different
+point and added `geom_source` to tell the two apart. Version 4 added the
+`Streets` gazetteer that [normalize_address()] resolves against, and version
+5 the `MunAlias` and `PostalMun` tables that let a municipality be reached by
+any of its names, or by postal code alone.
+Databases built by earlier versions still work, with the features that need
+the newer tables degrading rather than failing; see [nar_within_radius()]
+and [nar_has_streets()]."><meta property="og:description" content="Bumped when the import produces a materially different
 database. Version 2 added the `x`/`y` coordinate columns that make radius
 queries fast, and corrected the datum used to read NAR's lon/lat columns.
 Version 3 fell back to the blockface centroid for addresses with no building
-point and added `geom_source` to tell the two apart.
-Databases built by earlier versions still work; see [nar_within_radius()]."></head><body>
+point and added `geom_source` to tell the two apart. Version 4 added the
+`Streets` gazetteer that [normalize_address()] resolves against, and version
+5 the `MunAlias` and `PostalMun` tables that let a municipality be reached by
+any of its names, or by postal code alone.
+Databases built by earlier versions still work, with the features that need
+the newer tables degrading rather than failing; see [nar_within_radius()]
+and [nar_has_streets()]."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -17,7 +27,7 @@ Databases built by earlier versions still work; see [nar_within_radius()]."></he
 
     <a class="navbar-brand me-2" href="../index.html">cangeocode</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.1.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -29,8 +39,17 @@ Databases built by earlier versions still work; see [nar_within_radius()]."></he
 <li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item dropdown">
   <button class="nav-link dropdown-toggle" type="button" id="dropdown-articles" data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true">Articles</button>
-  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><a class="dropdown-item" href="../articles/querying-nar.html">Querying the NAR database directly</a></li>
+  <ul class="dropdown-menu" aria-labelledby="dropdown-articles"><li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header" data-toc-skip>Geocoding</h6></li>
+    <li><a class="dropdown-item" href="../articles/geocoding.html">Geocoding addresses</a></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header" data-toc-skip>Address normalization</h6></li>
+    <li><a class="dropdown-item" href="../articles/address-normalization.html">Normalizing address strings</a></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header" data-toc-skip>The database</h6></li>
+    <li><a class="dropdown-item" href="../articles/querying-nar.html">Querying the NAR database directly</a></li>
   </ul></li>
+<li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
  <input class="form-control" type="search" name="search-input" id="search-input" autocomplete="off" aria-label="Search site" placeholder="Search for" data-search-index="../search.json"></form></li>
 <li class="nav-item"><a class="external-link nav-link" href="https://github.com/mountainMath/cangeocode/" aria-label="GitHub"><span class="fa fab fa-github fa-lg"></span></a></li>
@@ -52,8 +71,13 @@ Databases built by earlier versions still work; see [nar_within_radius()]."></he
 database. Version 2 added the `x`/`y` coordinate columns that make radius
 queries fast, and corrected the datum used to read NAR's lon/lat columns.
 Version 3 fell back to the blockface centroid for addresses with no building
-point and added `geom_source` to tell the two apart.
-Databases built by earlier versions still work; see [nar_within_radius()].</p>
+point and added `geom_source` to tell the two apart. Version 4 added the
+`Streets` gazetteer that [normalize_address()] resolves against, and version
+5 the `MunAlias` and `PostalMun` tables that let a municipality be reached by
+any of its names, or by postal code alone.
+Databases built by earlier versions still work, with the features that need
+the newer tables degrading rather than failing; see [nar_within_radius()]
+and [nar_has_streets()].</p>
     </div>
 
     <div class="section level2">

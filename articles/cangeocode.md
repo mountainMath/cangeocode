@@ -290,6 +290,13 @@ DBI::dbDisconnect(con)
 
 ## Where to go next
 
+[`vignette("geocoding")`](https://mountainmath.github.io/cangeocode/articles/geocoding.md)
+covers the other direction —
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md),
+which turns an address string into a coordinate and reports how it was
+found and what that cost, along with the address parser behind it and
+the independent BC geocoder you can check a result against.
+
 [`vignette("querying-nar")`](https://mountainmath.github.io/cangeocode/articles/querying-nar.md)
 covers using the database directly — filtering the full address table
 with dplyr, joining to `Locations` for federal riding and economic

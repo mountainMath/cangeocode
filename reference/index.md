@@ -1,5 +1,40 @@
 # Package index
 
+## Geocoding
+
+Resolve free-text Canadian addresses to coordinates, interpolating the
+civic numbers NAR does not carry.
+
+- [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+  : Geocode Canadian addresses to coordinates
+
+## Address normalization
+
+Parse free-text Canadian addresses into the components NAR is keyed on,
+sort them by the shape they parsed as, and put them back together as a
+match key or a readable line. Useful on its own for matching and
+deduplicating address lists, not only as a step towards a coordinate.
+
+- [`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+  : Normalize Canadian address strings into NAR components
+- [`address_pattern()`](https://mountainmath.github.io/cangeocode/reference/address_pattern.md)
+  : Sort Canadian address strings into structural buckets
+- [`address_key()`](https://mountainmath.github.io/cangeocode/reference/address_key.md)
+  : Build a match key from parsed address components
+- [`format_address()`](https://mountainmath.github.io/cangeocode/reference/format_address.md)
+  : Render parsed address components back into one line
+
+## External geocoders
+
+The Province of British Columbia’s Address Geocoder, as a fallback for
+BC addresses NAR cannot place and as an independent source to validate
+against. Makes network requests.
+
+- [`bc_geocode()`](https://mountainmath.github.io/cangeocode/reference/bc_geocode.md)
+  : Geocode British Columbia addresses with the BC Address Geocoder
+- [`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md)
+  : Check NAR geocoding results against the BC Address Geocoder
+
 ## Reverse geocoding
 
 Find the addresses nearest a coordinate.

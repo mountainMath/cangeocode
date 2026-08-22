@@ -1,0 +1,432 @@
+# Geocoding addresses
+
+Forward geocoding — an address string in, a coordinate out — is
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md).
+It parses each string with
+[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md),
+resolves the result against NAR, and hands back one row per input in
+input order, saying for each one **how** it was found and **what that
+cost**.
+
+This vignette covers the whole path: the basic call, reading the columns
+that qualify every result, choosing which methods to try, constraining
+the search, and checking an answer against an independent source. The
+parsing step has a vignette of its own —
+[`vignette("address-normalization")`](https://mountainmath.github.io/cangeocode/articles/address-normalization.md)
+— since normalizing addresses is useful whether or not a coordinate
+comes out at the end.
+
+``` r
+
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+Passing `con` is optional — every entry point opens its own connection
+if you do not — but reusing one across several calls saves reopening a 5
+GB database each time.
+
+## The basic call
+
+The eight addresses below are deliberately awkward: a unit, a lowercased
+province spelled out, a French street, a prairie range road, a New
+Brunswick route, a typo, and a post office box.
+
+``` r
+
+addresses <- c(
+  "1055 W Georgia St, Vancouver BC",
+  "302-1055 west georgia street, vancouver, british columbia",
+  "100 Queen St W, Toronto, ON M5H 2N2",
+  "845, rue de Vernon, Gatineau, QC",
+  "34221 Range Road 272, Red Deer County, AB",
+  "5491 Route 11, Brantville, NB",
+  "29 HPCKING AVE, SAULT STE. MARIE, ON",
+  "PO Box 40, Iqaluit, NU"
+)
+
+g <- geocode(addresses, con = con)
+
+g |>
+  mutate(input = substr(input, 1, 38),
+         uncertainty_m = round(uncertainty_m, 1)) |>
+  select(input, match_method, uncertainty_m, lon, lat)
+#>                                    input     match_method uncertainty_m        lon      lat
+#> 1        1055 W Georgia St, Vancouver BC     nar_building           0.0 -123.12141 49.28529
+#> 2 302-1055 west georgia street, vancouve     nar_building           0.0 -123.12141 49.28529
+#> 3    100 Queen St W, Toronto, ON M5H 2N2     nar_building           0.0  -79.38250 43.65150
+#> 4       845, rue de Vernon, Gatineau, QC     nar_building           0.0  -75.81013 45.45202
+#> 5 34221 Range Road 272, Red Deer County,     nar_building           0.0 -113.73504 51.91683
+#> 6          5491 Route 11, Brantville, NB nar_interpolated          83.9  -64.94581 47.40144
+#> 7   29 HPCKING AVE, SAULT STE. MARIE, ON     nar_building           0.0  -84.36311 46.53467
+#> 8                 PO Box 40, Iqaluit, NU             none            NA         NA       NA
+```
+
+Seven of the eight resolved, and the one that did not is the one that
+never could: NAR is a list of civic addresses and holds no post office
+boxes at all.
+
+Several of these took work that is worth noticing. `HPCKING` is not a
+street — the gazetteer matched it against the streets NAR actually has
+in Sault Ste. Marie and returned `Hocking`. `west georgia street` and
+`W Georgia St` both landed on the same canonical street.
+`Range Road 272` survived intact instead of being read as a street
+called `Range` of type `RD`. And the Gatineau address kept its type in
+front of the name, where French puts it.
+
+Batch rather than loop. The street-name join is a scan whose cost every
+row in a call shares — about 0.05 s for a 5-row probe and 0.08 s for a
+200-row one — so one call with a thousand addresses is worlds away from
+a thousand calls.
+
+## Every result says how it was found
+
+`match_method` is the column to read before anything else.
+
+| value | meaning |
+|----|----|
+| `nar_building` | the civic number is in NAR with its own building point |
+| `nar_blockface` | in NAR, but only a blockface centroid is available |
+| `nar_interpolated` | not in NAR; placed between the flanking civic numbers |
+| `nar_no_geometry` | in NAR — `ADDR_GUID` names the record — but unplaceable |
+| `none` | not found |
+
+`uncertainty_m` prices each of those: it is the **90th-percentile error
+this package adds relative to NAR’s own building point**. Zero for an
+exact match, 176 m for a blockface one (the measured p90
+building-to-blockface separation), and half the flanking span for an
+interpolated one.
+
+That last figure is not a guess either. The ratio of interpolation error
+to flanking span is scale-invariant — its 90th percentile is 0.50 in
+every span bucket from under 50 m to over 2 km — so half the span is the
+p90 error whatever the scale. Which means `uncertainty_m` is a real
+filter:
+
+``` r
+
+g |>
+  filter(match_method != "none", uncertainty_m <= 50) |>
+  nrow()
+#> [1] 6
+```
+
+**What it does not include is NAR’s own error.** The StatCan user guide
+allows a building representative point to be the road access point or
+the driveway, and publishes no accuracy figure, so `uncertainty_m = 0`
+means “this package added nothing”, not “this point is exact”.
+
+The third qualifier is `n_matches`, the number of distinct points that
+satisfied the query. Anything above 1 means the address was ambiguous —
+most often a street name that was never pinned to a municipality — and
+`uncertainty_m` widens to the distance out to the furthest rejected
+candidate.
+
+``` r
+
+geocode(c("100 Main St", "100 Main St, Moncton, NB"), con = con) |>
+  select(input, match_method, n_matches, uncertainty_m)
+#>                      input match_method n_matches uncertainty_m
+#> 1              100 Main St nar_building       139       4043776
+#> 2 100 Main St, Moncton, NB nar_building         1             0
+```
+
+The first row is an exact `nar_building` match and still worthless:
+there are 139 of them and the uncertainty is four thousand kilometres,
+which is the width of the country. `match_method` describes the
+*quality* of the match, not whether it was the one you meant — read
+`n_matches` alongside it, or fix the question with the constraints
+below.
+
+## Choosing the methods
+
+`method` names the tiers to try and the order to try them in. Each tier
+is offered only the rows the ones before it left without a position, so
+the order *is* the priority.
+
+``` r
+
+addr <- "9999 Jasper Ave, Edmonton, AB"
+
+geocode(addr, method = "nar", con = con)$match_method
+#> [1] "none"
+geocode(addr, method = c("nar", "nar_interpolate"), con = con)$match_method
+#> [1] "nar_interpolated"
+```
+
+`"nar"` alone keeps only the addresses NAR actually carries, which is
+the right choice when a false position is worse than no position. The
+default pair adds interpolation, and on a 5,000-address sample of real
+Corporations Canada registered offices that lifts coverage from 84.9% to
+89.1%.
+
+Interpolation is deliberately conservative. It uses the **same side of
+the street only** — pooling both sides costs a median 35.2 m against 4.2
+m — and it **refuses to extrapolate** past the last known civic number
+on a side rather than continuing the run’s spacing, which scores a
+respectable 15.1 m median but a 237 m 90th percentile. Those rows come
+back `none`.
+
+There is a third tier, `"bc"`, further down.
+
+## Constraining the search
+
+`prov`, `mun` and `within` are assertions about where the address is,
+not hints. They override whatever the string said, and the override
+lands on the returned row too.
+
+``` r
+
+geocode("100 Queen St W, Vancouver, BC", prov = "ON", mun = "Toronto",
+        con = con) |>
+  select(input, PROV_ABVN, MUN_NAME, match_method, lon, lat)
+#>                           input PROV_ABVN MUN_NAME match_method      lon     lat
+#> 1 100 Queen St W, Vancouver, BC        ON  Toronto nar_building -79.3825 43.6515
+```
+
+The string names Vancouver; the arguments say Toronto, Ontario; the
+search runs in Toronto and the row reports Toronto. A result that
+reported a municipality different from the one it was constrained to
+would misdescribe what was actually searched.
+
+`mun` resolves through NAR’s alias set rather than matching the mailing
+city directly, which matters more than it sounds: NAR files a great many
+Toronto addresses under `SCARBOROUGH`, `ETOBICOKE` and `NORTH YORK`, and
+a direct comparison would drop every one of them.
+
+`within` takes an `sf` polygon, an `st_bbox`, or a bare
+`c(xmin, ymin, xmax, ymax)`, and is close to free — the bounding box is
+compared against stored coordinate columns that DuckDB prunes with
+per-row-group zonemaps rather than scanning.
+
+``` r
+
+downtown <- c(-123.13, 49.28, -123.11, 49.29)
+
+geocode(c("1055 W Georgia St, Vancouver, BC",
+          "4001 W King Edward Ave, Vancouver, BC"),
+        within = downtown, con = con) |>
+  select(input, match_method)
+#>                                   input match_method
+#> 1      1055 W Georgia St, Vancouver, BC nar_building
+#> 2 4001 W King Edward Ave, Vancouver, BC         none
+```
+
+Both addresses exist; only one is downtown.
+
+## Working with the parse
+
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+returns every column
+[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+produced alongside the result, so the parse is always there to inspect
+when a row surprises you.
+
+``` r
+
+g |>
+  select(CIVIC_NO, STREET_NAME, STREET_TYPE, STREET_DIR, MUN_NAME, PROV_ABVN,
+         pattern, parse_source)
+#>   CIVIC_NO    STREET_NAME STREET_TYPE STREET_DIR         MUN_NAME PROV_ABVN       pattern
+#> 1     1055        Georgia          ST          W        VANCOUVER        BC  civic_street
+#> 2     1055        Georgia          ST          W        VANCOUVER        BC    unit_civic
+#> 3      100          Queen          ST          W          TORONTO        ON  civic_street
+#> 4      845      de Vernon         RUE       <NA>         GATINEAU        QC french_street
+#> 5    34221 Range Road 272        <NA>       <NA>  RED DEER COUNTY        AB numbered_road
+#> 6     5491       Route 11        <NA>       <NA>       BRANTVILLE        NB numbered_road
+#> 7       29        Hocking         AVE       <NA> SAULT STE. MARIE        ON  civic_street
+#> 8       NA      PO BOX 40        <NA>       <NA>          IQALUIT        NU        po_box
+#>   parse_source
+#> 1    gazetteer
+#> 2    gazetteer
+#> 3    gazetteer
+#> 4    gazetteer
+#> 5    gazetteer
+#> 6    gazetteer
+#> 7    gazetteer
+#> 8        rules
+```
+
+`parse_source` says whether the row cleared NAR’s street gazetteer or
+fell back to the rules alone, `confidence` carries the gazetteer’s score
+where it applies, and `pattern` is the structural shape the string
+parsed as. A `none` result is very often a parse worth reading rather
+than a missing address — note row 8 above, where `po_box` says the input
+was never going to resolve, because NAR holds no post office boxes.
+
+You can also parse once and geocode repeatedly, which is useful when you
+want to correct a parse before resolving it, or to try the same
+addresses under different constraints without paying for the parse each
+time.
+
+``` r
+
+norm <- normalize_address("29 HPCKING AVE, SAULT STE. MARIE, ON", con = con)
+norm$STREET_NAME
+#> [1] "Hocking"
+
+geocode(norm, con = con)$match_method
+#> [1] "nar_building"
+```
+
+Normalization is a task in its own right, and
+[`vignette("address-normalization")`](https://mountainmath.github.io/cangeocode/articles/address-normalization.md)
+covers it properly: what the gazetteer fixes, why canonical forms depend
+on the province, using
+[`address_pattern()`](https://mountainmath.github.io/cangeocode/reference/address_pattern.md)
+to separate addresses that are wrong from addresses that were never
+going to resolve, and matching two lists of addresses to each other
+without geocoding anything.
+
+## Geometry
+
+`geometry = TRUE` returns an `sf` object instead of `lon`/`lat` columns,
+with an empty point for the rows that did not resolve. `crs` picks the
+CRS — EPSG:4326 by default, or `NULL` to keep NAR’s own projected
+storage CRS, in which case distances come out in metres.
+
+``` r
+
+pts <- geocode(addresses[1:4], geometry = TRUE, con = con)
+
+sf::st_geometry(pts)
+#> Geometry set for 4 features 
+#> Geometry type: POINT
+#> Dimension:     XY
+#> Bounding box:  xmin: -123.1214 ymin: 43.6515 xmax: -75.81013 ymax: 49.28529
+#> Geodetic CRS:  WGS 84
+#> POINT (-123.1214 49.28529)
+#> POINT (-123.1214 49.28529)
+#> POINT (-79.3825 43.6515)
+#> POINT (-75.81013 45.45202)
+```
+
+## Checking an answer
+
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+runs the other direction, which makes it a cheap sanity check on a
+coordinate you just derived.
+
+``` r
+
+geocode("100 Queen St W, Toronto, ON", geometry = TRUE, con = con) |>
+  reverse_geocode(match_radius = 50, con = con) |>
+  select(address, dist) |>
+  head(3)
+#> # A tibble: 3 × 2
+#>   address                            dist
+#>   <chr>                             <dbl>
+#> 1 100 W QUEEN ST, TORONTO M5H2N1      0  
+#> 2 10-100 W QUEEN ST, TORONTO M5H2N2   0  
+#> 3 700-65 W QUEEN ST, TORONTO M5H2M5  32.1
+```
+
+For British Columbia there is a stronger check available: the Province
+of BC publishes its own [Address
+Geocoder](https://geocoder.api.gov.bc.ca/), which is an entirely
+independent source of position.
+[`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md)
+geocodes a result again through that service and reports the distance
+between the two answers.
+
+**This is the one path in the package that sends an address off your
+machine**, and nothing reaches it unless you call one of these
+functions.
+
+``` r
+
+bc <- geocode(c("525 Superior St, Victoria, BC",
+                "800 Robson St, Vancouver, BC",
+                "3800 Finnerty Rd, Victoria, BC"), con = con)
+
+bc_validate(bc) |>
+  mutate(bc_dist_m = round(bc_dist_m, 1)) |>
+  select(input, match_method, bc_match_method, bc_score, bc_dist_m)
+#>                            input     match_method bc_match_method bc_score bc_dist_m
+#> 1  525 Superior St, Victoria, BC     nar_building        bc_civic      100       6.9
+#> 2   800 Robson St, Vancouver, BC nar_interpolated        bc_civic      100     104.1
+#> 3 3800 Finnerty Rd, Victoria, BC     nar_building        bc_civic       96     492.8
+```
+
+Read the distances as **disagreement, not error**. The two sources
+define their points differently — NAR’s may be the driveway, BC’s is a
+parcel point — so a gap contains both sources’ error plus that
+definitional difference. Over 250 BC addresses the median disagreement
+on the `nar_building` tier is about 20 m, which is the number to keep in
+mind when reading a `uncertainty_m` of 0. The third row above is the
+University of Victoria, where “the address” is a kilometre-wide campus
+and the two services have picked different sensible points on it — a
+large disagreement that is nobody’s mistake.
+
+The same service can also be used as a *tier*, for the BC addresses NAR
+cannot place at all:
+
+``` r
+
+hard <- c("2912 West Broadway, Vancouver, BC",
+          "33695 South Fraser Way, Abbotsford, BC",
+          "7165 Nakiska Dr, Vernon, BC")
+
+geocode(hard, con = con)$match_method
+#> [1] "none" "none" "none"
+
+geocode(hard, method = c("nar", "nar_interpolate", "bc"), con = con) |>
+  select(input, match_method, uncertainty_m)
+#>                                    input match_method uncertainty_m
+#> 1      2912 West Broadway, Vancouver, BC     bc_civic            20
+#> 2 33695 South Fraser Way, Abbotsford, BC     bc_block           100
+#> 3            7165 Nakiska Dr, Vernon, BC     bc_civic            20
+```
+
+On a sample of 600 BC addresses that NAR’s own pathway placed 524 of,
+the tier resolved 75 of the remaining 76 — 31 of them at address level,
+the rest to a block or a street.
+
+A response from that service is not by itself a match, because **it
+always answers**. Ask it for an address that does not exist and it
+returns the centre of the nearest town, not an error:
+
+``` r
+
+bc_geocode("1234 Nonexistentzzz Rd, Victoria, BC") |>
+  select(match_method, bc_score, bc_precision, bc_address)
+#>   match_method bc_score bc_precision   bc_address
+#> 1         none       48     LOCALITY Victoria, BC
+```
+
+Two independent floors apply: the service’s own precision vocabulary has
+to name a usable match, and `bc_score` has to clear `min_score`, which
+defaults to 60. Here it is the score that rejects it — a `LOCALITY`
+answer is a legitimate result when the service is confident, it is just
+not an address. Either way a rejected row keeps its score and its
+`bc_faults`, so what was thrown away stays readable rather than
+vanishing. See
+[`?bc_geocode`](https://mountainmath.github.io/cangeocode/reference/bc_geocode.md).
+
+``` r
+
+DBI::dbDisconnect(con)
+```
+
+## Where this falls short
+
+Measured on 5,000 Corporations Canada registered offices,
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+places 89.1% with the default methods. The 10.8% that does not resolve
+breaks down roughly as: 3.7% whose street is not in NAR anywhere in the
+province, 3.8% where the street exists but the civic number could not be
+reached even by interpolation, 1.4% that never parsed, and a remainder
+where the street exists under a municipality that did not match. The
+ceiling for a NAR-only pathway is therefore around 93%.
+
+Two notes ship with the package and carry the measurements behind every
+figure quoted here, along with what is not built yet:
+
+``` r
+
+file.show(system.file("notes", "geocoding-status.md", package = "cangeocode"))
+file.show(system.file("notes", "address-normalization-status.md",
+                      package = "cangeocode"))
+```
