@@ -13,11 +13,14 @@ future sources but are not implemented yet.
 Public API (see `NAMESPACE`): `nar_connection()`, `available_nar_versions()`, `collect_nar()`,
 `reverse_geocode()`, `normalize_address()`, `address_pattern()`.
 
-This file records **why the code is shaped the way it is**. Its companion,
-**[`address-normalization-status.md`](address-normalization-status.md)**, records **where address
-normalization currently falls short** — the measured failure modes, the things tried and rejected,
-and the ranked next steps. Read it before changing the parser or the gazetteer, and re-run the eval
-harness (instructions are in that file) before and after any such change.
+This file records **why the code is shaped the way it is**, and it is the only document in
+`.claude/`. Longer-form notes live in **`inst/notes/`** and ship with the package:
+
+- **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
+  — where address normalization currently falls short: the measured failure modes, the things
+  tried and rejected, and the ranked next steps. Read it before changing the parser or the
+  gazetteer, and re-run the eval harness (instructions are in that file) before and after any
+  such change.
 
 ## Commands
 
@@ -286,7 +289,7 @@ of failing deep inside dbplyr.
 ### Address normalization: numbered rural roads and the pattern recognizer
 
 > Known failure modes, the eval harness, and what to fix next live in
-> [`address-normalization-status.md`](address-normalization-status.md).
+> [`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md).
 
 `R/normalize_address.R` has a `nar_take_numbered_road()` step, hooked in **after the civic number
 and before the direction/type steps**, that handles the roads NAR files with *no street type at

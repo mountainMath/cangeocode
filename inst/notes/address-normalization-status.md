@@ -1,6 +1,8 @@
 # Address normalization — what still fails, and what to do next
 
 Companion to `.claude/CLAUDE.md`, which documents *why the code is shaped the way it is*.
+Lives in `inst/notes/`, so it installs with the package and
+`system.file("notes", package = "cangeocode")` finds it.
 This file documents *where it currently falls short*. Every number here is measured, not
 estimated; each section says which measurement produced it so it can be re-run and disputed.
 
