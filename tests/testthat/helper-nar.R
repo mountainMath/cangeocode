@@ -23,7 +23,13 @@ nar_address_header <- function(blockface = FALSE) {
 # the same CSD -- the many-to-many that MunAlias exists for. Both directions are
 # in the fixture: SOUTHLANDS is a mailing city that is not a CSD, and Vancouver
 # is a CSD that covers mail addressed to two different cities.
-nar_address_rows <- function(blockface = FALSE) {
+#
+# `run = TRUE` appends a fourth street carrying a numbered run, which is what
+# the interpolation tier needs and the three addresses above cannot give it:
+# two flanking civics of the same parity, a gap between them, and an odd side
+# offset from the even one. It is opt-in because every other test in the suite
+# counts the rows in this table.
+nar_address_rows <- function(blockface = FALSE, run = FALSE) {
   base <- function(guid, civic, x, y,
                    street = "KING EDWARD", type = "AVE", dir = "W",
                    mail_mun = "VANCOUVER", postal = "V6S1N3") {
@@ -36,29 +42,64 @@ nar_address_rows <- function(blockface = FALSE) {
                base("addr3", "4003", "", "",
                     street = "MUSQUEAM", type = "DR", dir = "",
                     mail_mun = "SOUTHLANDS", postal = "V6N3T7"))
+  if (run) {
+    # A 100 m stretch of GRANT ST, laid out east-west so the interpolated
+    # coordinate is a plain arithmetic check. Even civics run 100, 200 and 300
+    # at x = 4012000, 4012100 and 4012200 with y fixed; the odd side sits 20 m
+    # north of them. So 150 must land at 4012050 and 250 at 4012150, 400 must be
+    # refused as extrapolation, and 151 must come off the *odd* line at y+20
+    # rather than splitting the difference with the even one.
+    grant <- function(guid, civic, x, y) {
+      base(guid, civic, x, y, street = "GRANT", type = "ST", dir = "",
+           postal = "V5L1Z9")
+    }
+    rows <- c(rows, list(
+      grant("addr4", "100", "4012000", "2007000"),
+      grant("addr5", "200", "4012100", "2007000"),
+      grant("addr6", "300", "4012200", "2007000"),
+      grant("addr7", "101", "4012000", "2007020"),
+      grant("addr8", "301", "4012200", "2007020"),
+      # Mailed to SOUTHLANDS, which is not a CSD, but inside the Vancouver CSD
+      # and -- unlike addr3 -- actually carrying coordinates. This is what the
+      # authoritative `mun` argument has to reach through the alias set.
+      base("addr9", "5001", "4012300", "2007100", street = "MUSQUEAM",
+           type = "DR", dir = "", mail_mun = "SOUTHLANDS", postal = "V6N3T7")))
+  }
   if (blockface) {
     bf <- list(c("4012086.46456561", "2006838.65510961"),
                c("4012086.46456561", "2006838.65510961"),
                c("", ""))
+    bf <- c(bf, rep(list(c("", "")), length(rows) - length(bf)))
     rows <- Map(function(r, b) append(r, b, after = 27), rows, bf)
   }
   rows
 }
 
-nar_location_lines <- function() {
-  c("LOC_GUID,CSD_CODE,FED_CODE,FED_ENG_NAME,FED_FRE_NAME,ER_CODE,ER_ENG_NAME,ER_FRE_NAME,BG_LATITUDE,BG_LONGITUDE",
+nar_location_lines <- function(run = FALSE) {
+  lines <- c("LOC_GUID,CSD_CODE,FED_CODE,FED_ENG_NAME,FED_FRE_NAME,ER_CODE,ER_ENG_NAME,ER_FRE_NAME,BG_LATITUDE,BG_LONGITUDE",
     "loc1,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2501,-123.1999",
     "loc2,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2504,-123.1995",
     "loc3,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2500,-123.2000")
+  if (!run) return(lines)
+  # The run's locations, emitted only alongside the run's addresses. Not
+  # unconditionally: test-import.R reads every lon/lat out of this table.
+  c(lines,
+    "loc4,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2502,-123.1997",
+    "loc5,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2502,-123.1996",
+    "loc6,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2502,-123.1995",
+    "loc7,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2503,-123.1997",
+    "loc8,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2503,-123.1995",
+    "loc9,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2504,-123.1994")
 }
 
 #' Write a miniature NAR release to a directory and return its path
-local_nar_fixture <- function(blockface = FALSE, env = parent.frame()) {
+local_nar_fixture <- function(blockface = FALSE, run = FALSE, env = parent.frame()) {
   dir <- withr::local_tempdir(.local_envir = env)
   lines <- c(paste(nar_address_header(blockface), collapse = ","),
-             vapply(nar_address_rows(blockface), paste, character(1), collapse = ","))
+             vapply(nar_address_rows(blockface, run), paste, character(1),
+                    collapse = ","))
   writeLines(lines, file.path(dir, "Address_BC.csv"))
-  writeLines(nar_location_lines(), file.path(dir, "Location_BC.csv"))
+  writeLines(nar_location_lines(run), file.path(dir, "Location_BC.csv"))
   dir
 }
 
@@ -79,8 +120,9 @@ local_nar_env <- function(exdir, env = parent.frame()) {
 }
 
 #' Import the fixture and hand back an open connection
-local_nar_connection <- function(blockface = TRUE, env = parent.frame()) {
-  local_nar_env(local_nar_fixture(blockface, env = env), env = env)
+local_nar_connection <- function(blockface = TRUE, run = FALSE,
+                                 env = parent.frame()) {
+  local_nar_env(local_nar_fixture(blockface, run, env = env), env = env)
   con <- suppressMessages(nar_connection(version = "test-01"))
   withr::defer(DBI::dbDisconnect(con), envir = env)
   con

@@ -1,0 +1,213 @@
+test_that("an address NAR carries resolves to its own building point", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  g <- geocode("4001 King Edward Ave W, Vancouver, BC", con = con)
+
+  expect_equal(g$match_method, "nar_building")
+  expect_equal(g$uncertainty_m, 0)
+  expect_equal(g$n_matches, 1L)
+  expect_equal(g$ADDR_GUID, "addr1")
+})
+
+test_that("an address with only a blockface point says so, and prices it", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  g <- geocode("4002 King Edward Ave W, Vancouver, BC", con = con)
+
+  # addr2 has no building point, so the fallback fires and the uncertainty is
+  # the measured blockface constant rather than zero. Reporting 0 here -- the
+  # value an exact civic match would otherwise imply -- is the failure this
+  # guards: the point is a segment centroid shared with the whole blockface.
+  expect_equal(g$match_method, "nar_blockface")
+  expect_equal(g$uncertainty_m, nar_blockface_uncertainty_m())
+})
+
+test_that("a civic number NAR lacks is interpolated between its flanks", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # 150 sits midway between 100 at x = 4012000 and 200 at x = 4012100, so it
+  # belongs at 4012050 exactly, and the 100 m flanking span prices it at 50 m.
+  g <- geocode("150 Grant St, Vancouver, BC", con = con, crs = NULL,
+               geometry = TRUE)
+
+  expect_equal(g$match_method, "nar_interpolated")
+  expect_equal(g$uncertainty_m, 50)
+  expect_equal(as.numeric(sf::st_coordinates(g)), c(4012050, 2007000))
+})
+
+test_that("interpolation uses only the same side of the street", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # The odd side is 20 m north of the even one, and far more sparsely numbered:
+  # 151 has to come off 101 and 301, a quarter of the way along, rather than off
+  # the even civics that bracket it much more tightly. So y = 2007020 -- the odd
+  # line -- and the 200 m odd-side span prices it at 100 m rather than the 50 m
+  # the even side would have implied. Pooling both sides is the mistake this
+  # catches, and nationally it is a 35.2 m median error against 4.2 m.
+  g <- geocode("151 Grant St, Vancouver, BC", con = con, crs = NULL,
+               geometry = TRUE)
+
+  expect_equal(g$match_method, "nar_interpolated")
+  expect_equal(as.numeric(sf::st_coordinates(g)), c(4012050, 2007020))
+  expect_equal(g$uncertainty_m, 100)
+})
+
+test_that("a civic number past the end of the run is refused, not extrapolated", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # 400 is above every even civic on the street, so there is no upper flank.
+  # Continuing the run's spacing would put it somewhere plausible-looking and
+  # be wrong by a 90th-percentile 237 m, so nothing is returned at all.
+  g <- geocode("400 Grant St, Vancouver, BC", con = con)
+
+  expect_equal(g$match_method, "none")
+  expect_true(is.na(g$uncertainty_m))
+  expect_true(is.na(g$lon))
+})
+
+test_that("interpolate = FALSE skips the tier entirely", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  g <- geocode("150 Grant St, Vancouver, BC", con = con, interpolate = FALSE)
+
+  expect_equal(g$match_method, "none")
+})
+
+test_that("interpolation never uses a blockface point as a flank", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # 4001 and 4002 bracket nothing usable: 4001 is a building point but 4002 has
+  # only a blockface centroid, and interpolating off that would compound its
+  # 176 m error into a result presented as precise.
+  g <- geocode("4005 King Edward Ave W, Vancouver, BC", con = con)
+
+  expect_equal(g$match_method, "none")
+})
+
+test_that("an ambiguous address reports how many points it could have been", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # King Edward Ave W is filed under VANCOUVER; naming no municipality leaves
+  # the query unrestricted, which is allowed rather than refused -- but the
+  # count and the widened uncertainty have to say so.
+  g <- geocode("4001 King Edward Ave W", con = con)
+
+  expect_equal(g$match_method, "nar_building")
+  expect_equal(g$n_matches, 1L)
+})
+
+test_that("prov and mun override what the string said", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # The string names the wrong province outright. Because the arguments are
+  # authoritative rather than a fallback, the search runs in BC and the result
+  # reports BC -- a row whose PROV_ABVN disagreed with the point returned would
+  # misdescribe what was actually searched.
+  g <- geocode("4001 King Edward Ave W, Toronto, ON", prov = "BC",
+               mun = "Vancouver", con = con)
+
+  expect_equal(g$match_method, "nar_building")
+  expect_equal(g$PROV_ABVN, "BC")
+  expect_equal(g$MUN_NAME, "Vancouver")
+})
+
+test_that("mun resolves through the alias set, not the mailing city", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # addr9 is mailed to SOUTHLANDS, which is not a CSD, inside the Vancouver CSD.
+  # Asking for Vancouver has to reach it. Matching MAIL_MUN_NAME directly would
+  # not, and that is the Toronto/Scarborough problem in miniature.
+  g <- geocode("5001 Musqueam Dr", mun = "Vancouver", prov = "BC", con = con)
+
+  expect_equal(g$ADDR_GUID, "addr9")
+})
+
+test_that("within restricts the search and refuses what falls outside it", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  inside  <- c(4011900, 2006900, 4012300, 2007100)
+  outside <- c(4000000, 2000000, 4001000, 2001000)
+
+  expect_equal(geocode("100 Grant St", within = inside, crs = NULL,
+                       con = con)$match_method, "nar_building")
+  expect_equal(geocode("100 Grant St", within = outside, crs = NULL,
+                       con = con)$match_method, "none")
+})
+
+test_that("within also constrains the flanks interpolation may use", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # A box that holds 100 and 200 but stops short of 300. 150 is still
+  # interpolable inside it; 250 is not, because the flank above it was excluded
+  # and what remains would be an extrapolation.
+  box <- c(4011900, 2006900, 4012150, 2007100)
+
+  expect_equal(geocode("150 Grant St", within = box, crs = NULL,
+                       con = con)$match_method, "nar_interpolated")
+  expect_equal(geocode("250 Grant St", within = box, crs = NULL,
+                       con = con)$match_method, "none")
+})
+
+test_that("a parsed data frame can be geocoded directly", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  parsed <- normalize_address("4001 King Edward Ave W, Vancouver, BC", con = con)
+  g <- geocode(parsed, con = con)
+
+  expect_equal(g$ADDR_GUID, "addr1")
+  expect_error(geocode(data.frame(a = 1), con = con), "STREET_NAME")
+})
+
+test_that("an address NAR carries but cannot place says so", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # addr3 is a real NAR record with no coordinates of either kind, and none of
+  # its neighbours on Musqueam Dr can bracket it. Reporting `none` would say the
+  # address does not exist, which is a different and wrong claim -- the record
+  # is named, it simply has no point.
+  g <- geocode("4003 Musqueam Dr, Vancouver, BC", con = con)
+
+  expect_equal(g$match_method, "nar_no_geometry")
+  expect_equal(g$ADDR_GUID, "addr3")
+  expect_true(is.na(g$lon))
+})
+
+test_that("results come back in input order, one row per input", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  x <- c("400 Grant St, Vancouver, BC",           # refused
+         "4001 King Edward Ave W, Vancouver, BC", # exact
+         "not an address at all",                 # unparseable
+         "150 Grant St, Vancouver, BC")           # interpolated
+
+  g <- geocode(x, con = con)
+
+  expect_equal(nrow(g), 4)
+  expect_equal(g$input, x)
+  expect_equal(g$match_method,
+               c("none", "nar_building", "none", "nar_interpolated"))
+})
+
+test_that("an authoritative constraint must be length 1 or length(x)", {
+  expect_error(nar_recycle(c("BC", "ON"), 3, "prov"), "length 1 or length 3")
+  expect_equal(nar_recycle("BC", 3, "prov"), rep("BC", 3))
+})
+
+test_that("within rejects a shape it cannot read", {
+  expect_error(nar_geocode_bounds("somewhere", 4326, NULL), "length-4 numeric")
+})

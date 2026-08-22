@@ -3,6 +3,7 @@
 export(address_pattern)
 export(available_nar_versions)
 export(collect_nar)
+export(geocode)
 export(nar_connection)
 export(normalize_address)
 export(reverse_geocode)

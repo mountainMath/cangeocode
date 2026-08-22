@@ -4,6 +4,13 @@ template:
   bootstrap: 5
 
 reference:
+- title: Geocoding
+  desc: >
+    Resolve free-text Canadian addresses to coordinates, interpolating the
+    civic numbers NAR does not carry.
+  contents:
+  - geocode
+
 - title: Reverse geocoding
   desc: >
     Find the addresses nearest a coordinate.

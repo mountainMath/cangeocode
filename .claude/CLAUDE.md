@@ -16,6 +16,9 @@ Public API (see `NAMESPACE`): `nar_connection()`, `available_nar_versions()`, `c
 This file records **why the code is shaped the way it is**, and it is the only document in
 `.claude/`. Longer-form notes live in **`inst/notes/`** and ship with the package:
 
+- **[`inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md)**
+  — what `geocode()` resolves and what it does not: tier coverage, the interpolation
+  accuracy tables, and the pathways sized but not built (road network file, BC geocoder).
 - **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
   — where address normalization currently falls short: the measured failure modes, the things
   tried and rejected, and the ranked next steps. Read it before changing the parser or the
@@ -361,6 +364,70 @@ never match a parsed fold key. `nar_gazetteer_sql()` folds periods out of *both*
 two fuzzy street comparisons. It deliberately does **not** do so on the exact-branch
 `Streets.NAME_FOLD` join, which would cost the `str_name_idx` index — so street-name periods stay
 unhandled there by design.
+
+### `R/geocode.R` — the forward query layer
+
+`geocode()` parses with `normalize_address()` and then runs two tiers against
+`Addresses`, reporting which one answered in **`match_method`** and what that method
+costs in **`uncertainty_m`**. On the 5,000 Corporations Canada addresses the eval draws,
+the exact tier places 84.9% and interpolation lifts that to **89.1%**, in 0.9s for the
+whole batch.
+
+| `match_method` | meaning | `uncertainty_m` |
+| --- | --- | --- |
+| `nar_building` | the civic number is in NAR with its own building point | 0 |
+| `nar_blockface` | in NAR, but only a blockface centroid | 176 |
+| `nar_interpolated` | not in NAR; placed between the flanking civics | `0.5 * span` |
+| `nar_no_geometry` | in NAR (`ADDR_GUID` is set) but unplaceable | `NA` |
+| `none` | not found | `NA` |
+
+`uncertainty_m` is defined as the **90th-percentile error this package adds relative to
+NAR's own building point**, and deliberately says nothing about NAR's own error, which is
+neither published nor consistent — the User Guide admits a building point may be the
+driveway. So `0` means "this package added nothing", not "this point is exact". The two
+non-zero figures are measured: 176 m is the p90 building→blockface separation over the
+1.85M addresses carrying both (p50 50, p95 332), and the interpolation figure comes from
+the error/span ratio being **scale-invariant** — its p90 is 0.50 in every span bucket from
+under 50 m to over 2 km (0.496–0.522), so half the flanking span is the p90 error whatever
+the scale.
+
+**Extrapolation is refused rather than flagged.** Past the last known civic on a side there
+is no second point, and continuing the run's spacing scores a 15.1 m median but a 237 m p90
+— barely better than the nearest neighbour it would displace. 7.3% of NAR civics sit at the
+end of a run. Interpolation is same-parity only (4.2 m median against 35.2 m pooling both
+sides, and 16.9 m for nearest-known-civic), and takes only `geom_source = 'building'` flanks,
+since compounding a 176 m blockface error at each end would be presented as precision.
+
+`prov`, `mun` and `within` are **authoritative** — they override whatever the address string
+said, and the override lands on the returned row too, so a result never reports a province
+next to a point constrained to a different one. `mun` goes through `MunAlias` rather than
+straight at `MAIL_MUN_NAME`, because it is a name a person typed: constraining to `TORONTO`
+by mailing city would drop everything NAR files under `SCARBOROUGH`. The parsed municipality
+keeps the direct comparison, the gazetteer having already turned it into NAR's own string.
+`within` densifies its outline **with the CRS temporarily unset** before reprojecting —
+`st_segmentize()` on a geographic geometry needs `lwgeom`, which is not a dependency, and
+planar interpolation is what is wanted anyway.
+
+**The one performance trap, and it is a 99x one.** Both name families must be matched, and
+writing that as `OFFICIAL = x OR MAIL = x` leaves the join with no equijoin key, so DuckDB
+nested-loops the 17.4M-row table: the interpolation tier took **15.87s** that way against
+**0.16s** as a `UNION` of two single-column equijoins, for byte-identical results. The exact
+tier hid it, `CIVIC_NO = p.civic` having handed the planner a hash key of its own. That is
+why `nar_geocode_candidates()` exists and why both tiers go through it. Otherwise no index
+is needed: the folded street-key join costs 0.05s for a 5-row probe and 0.08s for a 200-row
+one, so **batch into one call rather than looping**.
+
+Street type and direction are compared through `upper()` on the NAR side. NAR stores the
+`OFFICIAL_*` family Mixed Case and the `MAIL_*` family UPPERCASE, and the gazetteer hands
+back the `OFFICIAL_*` spelling — without the fold, `24 Sussex Dr, Ottawa` matches nothing.
+
+Coordinates are built in `sf` from the returned `x`/`y` rather than through `collect_nar()`,
+because these are freshly computed values rather than a stored geometry column; the storage
+CRS is still read from the database with `nar_crs()`, and `sf` handles the axis order that
+`collect_nar()` needs `always_xy` for.
+
+> Measurements, the tier ceiling and what is not built yet:
+> **[`inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md)**.
 
 ### `R/misc.R`
 
