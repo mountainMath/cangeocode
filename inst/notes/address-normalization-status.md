@@ -6,7 +6,7 @@ Lives in `inst/notes/`, so it installs with the package and
 This file documents *where it currently falls short*. Every number here is measured, not
 estimated; each section says which measurement produced it so it can be re-run and disputed.
 
-**As of:** 2026-08-21, commit `8694726`, NAR release `2026-06` (17,362,476 addresses).
+**As of:** 2026-08-21, commit `138c2c5`, NAR release `2026-06` (17,362,476 addresses).
 Layers 1 (rules) and 2 (NAR gazetteer) are implemented. Layer 3 (LLM fallback) is not — see
 *Deferred* at the end.
 
@@ -184,6 +184,19 @@ drops it; hyphens *inside* a token, which is most of Quebec, are untouched.
 
 Together: Part B 85.6% → 86.0% joined, 98.6% → 98.8% civic-and-name extracted. Both are
 regression-tested in `test-normalize.R`.
+
+**`STE` guarded on only one of the two unit paths.** `nar_take_unit_segments()` has required an
+ambiguous designator's value to look like a unit number since the Sainte collision was first found,
+but `nar_take_trailing_unit()` did not, and in a comma-less string the municipality is not a
+segment of its own. So `123 Main St Sault Ste Marie ON` reached the trailing rule with `STE`
+second-from-last and parsed as a unit called `MARIE` on a street in `SAULT` — the same failure the
+guard exists to prevent, through the other door. The test is now the shared `nar_is_unit_value()`
+and both paths call it. Also fixes `12 Ste Anne St Ste Anne MB` and `1 Rue Sainte-Catherine Ste Foy
+QC`. Part A is byte-identical and Part B moves one row between pattern buckets — the harness cannot
+see this, because Part A renders its municipalities out of NAR into a comma-delimited form and Part
+B's filings are mostly comma-delimited too. That is the same gap in the noise grammar the
+hyphenated-unit fix exposed, and it is the reason both of these were found by hand rather than by
+the eval.
 
 ## Measured and deliberately not done
 

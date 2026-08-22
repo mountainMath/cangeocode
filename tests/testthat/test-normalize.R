@@ -461,6 +461,24 @@ test_that("Sainte in a place name is not read as a Suite designator", {
   expect_equal(r$CIVIC_NO, c(29, 100, 100, 100))
 })
 
+test_that("Sainte survives in a comma-less string too", {
+  # The guard has to sit on both unit paths. Without commas the municipality is
+  # not a segment of its own, so "Sault Ste Marie ON" reaches the trailing-unit
+  # rule with STE second-from-last -- and that rule used to take whatever
+  # followed a designator, leaving a unit called MARIE on a street in SAULT.
+  r <- normalize_address(c("123 Main St Sault Ste Marie ON",
+                           "12 Ste Anne St Ste Anne MB"))
+  expect_equal(r$MUN_NAME, c("SAULT STE MARIE", "STE ANNE"))
+  expect_equal(r$APT_NO_LABEL, c(NA_character_, NA_character_))
+  expect_equal(r$STREET_NAME, c("MAIN", "STE ANNE"))
+
+  # A real Suite in the same position still resolves, since 400 looks like a
+  # unit number and Marie does not.
+  r <- normalize_address(c("100 Queen St Ste 400", "100 Queen St Ste 4B"))
+  expect_equal(r$APT_NO_LABEL, c("400", "4B"))
+  expect_equal(r$STREET_NAME, c("QUEEN", "QUEEN"))
+})
+
 test_that("an unambiguous unit designator still accepts a word for a value", {
   # The Sainte guard must not spread to the other designators: APT is never a
   # place name, and the value it introduces is routinely a word rather than a

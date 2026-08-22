@@ -384,11 +384,10 @@ nar_take_unit_segments <- function(segs, lang = "en") {
   # STE is the one unit designator that is also an ordinary word: it
   # abbreviates Suite, but it is equally Sainte, so left unguarded "Sault Ste.
   # Marie" reads as a unit called "Sault Marie" and the municipality is lost.
-  # Only for those words is the value required to look like a unit number -- a
-  # digit ("600", "4B", "5TH") or a lone letter ("A"). Every other designator
-  # is unambiguous and keeps taking whatever follows it, because "Apt Bsmt"
-  # and "Apt Trlr" are real units whose value is a word rather than a number.
-  is_unit_value <- function(v) grepl("[0-9]", v) | grepl("^[A-Z]$", v)
+  # Only for those words is the value required to look like a unit number, which
+  # is what nar_is_unit_value() tests. Every other designator is unambiguous and
+  # keeps taking whatever follows it, because "Apt Bsmt" and "Apt Trlr" are real
+  # units whose value is a word rather than a number.
   needs_number <- function(f) any(f %in% nar_lex_unit_ambiguous)
 
   classify <- function(seg) {
@@ -406,7 +405,7 @@ nar_take_unit_segments <- function(segs, lang = "en") {
     if (n <= 3 && any(f %in% nar_lex_unit_words)) {
       value <- seg[!(f %in% nar_lex_unit_words) & seg != "#"]
       if (!length(value)) return(seg[1])
-      if (!needs_number(f) || all(is_unit_value(nar_fold(value))))
+      if (!needs_number(f) || all(nar_is_unit_value(value)))
         return(paste(value, collapse = " "))
     }
     NA_character_
@@ -474,7 +473,7 @@ nar_take_leading_unit <- function(toks, lang = "en") {
   # is the one thing that cannot be recovered downstream.
   if (nar_fold(first) %in% nar_lex_unit_words && length(toks) >= 3 &&
       (!nar_fold(first) %in% nar_lex_unit_ambiguous ||
-       grepl("[0-9]|^[A-Z]$", nar_fold(toks[2])))) {
+       nar_is_unit_value(toks[2]))) {
     sp <- nar_split_unit_civic(toks[2])
     return(list(unit = sp$unit, civic = sp$civic, rest = toks[-(1:2)]))
   }
@@ -607,6 +606,22 @@ nar_take_civic <- function(toks) {
   none
 }
 
+#' Does this token look like a unit number rather than a word?
+#'
+#' @description The test that keeps the ambiguous designators in
+#' `nar_lex_unit_ambiguous` -- which is `STE`, Suite and equally Sainte -- from
+#' taking an ordinary word as their value. A unit number carries a digit
+#' (`600`, `4B`, `5TH`) or is a lone letter (`A`). It is applied only to those
+#' designators: `APT BSMT` and `APT TRLR` are real units whose value is a word,
+#' and requiring a number everywhere collapses them into the street name.
+#' @param x A character vector of tokens, unfolded
+#' @return A logical vector
+#' @keywords internal
+nar_is_unit_value <- function(x) {
+  f <- nar_fold(x)
+  grepl("[0-9]", f) | grepl("^[A-Z]$", f)
+}
+
 #' Take a trailing unit designator off the end of a street
 #' @param toks A character vector of tokens
 #' @return A list with `unit` and `rest`
@@ -620,7 +635,13 @@ nar_take_trailing_unit <- function(toks) {
   if (grepl("^#.+", last)) {
     return(list(unit = sub("^#", "", last), rest = utils::head(toks, -1)))
   }
-  if (n >= 3 && nar_fold(toks[n - 1]) %in% nar_lex_unit_words) {
+  # The same STE guard nar_take_unit_segments() applies, for the same reason:
+  # in a comma-less string the municipality is not a segment of its own, so
+  # "123 Main St Sault Ste Marie ON" reaches here with STE second-from-last and
+  # without this reads as a unit called "Marie" on a street in "Sault".
+  if (n >= 3 && nar_fold(toks[n - 1]) %in% nar_lex_unit_words &&
+      (!nar_fold(toks[n - 1]) %in% nar_lex_unit_ambiguous ||
+       nar_is_unit_value(last))) {
     return(list(unit = last, rest = utils::head(toks, -2)))
   }
   if (n >= 2 && nar_fold(last) %in% nar_lex_unit_bare) {
