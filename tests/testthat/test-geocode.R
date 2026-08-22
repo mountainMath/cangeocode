@@ -70,13 +70,52 @@ test_that("a civic number past the end of the run is refused, not extrapolated",
   expect_true(is.na(g$lon))
 })
 
-test_that("interpolate = FALSE skips the tier entirely", {
+test_that("dropping the interpolation tier from `method` skips it entirely", {
   skip_if_no_duckdb_spatial()
   con <- local_nar_connection(run = TRUE)
 
-  g <- geocode("150 Grant St, Vancouver, BC", con = con, interpolate = FALSE)
+  g <- geocode("150 Grant St, Vancouver, BC", con = con, method = "nar")
 
   expect_equal(g$match_method, "none")
+})
+
+test_that("`method` order decides which tier answers", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # 200 Grant St is in NAR with its own point, and is also flanked by 100 and
+  # 300, so either tier can answer it. Whichever runs first is the one that does.
+  a <- "200 Grant St, Vancouver, BC"
+  expect_equal(geocode(a, con = con)$match_method, "nar_building")
+  expect_equal(geocode(a, con = con,
+                       method = c("nar_interpolate", "nar"))$match_method,
+               "nar_interpolated")
+})
+
+test_that("a tier that never runs reports nothing, ADDR_GUID included", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  a <- "200 Grant St, Vancouver, BC"
+  expect_false(is.na(geocode(a, con = con)$ADDR_GUID))
+  # Interpolation does not look the record up, so putting it first costs the
+  # identifier the exact tier would have found.
+  expect_true(is.na(geocode(a, con = con,
+                            method = c("nar_interpolate", "nar"))$ADDR_GUID))
+})
+
+test_that("`method` is validated, deduplicated, and order-preserving", {
+  expect_equal(nar_geocode_methods("nar"), "nar")
+  expect_equal(nar_geocode_methods(c("bc", "nar")), c("bc", "nar"))
+  expect_equal(nar_geocode_methods(c("nar", "nar")), "nar")
+  # Exact matches beat prefixes, so "nar" is not ambiguous against
+  # "nar_interpolate".
+  expect_equal(nar_geocode_methods(c("nar", "nar_i")),
+               c("nar", "nar_interpolate"))
+
+  expect_error(nar_geocode_methods("rnf"), 'Unknown geocoding method "rnf"')
+  expect_error(nar_geocode_methods(character()), "must be one or more of")
+  expect_error(nar_geocode_methods(1), "must be one or more of")
 })
 
 test_that("interpolation never uses a blockface point as a flank", {

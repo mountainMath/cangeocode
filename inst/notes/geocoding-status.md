@@ -157,7 +157,7 @@ indexing. (Callers should pass many addresses in one `geocode()` call rather tha
 
 ## The BC geocoder binding
 
-`bc_geocode()`, `bc_validate()`, and `geocode(fallback = "bc")`. Notes on what it turned out
+`bc_geocode()`, `bc_validate()`, and the `"bc"` tier `geocode(method = )` can name. Notes on what it turned out
 to be:
 
 **The service always answers.** `1234 Nonexistentzzz Rd, Victoria, BC` returns the centre of
@@ -167,8 +167,8 @@ must clear `min_score` (default 60). Both the score and the faults survive a rej
 what was thrown away stays visible.
 
 **As a fallback it is worth a lot in BC.** On 600 BC addresses from the corporations file the
-NAR pathway placed 524 (87.3%) and returned `none` for 76. With `fallback = "bc"`, 75 of
-those 76 resolved: 31 at address level (`bc_site` 5, `bc_civic` 26), 18 interpolated along a
+NAR pathway placed 524 (87.3%) and returned `none` for 76. With
+`method = c("nar", "nar_interpolate", "bc")`, 75 of those 76 resolved: 31 at address level (`bc_site` 5, `bc_civic` 26), 18 interpolated along a
 block (`bc_block`), 26 only to a street (`bc_street`). So roughly **half the NAR failures in
 BC are real addresses BC knows about**, and the rest at least get a street.
 

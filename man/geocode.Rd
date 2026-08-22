@@ -9,9 +9,7 @@ geocode(
   prov = NULL,
   mun = NULL,
   within = NULL,
-  source = "nar",
-  interpolate = TRUE,
-  fallback = NULL,
+  method = c("nar", "nar_interpolate"),
   geometry = FALSE,
   crs = 4326,
   version = "latest",
@@ -39,21 +37,11 @@ used in more than one province.}
 
 \item{within}{A spatial restriction: an `sf`/`sfc` object, an `st_bbox`, or a
 length-4 numeric `c(xmin, ymin, xmax, ymax)`, interpreted in `crs` unless it
-carries its own. **Authoritative**, and applied to the interpolation tier as
-well as the exact one.}
+carries its own. **Authoritative**, and applied to every tier.}
 
-\item{source}{Source dataset. Currently only `"nar"`.}
-
-\item{interpolate}{Whether to interpolate civic numbers NAR does not carry.
-Default `TRUE`.}
-
-\item{fallback}{What to try for rows NAR could not place. `NULL` (default)
-means nothing; `"bc"` sends the British Columbia rows to the Province of BC's
-[Address Geocoder][bc_geocode()], which is the only external service wired
-up and covers no other province. **This makes network requests**, one per
-unplaced BC address. The constraints are honoured: what is sent is rebuilt
-from the components after any `prov`/`mun` override, and a point falling
-outside `within` is discarded rather than returned.}
+\item{method}{Tiers to try, in priority order: any of `"nar"`,
+`"nar_interpolate"` and `"bc"`. Default `c("nar", "nar_interpolate")`, which
+is the offline pair. See the section below.}
 
 \item{geometry}{Whether to return an `sf` object with POINT geometry.
 Unmatched rows get an empty point. Default `FALSE`, which returns `lon` and
@@ -68,8 +56,8 @@ when `con` is supplied.}
 connection passed in here is left open, while one opened internally is closed
 again before returning.}
 
-\item{...}{Passed to [bc_geocode()] when `fallback = "bc"`, which is where
-`min_score`, `api_key` and `rate` go. Otherwise unused.}
+\item{...}{Passed to [bc_geocode()] when `method` includes `"bc"`, which is
+where `min_score`, `api_key` and `rate` go. Otherwise unused.}
 }
 \value{
 A data frame with one row per input, carrying every column
@@ -79,8 +67,9 @@ column.
 }
 \description{
 Parses each address with [normalize_address()] and resolves the
-result against NAR, returning one row per input in input order. Two tiers are
-tried in turn and the column `match_method` records which one answered:
+result, returning one row per input in input order. `method` names the tiers
+to try and the order to try them in; the column `match_method` records which
+one answered:
 
 * **`nar_building`** -- the civic number is in NAR and carries its own
   building representative point. This is the exact match.
@@ -93,13 +82,43 @@ tried in turn and the column `match_method` records which one answered:
 * **`nar_interpolated`** -- the civic number is *not* in NAR, so the position
   is interpolated between the nearest known civic numbers of the same parity
   on either side of it. See the section below.
+* **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
+  **`bc_locality`** -- answered by the `bc` tier. See [bc_geocode()].
 * **`none`** -- nothing resolved.
 }
-\section{Interpolation}{
- Set `interpolate = FALSE` to skip the tier entirely.
+\section{Choosing the tiers}{
+ `method` is a vector of tier names in priority
+order. Each tier is offered only the rows its predecessors left without a
+position, so the order is what decides which answer wins:
 
-Only civics of the **same parity** are used, because odd and even numbers sit
-on opposite sides of the street and pooling them is markedly worse: measured
+* **`"nar"`** -- look the civic number up in NAR directly. Answers
+  `nar_building`, `nar_blockface` or `nar_no_geometry`.
+* **`"nar_interpolate"`** -- place a civic number NAR does not carry between
+  its known neighbours. Answers `nar_interpolated`.
+* **`"bc"`** -- ask the Province of BC's [Address Geocoder][bc_geocode()].
+  British Columbia only, and **this makes one network request per unplaced BC
+  row**; nothing contacts it unless the tier is named. The constraints are
+  honoured: what is sent is rebuilt from the components after any
+  `prov`/`mun` override, and a point outside `within` is discarded rather
+  than returned.
+
+The default `c("nar", "nar_interpolate")` is offline and prefers a real NAR
+record over an interpolated one. `method = "nar"` keeps only the addresses
+NAR actually carries. `c("nar", "nar_interpolate", "bc")` adds the BC
+service as a last resort, and `c("bc", "nar")` prefers it over NAR wherever
+it answers.
+
+A row NAR holds without coordinates (`nar_no_geometry`) is passed on to the
+next tier: knowing the address exists is worth reporting, but it is not worth
+withholding a position a later tier can supply, and the `ADDR_GUID` found
+survives whichever tier ends up placing the row. Note that the reverse costs
+something -- a tier that never runs for a row reports nothing about it, so
+putting `"nar"` last means interpolated rows carry no `ADDR_GUID`.
+}
+
+\section{Interpolation}{
+ Only civics of the **same parity** are used, because
+odd and even numbers sit on opposite sides of the street and pooling them is markedly worse: measured
 by leave-one-out over all 10.6M distinct NAR civic points, same-side
 interpolation has a median error of 4.2 m against 35.2 m for both sides
 pooled, and beats simply taking the nearest known civic (16.9 m).
@@ -108,8 +127,8 @@ pooled, and beats simply taking the nearest known civic (16.9 m).
 side has no second point to interpolate against, and guessing from the run's
 spacing is close to worthless -- median error 15.1 m but a 90th percentile of
 237 m, barely better than the nearest neighbour it would displace. Those rows
-come back `none` rather than carrying a number that looks like the others.
-7.3% of NAR civics sit at the end of a run.
+fall through to the next tier rather than carrying a number that looks like
+the others. 7.3% of NAR civics sit at the end of a run.
 }
 
 \section{Constraining the search}{
@@ -156,6 +175,12 @@ distance from the point returned to the furthest rejected candidate.
 \examples{
 \dontrun{
 geocode("1055 W Georgia St, Vancouver BC")
+
+# Only addresses NAR actually carries -- nothing interpolated.
+geocode(addresses, method = "nar")
+
+# Add the BC service as a last resort. Makes network requests.
+geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
 
 # Parse once, resolve many times, and keep only the precise matches.
 parsed <- normalize_address(addresses)

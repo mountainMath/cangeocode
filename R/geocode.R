@@ -17,8 +17,9 @@ nar_blockface_uncertainty_m <- function() 176
 #' Geocode Canadian addresses to coordinates
 #'
 #' @description Parses each address with [normalize_address()] and resolves the
-#' result against NAR, returning one row per input in input order. Two tiers are
-#' tried in turn and the column `match_method` records which one answered:
+#' result, returning one row per input in input order. `method` names the tiers
+#' to try and the order to try them in; the column `match_method` records which
+#' one answered:
 #'
 #' * **`nar_building`** -- the civic number is in NAR and carries its own
 #'   building representative point. This is the exact match.
@@ -31,12 +32,40 @@ nar_blockface_uncertainty_m <- function() 176
 #' * **`nar_interpolated`** -- the civic number is *not* in NAR, so the position
 #'   is interpolated between the nearest known civic numbers of the same parity
 #'   on either side of it. See the section below.
+#' * **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
+#'   **`bc_locality`** -- answered by the `bc` tier. See [bc_geocode()].
 #' * **`none`** -- nothing resolved.
 #'
-#' @section Interpolation: Set `interpolate = FALSE` to skip the tier entirely.
+#' @section Choosing the tiers: `method` is a vector of tier names in priority
+#' order. Each tier is offered only the rows its predecessors left without a
+#' position, so the order is what decides which answer wins:
 #'
-#' Only civics of the **same parity** are used, because odd and even numbers sit
-#' on opposite sides of the street and pooling them is markedly worse: measured
+#' * **`"nar"`** -- look the civic number up in NAR directly. Answers
+#'   `nar_building`, `nar_blockface` or `nar_no_geometry`.
+#' * **`"nar_interpolate"`** -- place a civic number NAR does not carry between
+#'   its known neighbours. Answers `nar_interpolated`.
+#' * **`"bc"`** -- ask the Province of BC's [Address Geocoder][bc_geocode()].
+#'   British Columbia only, and **this makes one network request per unplaced BC
+#'   row**; nothing contacts it unless the tier is named. The constraints are
+#'   honoured: what is sent is rebuilt from the components after any
+#'   `prov`/`mun` override, and a point outside `within` is discarded rather
+#'   than returned.
+#'
+#' The default `c("nar", "nar_interpolate")` is offline and prefers a real NAR
+#' record over an interpolated one. `method = "nar"` keeps only the addresses
+#' NAR actually carries. `c("nar", "nar_interpolate", "bc")` adds the BC
+#' service as a last resort, and `c("bc", "nar")` prefers it over NAR wherever
+#' it answers.
+#'
+#' A row NAR holds without coordinates (`nar_no_geometry`) is passed on to the
+#' next tier: knowing the address exists is worth reporting, but it is not worth
+#' withholding a position a later tier can supply, and the `ADDR_GUID` found
+#' survives whichever tier ends up placing the row. Note that the reverse costs
+#' something -- a tier that never runs for a row reports nothing about it, so
+#' putting `"nar"` last means interpolated rows carry no `ADDR_GUID`.
+#'
+#' @section Interpolation: Only civics of the **same parity** are used, because
+#' odd and even numbers sit on opposite sides of the street and pooling them is markedly worse: measured
 #' by leave-one-out over all 10.6M distinct NAR civic points, same-side
 #' interpolation has a median error of 4.2 m against 35.2 m for both sides
 #' pooled, and beats simply taking the nearest known civic (16.9 m).
@@ -45,8 +74,8 @@ nar_blockface_uncertainty_m <- function() 176
 #' side has no second point to interpolate against, and guessing from the run's
 #' spacing is close to worthless -- median error 15.1 m but a 90th percentile of
 #' 237 m, barely better than the nearest neighbour it would displace. Those rows
-#' come back `none` rather than carrying a number that looks like the others.
-#' 7.3% of NAR civics sit at the end of a run.
+#' fall through to the next tier rather than carrying a number that looks like
+#' the others. 7.3% of NAR civics sit at the end of a run.
 #'
 #' @section Constraining the search: `prov`, `mun` and `within` are assertions
 #' about where the address is, not hints. Each overrides whatever the string
@@ -101,18 +130,10 @@ nar_blockface_uncertainty_m <- function() 176
 #' used in more than one province.
 #' @param within A spatial restriction: an `sf`/`sfc` object, an `st_bbox`, or a
 #' length-4 numeric `c(xmin, ymin, xmax, ymax)`, interpreted in `crs` unless it
-#' carries its own. **Authoritative**, and applied to the interpolation tier as
-#' well as the exact one.
-#' @param source Source dataset. Currently only `"nar"`.
-#' @param interpolate Whether to interpolate civic numbers NAR does not carry.
-#' Default `TRUE`.
-#' @param fallback What to try for rows NAR could not place. `NULL` (default)
-#' means nothing; `"bc"` sends the British Columbia rows to the Province of BC's
-#' [Address Geocoder][bc_geocode()], which is the only external service wired
-#' up and covers no other province. **This makes network requests**, one per
-#' unplaced BC address. The constraints are honoured: what is sent is rebuilt
-#' from the components after any `prov`/`mun` override, and a point falling
-#' outside `within` is discarded rather than returned.
+#' carries its own. **Authoritative**, and applied to every tier.
+#' @param method Tiers to try, in priority order: any of `"nar"`,
+#' `"nar_interpolate"` and `"bc"`. Default `c("nar", "nar_interpolate")`, which
+#' is the offline pair. See the section below.
 #' @param geometry Whether to return an `sf` object with POINT geometry.
 #' Unmatched rows get an empty point. Default `FALSE`, which returns `lon` and
 #' `lat` columns instead.
@@ -122,8 +143,8 @@ nar_blockface_uncertainty_m <- function() 176
 #' @param con An open NAR connection to reuse. The caller keeps ownership: a
 #' connection passed in here is left open, while one opened internally is closed
 #' again before returning.
-#' @param ... Passed to [bc_geocode()] when `fallback = "bc"`, which is where
-#' `min_score`, `api_key` and `rate` go. Otherwise unused.
+#' @param ... Passed to [bc_geocode()] when `method` includes `"bc"`, which is
+#' where `min_score`, `api_key` and `rate` go. Otherwise unused.
 #' @return A data frame with one row per input, carrying every column
 #' [normalize_address()] returns plus `ADDR_GUID`, `match_method`,
 #' `uncertainty_m`, `n_matches`, and either `lon`/`lat` or an `sf` geometry
@@ -133,16 +154,21 @@ nar_blockface_uncertainty_m <- function() 176
 #' \dontrun{
 #' geocode("1055 W Georgia St, Vancouver BC")
 #'
+#' # Only addresses NAR actually carries -- nothing interpolated.
+#' geocode(addresses, method = "nar")
+#'
+#' # Add the BC service as a last resort. Makes network requests.
+#' geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
+#'
 #' # Parse once, resolve many times, and keep only the precise matches.
 #' parsed <- normalize_address(addresses)
 #' g <- geocode(parsed, geometry = TRUE)
 #' g[g$uncertainty_m <= 25, ]
 #' }
-geocode <- function(x, prov = NULL, mun = NULL, within = NULL, source = "nar",
-                    interpolate = TRUE, fallback = NULL, geometry = FALSE,
+geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
+                    method = c("nar", "nar_interpolate"), geometry = FALSE,
                     crs = 4326, version = "latest", con = NULL, ...) {
-  source <- match.arg(source, choices = c("nar"))
-  if (!is.null(fallback)) fallback <- match.arg(fallback, choices = c("bc"))
+  method <- nar_geocode_methods(method)
 
   if (is.null(con)) {
     con <- nar_connection(version = version)
@@ -177,12 +203,9 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL, source = "nar",
   if (!is.null(mun))  res$MUN_NAME  <- nar_recycle(mun,  nrow(res), "mun")
 
   bounds <- nar_geocode_bounds_geom(within, crs, con)
-  hits <- nar_geocode_match(res, con, interpolate = interpolate,
+  hits <- nar_geocode_match(res, con, method = method,
                             bounds = nar_geocode_bounds_sql(bounds),
-                            auth_mun = !is.null(mun))
-  if (identical(fallback, "bc")) {
-    hits <- nar_geocode_bc_fallback(res, hits, con, bounds = bounds, ...)
-  }
+                            bounds_geom = bounds, auth_mun = !is.null(mun), ...)
   out <- cbind(res, hits[, c("ADDR_GUID", "match_method", "uncertainty_m",
                              "n_matches")])
 
@@ -231,29 +254,34 @@ nar_geocode_geometry <- function(out, x, y, con, crs = 4326, geometry = FALSE) {
   out
 }
 
-#' Resolve parsed components against NAR, exactly and then by interpolation
+#' Resolve parsed components by running the requested tiers in priority order
 #'
-#' @description Runs the exact tier over every parsed row, then the
-#' interpolation tier over only the rows it did not answer. Splitting it that
-#' way rather than running both and preferring the exact one is worth the second
-#' temp table: each tier is a full scan of the 17.4M-row `Addresses` table, and
-#' the all-exact case is the common one.
+#' @description Each tier is offered only the rows its predecessors left
+#' unplaced. Running them in sequence rather than running them all and picking
+#' the best answer is worth the extra temp table: a NAR tier is a full scan of
+#' the 17.4M-row `Addresses` table, and the all-exact case is the common one, so
+#' the later tiers usually see almost nothing.
 #'
-#' That scan is also why neither query goes through `Streets` or wants an index.
+#' That scan is also why neither NAR query goes through `Streets` or wants an
+#' index.
 #' Measured on the 2026-06 release, the folded street-key join costs 0.05s for a
 #' 5-row probe and **0.08s for a 200-row probe** -- the scan is the whole cost
 #' and every probe row shares it, exactly as with the radius query. Batch your
 #' addresses into one call rather than looping.
 #' @param res Parsed components, as [normalize_address()] returns
 #' @param con A NAR connection
-#' @param interpolate Whether to run the interpolation tier
-#' @param bounds A spatial restriction from [nar_geocode_bounds()], or `""`
+#' @param method Tiers to try, in priority order
+#' @param bounds A spatial restriction from [nar_geocode_bounds_sql()], or `""`
+#' @param bounds_geom The same restriction as an `sfc`, for the tiers that run
+#' outside the database
 #' @param auth_mun Whether `MUN_NAME` is the caller's authoritative value
+#' @param ... Passed to the `bc` tier
 #' @return A data frame with one row per row of `res`, carrying `ADDR_GUID`,
 #' `match_method`, `uncertainty_m`, `n_matches`, `x` and `y`
 #' @keywords internal
-nar_geocode_match <- function(res, con, interpolate = TRUE, bounds = "",
-                              auth_mun = FALSE) {
+nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
+                              bounds = "", bounds_geom = NULL,
+                              auth_mun = FALSE, ...) {
   n <- nrow(res)
   out <- data.frame(ADDR_GUID     = rep(NA_character_, n),
                     match_method  = rep("none", n),
@@ -265,52 +293,98 @@ nar_geocode_match <- function(res, con, interpolate = TRUE, bounds = "",
   if (!n) return(out)
 
   probe <- nar_geocode_probe(res, auth_mun = auth_mun)
-  if (!nrow(probe)) return(out)
+
+  # Priority is expressed as running order: each tier sees only the rows its
+  # predecessors left unplaced, and a row is unplaced exactly when it has no
+  # coordinates. That definition is what sends `nar_no_geometry` on to the next
+  # tier -- knowing the address exists is worth reporting, but not worth
+  # withholding a position its neighbours can supply, and the ADDR_GUID found
+  # by the exact tier survives whichever tier ends up placing it.
+  for (m in method) {
+    todo <- which(is.na(out$x))
+    if (!length(todo)) break
+    out <- switch(m,
+      nar             = nar_geocode_tier_nar(out, probe, todo, con, bounds),
+      nar_interpolate = nar_geocode_tier_interp(out, probe, todo, con, bounds),
+      bc              = nar_geocode_tier_bc(res, out, todo, con,
+                                            bounds = bounds_geom, ...))
+  }
+  out
+}
+
+#' Write a probe subset to a temporary table and run one tier's query
+#'
+#' @description The two NAR tiers differ only in their SQL, so the temp-table
+#' round trip is shared. The table is dropped on exit rather than left for the
+#' connection to clean up, because a caller-supplied connection outlives the
+#' call and geocoding in a loop would otherwise accumulate them.
+#' @param probe The full probe table
+#' @param todo Row indices still needing a position
+#' @param con A NAR connection
+#' @param sql_fn A function of `(table_name, bounds)` returning SQL
+#' @param bounds A spatial restriction, or `""`
+#' @return The query result, possibly zero rows
+#' @keywords internal
+nar_geocode_run_tier <- function(probe, todo, con, sql_fn, bounds) {
+  probe <- probe[probe$row_id %in% todo, , drop = FALSE]
+  if (!nrow(probe)) return(data.frame())
 
   tmp <- paste0("nar_geo_", as.integer(stats::runif(1) * 1e9))
   DBI::dbWriteTable(con, tmp, probe, temporary = TRUE)
   on.exit(try(DBI::dbRemoveTable(con, tmp), silent = TRUE), add = TRUE)
+  DBI::dbGetQuery(con, sql_fn(tmp, bounds))
+}
 
-  exact <- DBI::dbGetQuery(con, nar_geocode_exact_sql(tmp, bounds))
-  if (nrow(exact)) {
-    i <- exact$row_id
-    located <- !is.na(exact$x)
-    out$ADDR_GUID[i]    <- exact$ADDR_GUID
-    out$match_method[i] <- ifelse(located, paste0("nar_", exact$geom_source),
-                                  "nar_no_geometry")
-    out$n_matches[i]    <- as.integer(exact$n_points)
-    out$x[i]            <- exact$x
-    out$y[i]            <- exact$y
-    # The ambiguity widening: pmax, so a blockface match that is also ambiguous
-    # keeps whichever of the two errors is larger rather than the later one.
-    base <- ifelse(!located, NA_real_,
-                   ifelse(exact$geom_source == "blockface",
-                          nar_blockface_uncertainty_m(), 0))
-    out$uncertainty_m[i] <- pmax(base, exact$spread_m)
-  }
+#' The exact NAR tier
+#'
+#' @description Looks the civic number up directly. Answers `nar_building` or
+#' `nar_blockface` depending on which point NAR carries, or `nar_no_geometry`
+#' when it carries the record but no coordinates.
+#' @param out The result so far
+#' @param probe The probe table
+#' @param todo Row indices still needing a position
+#' @param con A NAR connection
+#' @param bounds A spatial restriction, or `""`
+#' @return `out`, with this tier's answers filled in
+#' @keywords internal
+nar_geocode_tier_nar <- function(out, probe, todo, con, bounds = "") {
+  exact <- nar_geocode_run_tier(probe, todo, con, nar_geocode_exact_sql, bounds)
+  if (!nrow(exact)) return(out)
 
-  # A record found but unplaced still goes to the interpolation tier. Knowing
-  # the address exists is worth reporting, but it is not worth withholding a
-  # position that can be derived from its neighbours -- so `nar_no_geometry` is
-  # the answer only once interpolation has also declined, and the ADDR_GUID
-  # found here survives either way.
-  todo <- probe[out$match_method[probe$row_id] %in% c("none", "nar_no_geometry"),
-                , drop = FALSE]
-  if (!interpolate || !nrow(todo)) return(out)
+  i <- exact$row_id
+  located <- !is.na(exact$x)
+  out$ADDR_GUID[i]    <- exact$ADDR_GUID
+  out$match_method[i] <- ifelse(located, paste0("nar_", exact$geom_source),
+                                "nar_no_geometry")
+  out$n_matches[i]    <- as.integer(exact$n_points)
+  out$x[i]            <- exact$x
+  out$y[i]            <- exact$y
+  # The ambiguity widening: pmax, so a blockface match that is also ambiguous
+  # keeps whichever of the two errors is larger rather than the later one.
+  base <- ifelse(!located, NA_real_,
+                 ifelse(exact$geom_source == "blockface",
+                        nar_blockface_uncertainty_m(), 0))
+  out$uncertainty_m[i] <- pmax(base, exact$spread_m)
+  out
+}
 
-  tmp2 <- paste0(tmp, "_i")
-  DBI::dbWriteTable(con, tmp2, todo, temporary = TRUE)
-  on.exit(try(DBI::dbRemoveTable(con, tmp2), silent = TRUE), add = TRUE)
+#' The NAR interpolation tier
+#'
+#' @description Places a civic number NAR does not carry between the nearest
+#' known civics of the same parity on either side of it.
+#' @inheritParams nar_geocode_tier_nar
+#' @return `out`, with this tier's answers filled in
+#' @keywords internal
+nar_geocode_tier_interp <- function(out, probe, todo, con, bounds = "") {
+  interp <- nar_geocode_run_tier(probe, todo, con, nar_geocode_interp_sql, bounds)
+  if (!nrow(interp)) return(out)
 
-  interp <- DBI::dbGetQuery(con, nar_geocode_interp_sql(tmp2, bounds))
-  if (nrow(interp)) {
-    i <- interp$row_id
-    out$match_method[i]  <- "nar_interpolated"
-    out$uncertainty_m[i] <- 0.5 * interp$span_m
-    out$n_matches[i]     <- 2L
-    out$x[i]             <- interp$x
-    out$y[i]             <- interp$y
-  }
+  i <- interp$row_id
+  out$match_method[i]  <- "nar_interpolated"
+  out$uncertainty_m[i] <- 0.5 * interp$span_m
+  out$n_matches[i]     <- 2L
+  out$x[i]             <- interp$x
+  out$y[i]             <- interp$y
   out
 }
 
@@ -521,6 +595,33 @@ nar_geocode_interp_sql <- function(probe, bounds = "") {
          AND a.CIVIC_NO IS NOT NULL
          AND (a.CIVIC_NO % 2) = (p.civic % 2)",
       bounds))
+}
+
+#' Validate and normalize the `method` argument
+#'
+#' @description Partial matching, deduplication, and an error naming the tier
+#' that was not recognized rather than the whole vocabulary. **Order is
+#' preserved**, since order is the priority.
+#' @param method What the caller passed
+#' @return A character vector of tier names
+#' @keywords internal
+nar_geocode_methods <- function(method) {
+  known <- c("nar", "nar_interpolate", "bc")
+  if (!length(method) || !is.character(method)) {
+    stop("`method` must be one or more of ", paste0('"', known, '"', collapse = ", "),
+         ", in the order they should be tried.", call. = FALSE)
+  }
+  # Exact matches win over prefixes in pmatch, so "nar" is unambiguous even
+  # though it prefixes "nar_interpolate".
+  i <- pmatch(method, known, nomatch = 0L, duplicates.ok = TRUE)
+  if (any(i == 0L)) {
+    stop("Unknown geocoding method ",
+         paste0('"', method[i == 0L], '"', collapse = ", "), ". `method` takes ",
+         paste0('"', known, '"', collapse = ", "), ".", call. = FALSE)
+  }
+  # A tier offered a second time would see only the rows it already declined,
+  # so a duplicate is dropped rather than run twice.
+  unique(known[i])
 }
 
 #' Recycle an authoritative constraint to one value per input

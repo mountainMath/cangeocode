@@ -323,23 +323,24 @@ nar_bc_address_string <- function(res) {
   unname(apply(parts, 1, function(r) paste(r[!is.na(r) & nzchar(r)], collapse = ", ")))
 }
 
-#' Send the addresses NAR could not place to the BC geocoder
+#' The BC Address Geocoder tier
 #'
-#' @description The fallback tier behind `geocode(fallback = "bc")`. Only rows
-#' that came back `none` **and** are in British Columbia are sent -- the service
-#' covers no other province, and asked about an Ontario address it answers with
-#' whatever BC place shares the name.
+#' @description The tier behind `geocode(method = c(..., "bc"))`. Only the rows
+#' its predecessors left unplaced **and** that are in British Columbia are sent
+#' -- the service covers no other province, and asked about an Ontario address
+#' it answers with whatever BC place shares the name.
 #' @param res The parsed components, after any authoritative override
-#' @param hits The result of [nar_geocode_match()]
+#' @param out The result so far, as [nar_geocode_match()] builds it
+#' @param todo Row indices still needing a position
 #' @param con A NAR connection, for the storage CRS
 #' @param bounds An `sfc` in the storage CRS, or `NULL`
 #' @param ... Passed to [bc_geocode()]
-#' @return `hits`, with the rows the service placed filled in
+#' @return `out`, with the rows the service placed filled in
 #' @keywords internal
-nar_geocode_bc_fallback <- function(res, hits, con, bounds = NULL, ...) {
+nar_geocode_tier_bc <- function(res, out, todo, con, bounds = NULL, ...) {
   prov <- toupper(res$PROV_ABVN %||% rep(NA_character_, nrow(res)))
-  todo <- which(hits$match_method == "none" & !is.na(prov) & prov == "BC")
-  if (!length(todo)) return(hits)
+  todo <- todo[!is.na(prov[todo]) & prov[todo] == "BC"]
+  if (!length(todo)) return(out)
 
   b <- bc_geocode(nar_bc_address_string(res[todo, , drop = FALSE]),
                   geometry = TRUE, crs = nar_crs(con), ...)
@@ -351,16 +352,16 @@ nar_geocode_bc_fallback <- function(res, hits, con, bounds = NULL, ...) {
     inside <- lengths(sf::st_within(sf::st_geometry(b)[ok], bounds)) > 0
     ok[ok] <- inside
   }
-  if (!any(ok)) return(hits)
+  if (!any(ok)) return(out)
 
   co <- sf::st_coordinates(sf::st_geometry(b)[ok])
   rows <- todo[ok]
-  hits$x[rows] <- co[, 1]
-  hits$y[rows] <- co[, 2]
-  hits$match_method[rows] <- b$match_method[ok]
-  hits$uncertainty_m[rows] <- b$uncertainty_m[ok]
+  out$x[rows] <- co[, 1]
+  out$y[rows] <- co[, 2]
+  out$match_method[rows] <- b$match_method[ok]
+  out$uncertainty_m[rows] <- b$uncertainty_m[ok]
   # The service was asked for one result, so it reports no alternatives to
   # count. Leaving this at 1 says "one answer", not "unambiguous".
-  hits$n_matches[rows] <- 1L
-  hits
+  out$n_matches[rows] <- 1L
+  out
 }

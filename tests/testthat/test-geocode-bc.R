@@ -106,7 +106,7 @@ test_that("components the caller never supplied are simply absent", {
   expect_equal(nar_bc_address_string(res), "12 MAIN, VICTORIA, BC")
 })
 
-test_that("the fallback only sends the BC rows that failed", {
+test_that("the bc tier only sends the BC rows still unplaced", {
   res <- data.frame(CIVIC_NO = c("1", "2", "3"),
                     STREET_NAME = c("A", "B", "C"),
                     MUN_NAME = c("VICTORIA", "TORONTO", "VANCOUVER"),
@@ -115,6 +115,7 @@ test_that("the fallback only sends the BC rows that failed", {
                      match_method = c("nar_building", "none", "none"),
                      uncertainty_m = c(0, NA, NA), n_matches = c(1L, 0L, 0L),
                      x = c(1, NA, NA), y = c(1, NA, NA))
+  todo <- which(is.na(hits$x))
 
   sent <- NULL
   out <- local({
@@ -125,7 +126,7 @@ test_that("the fallback only sends the BC rows that failed", {
                 geometry = sf::st_sfc(sf::st_point(c(4012345, 2007890)),
                                       crs = 3347))
     })
-    nar_geocode_bc_fallback(res, hits, con = NULL, bounds = NULL)
+    nar_geocode_tier_bc(res, hits, todo, con = NULL, bounds = NULL)
   })
 
   # Row 1 succeeded and row 2 is in Ontario, so exactly one address is sent.
@@ -133,11 +134,11 @@ test_that("the fallback only sends the BC rows that failed", {
   expect_equal(out$match_method, c("nar_building", "none", "bc_civic"))
   expect_equal(out$x, c(1, NA, 4012345))
   expect_equal(out$uncertainty_m, c(0, NA, 20))
-  # Row 1 is untouched by the fallback.
+  # Row 1 is untouched by the tier.
   expect_equal(out$n_matches, c(1L, 0L, 1L))
 })
 
-test_that("a fallback point outside `within` is discarded", {
+test_that("a bc tier point outside `within` is discarded", {
   res <- data.frame(CIVIC_NO = "3", STREET_NAME = "C", MUN_NAME = "VANCOUVER",
                     PROV_ABVN = "BC", stringsAsFactors = FALSE)
   hits <- data.frame(ADDR_GUID = NA_character_, match_method = "none",
@@ -153,7 +154,7 @@ test_that("a fallback point outside `within` is discarded", {
                 geometry = sf::st_sfc(sf::st_point(c(4012345, 2007890)),
                                       crs = 3347))
     })
-    nar_geocode_bc_fallback(res, hits, con = NULL, bounds = box)
+    nar_geocode_tier_bc(res, hits, 1L, con = NULL, bounds = box)
   })
 
   # `within` is authoritative for every tier, including the one that runs

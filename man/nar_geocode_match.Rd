@@ -2,33 +2,47 @@
 % Please edit documentation in R/geocode.R
 \name{nar_geocode_match}
 \alias{nar_geocode_match}
-\title{Resolve parsed components against NAR, exactly and then by interpolation}
+\title{Resolve parsed components by running the requested tiers in priority order}
 \usage{
-nar_geocode_match(res, con, interpolate = TRUE, bounds = "", auth_mun = FALSE)
+nar_geocode_match(
+  res,
+  con,
+  method = c("nar", "nar_interpolate"),
+  bounds = "",
+  bounds_geom = NULL,
+  auth_mun = FALSE,
+  ...
+)
 }
 \arguments{
 \item{res}{Parsed components, as [normalize_address()] returns}
 
 \item{con}{A NAR connection}
 
-\item{interpolate}{Whether to run the interpolation tier}
+\item{method}{Tiers to try, in priority order}
 
-\item{bounds}{A spatial restriction from [nar_geocode_bounds()], or `""`}
+\item{bounds}{A spatial restriction from [nar_geocode_bounds_sql()], or `""`}
+
+\item{bounds_geom}{The same restriction as an `sfc`, for the tiers that run
+outside the database}
 
 \item{auth_mun}{Whether `MUN_NAME` is the caller's authoritative value}
+
+\item{...}{Passed to the `bc` tier}
 }
 \value{
 A data frame with one row per row of `res`, carrying `ADDR_GUID`,
 `match_method`, `uncertainty_m`, `n_matches`, `x` and `y`
 }
 \description{
-Runs the exact tier over every parsed row, then the
-interpolation tier over only the rows it did not answer. Splitting it that
-way rather than running both and preferring the exact one is worth the second
-temp table: each tier is a full scan of the 17.4M-row `Addresses` table, and
-the all-exact case is the common one.
+Each tier is offered only the rows its predecessors left
+unplaced. Running them in sequence rather than running them all and picking
+the best answer is worth the extra temp table: a NAR tier is a full scan of
+the 17.4M-row `Addresses` table, and the all-exact case is the common one, so
+the later tiers usually see almost nothing.
 
-That scan is also why neither query goes through `Streets` or wants an index.
+That scan is also why neither NAR query goes through `Streets` or wants an
+index.
 Measured on the 2026-06 release, the folded street-key join costs 0.05s for a
 5-row probe and **0.08s for a 200-row probe** -- the scan is the whole cost
 and every probe row shares it, exactly as with the radius query. Batch your

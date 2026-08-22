@@ -370,11 +370,25 @@ unhandled there by design.
 
 ### `R/geocode.R` — the forward query layer
 
-`geocode()` parses with `normalize_address()` and then runs two tiers against
-`Addresses`, reporting which one answered in **`match_method`** and what that method
-costs in **`uncertainty_m`**. On the 5,000 Corporations Canada addresses the eval draws,
-the exact tier places 84.9% and interpolation lifts that to **89.1%**, in 0.9s for the
-whole batch.
+`geocode()` parses with `normalize_address()` and then runs the tiers named in **`method`**,
+**in the order given** — that order *is* the priority, since each tier is offered only the
+rows its predecessors left without a position. `match_method` reports which one answered and
+`uncertainty_m` what that method costs. On the 5,000 Corporations Canada addresses the eval
+draws, the exact tier places 84.9% and interpolation lifts that to **89.1%**, in 0.9s for
+the whole batch.
+
+The vocabulary is `"nar"` (exact lookup), `"nar_interpolate"`, and `"bc"`, defaulting to
+`c("nar", "nar_interpolate")` — the offline pair. **`method` replaced the earlier `source`,
+`interpolate` and `fallback` arguments**, which were three ways of saying the same thing and
+could not express an ordering. `nar_geocode_methods()` validates it; exact matches beat
+prefixes in `pmatch()`, so `"nar"` is unambiguous against `"nar_interpolate"`.
+
+**"Unplaced" is `is.na(out$x)`, not `match_method == "none"`.** That single definition is
+what sends a `nar_no_geometry` row on to the next tier — NAR holds the record but no
+coordinates, and withholding a position its neighbours can supply would be perverse — while
+the `ADDR_GUID` the exact tier found survives whichever tier ends up placing it. The reverse
+is a real cost and is documented: a tier that never runs reports nothing, so putting `"nar"`
+last leaves interpolated rows with no `ADDR_GUID`.
 
 | `match_method` | meaning | `uncertainty_m` |
 | --- | --- | --- |
@@ -435,10 +449,10 @@ CRS is still read from the database with `nar_crs()`, and `sf` handles the axis 
 ### `R/geocode_bc.R` — the one external geocoder
 
 A binding to the Province of British Columbia's [Address Geocoder]. `bc_geocode()` is the
-client, `geocode(fallback = "bc")` routes the BC rows that came back `none` to it, and
-`bc_validate()` compares an existing result against BC's answer in metres. BC only: asked
-about an Ontario address the service answers with whatever BC place shares the name, so the
-fallback filters on `PROV_ABVN == "BC"` before sending anything.
+client, `nar_geocode_tier_bc()` is the `"bc"` tier `method` can name, and `bc_validate()`
+compares an existing result against BC's answer in metres. BC only: asked about an Ontario
+address the service answers with whatever BC place shares the name, so the tier filters on
+`PROV_ABVN == "BC"` before sending anything.
 
 **The service always answers, so a response is not a match.**
 `1234 Nonexistentzzz Rd, Victoria, BC` comes back as the centre of Victoria with a score of
@@ -454,8 +468,7 @@ precision vocabulary into deliberately pessimistic order-of-magnitude metres. Tr
 ranking safe to filter on, not as an error bar comparable to the NAR tiers'. Calibrating them
 is named as the next step in the note.
 
-**The fallback rebuilds the query string from the components rather than forwarding
-`input`.** `prov`/`mun` are authoritative and overwrite the parsed columns, so forwarding the
+**The tier rebuilds the query string from the components rather than forwarding `input`.** `prov`/`mun` are authoritative and overwrite the parsed columns, so forwarding the
 original string would silently discard the caller's constraint the moment a row fell through.
 `within` is enforced too, in R — the SQL predicate cannot reach a point that came from another
 service, so a fallback point outside the bounds is discarded rather than returned.

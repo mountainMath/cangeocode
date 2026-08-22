@@ -12,8 +12,8 @@ imports into a local [DuckDB](https://duckdb.org) database.
 
 Everything runs on your own machine: no API keys, no rate limits, and no
 address ever leaves it. The one exception is opt-in — `bc_geocode()` and
-`geocode(fallback = "bc")` call the Province of British Columbia's public
-geocoder, and nothing contacts it unless you ask for it by name.
+`geocode(method = c(..., "bc"))` call the Province of British Columbia's public
+geocoder, and nothing contacts it unless you name it.
 
 ## Installation
 
@@ -90,11 +90,26 @@ above measure that separately, for one province.
 
 Interpolation is deliberately conservative: same side of the street only, and
 it **refuses to extrapolate** past the last known civic rather than guessing.
-Turn it off with `interpolate = FALSE` to keep only addresses NAR actually
-carries.
 
 Batch rather than loop — the street-name join costs about the same for 5
 addresses as for 200, and every row in a call shares it.
+
+### Choosing the methods
+
+`method` names the tiers to try and the order to try them in. Each tier only
+sees the rows the ones before it left without a position, so the order is the
+priority:
+
+``` r
+geocode(addresses, method = "nar")                      # NAR records only
+geocode(addresses, method = c("nar", "nar_interpolate")) # the default
+geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
+geocode(addresses, method = c("bc", "nar"))             # prefer BC where it answers
+```
+
+`"nar"` looks the civic number up directly, `"nar_interpolate"` places the ones
+NAR does not carry, and `"bc"` asks the Province of BC's geocoder. The default
+is the offline pair; nothing reaches the network unless `"bc"` is named.
 
 ### Constraining the search
 
@@ -115,10 +130,10 @@ finds the addresses NAR files under `SCARBOROUGH`.
 [Address Geocoder](https://geocoder.api.gov.bc.ca/). It covers BC only, needs
 no API key, and is useful in two ways.
 
-As a **fallback**, for the BC addresses NAR cannot place:
+As a **last-resort tier**, for the BC addresses NAR cannot place:
 
 ``` r
-geocode(addresses, fallback = "bc")
+geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
 ```
 
 On a sample of 600 BC addresses the NAR pathway placed 524 and gave up on 76;
