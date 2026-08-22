@@ -185,6 +185,11 @@ if (grepl("B", PARTS)) {
     options(to)
   }
 
+  # Re-seed, or the draw depends on whether Part A ran first and consumed the
+  # stream: EVAL_PARTS=B and EVAL_PARTS=AB would sample different corporations
+  # and their numbers would not be comparable.
+  set.seed(20260821)
+
   # Read whole then sample: the file is ordered by corporation number, which
   # tracks era and region, so anything head-shaped is a Quebec sample.
   corp <- as.data.frame(arrow::read_csv_arrow(

@@ -11,7 +11,13 @@ the `spatial` extension. Road network files and online geocoders are named in `D
 future sources but are not implemented yet.
 
 Public API (see `NAMESPACE`): `nar_connection()`, `available_nar_versions()`, `collect_nar()`,
-`reverse_geocode()`.
+`reverse_geocode()`, `normalize_address()`, `address_pattern()`.
+
+This file records **why the code is shaped the way it is**. Its companion,
+**[`address-normalization-status.md`](address-normalization-status.md)**, records **where address
+normalization currently falls short** — the measured failure modes, the things tried and rejected,
+and the ranked next steps. Read it before changing the parser or the gazetteer, and re-run the eval
+harness (instructions are in that file) before and after any such change.
 
 ## Commands
 
@@ -277,7 +283,10 @@ with `nar_con()` in order to read the storage CRS and register the macros. Hande
 already-collected data frame it raises an explicit error pointing at `sf::st_transform()` instead
 of failing deep inside dbplyr.
 
-### Numbered rural roads and the pattern recognizer
+### Address normalization: numbered rural roads and the pattern recognizer
+
+> Known failure modes, the eval harness, and what to fix next live in
+> [`address-normalization-status.md`](address-normalization-status.md).
 
 `R/normalize_address.R` has a `nar_take_numbered_road()` step, hooked in **after the civic number
 and before the direction/type steps**, that handles the roads NAR files with *no street type at
@@ -320,10 +329,10 @@ ones). The regional forms are checked before the ordinary ones so `grid`, `frenc
 `civic_street` majority they overlap.
 
 Two of the buckets exist to say *this will never resolve*: `po_box` and `rural_route` are delivery
-instructions and **NAR contains neither**. Measured in the eval they confirm at 25% and 29% against
-87% for `civic_street`, which is the point — they separate "this address is wrong" from "this
-address was never going to be in the gazetteer". `nar_delivery_marks()` anchors `BOX` to the start
-of a comma segment *and* requires a number after it, or Markham's Box Grove Bypass becomes a post
+instructions and **NAR contains neither**, and they confirm against NAR at a fraction of
+`civic_street`'s rate — that is the point, they separate "this address is wrong" from "this address
+was never going to be in the gazetteer". `nar_delivery_marks()` anchors `BOX` to the start of a
+comma segment *and* requires a number after it, or Markham's Box Grove Bypass becomes a post
 office box.
 
 Traits (`numbered_road`, `type_leads`, `intersection`) are accumulated **during** the parse and
@@ -347,17 +356,8 @@ JOHN'S` (54,129 addresses), `SAULT STE. MARIE` (36,711) and `ST. ALBERT` (29,097
 never match a parsed fold key. `nar_gazetteer_sql()` folds periods out of *both* sides with
 `replace(..., '.', '')` — on the `MunAlias` join, the `PostalMun` subquery, `mun_exact`, and the
 two fuzzy street comparisons. It deliberately does **not** do so on the exact-branch
-`Streets.NAME_FOLD` join, which would cost the `str_name_idx` index; street-name periods (104,272
-addresses, 0.6%) stay unhandled there by design. This was NL's 68.5% in the eval.
-
-### The eval harness samples repeatably
-
-`data-raw/eval_normalize.R` Part A draws with `USING SAMPLE reservoir(N ROWS) REPEATABLE (...)`.
-DuckDB's sampler does **not** take R's `set.seed()`, so without `REPEATABLE` every run draws a
-different sample and a before/after comparison measures the sampler rather than the change — at
-N = 5,000 a rate near 0.95 carries roughly 0.6 points of noise, wide enough to hide or invent most
-of the effects worth chasing. The SQL is an `sprintf` template, so a literal percent sign in it has
-to be doubled.
+`Streets.NAME_FOLD` join, which would cost the `str_name_idx` index — so street-name periods stay
+unhandled there by design.
 
 ### `R/misc.R`
 
