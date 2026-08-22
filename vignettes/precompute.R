@@ -1,6 +1,6 @@
 # Pre-compute the vignettes.
 #
-# Both vignettes query the real NAR database, which is several GB and has to be
+# Every vignette queries the real NAR database, which is several GB and has to be
 # downloaded from StatCan first -- neither is something `R CMD build` can do. So
 # the sources live in `*.Rmd.orig`, are knitted here against a local database,
 # and the resulting `*.Rmd` (with output already inlined) is what ships and what
