@@ -20,7 +20,7 @@ if (!nzchar(Sys.getenv("NAR_CACHE_PATH"))) {
 old <- setwd("vignettes")
 on.exit(setwd(old), add = TRUE)
 
-for (vignette in c("cangeocode", "querying-nar")) {
+for (vignette in c("cangeocode", "querying-nar", "geocoding")) {
   message("Knitting ", vignette)
   knitr::knit(paste0(vignette, ".Rmd.orig"), paste0(vignette, ".Rmd"))
 }

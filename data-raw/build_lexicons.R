@@ -161,6 +161,11 @@ nar_lex_numbered_roads <- rbind(
   numbered_road("ROUTE",         "NB", "ROUTE", "RTE")
 )
 
+# Unit designators that are also ordinary words, and so may only introduce a
+# value that looks like a unit number. STE is the whole list: it is Suite and
+# it is equally Sainte, and NAR files 36,711 addresses in Sault Ste. Marie.
+nar_lex_unit_ambiguous <- c("STE")
+
 # --- folded match keys -----------------------------------------------------
 # Matching is accent-insensitive, but output is not: NAR stores MONTÉE and
 # ALLÉE with their accents, so the parser matches on `surface_fold` and emits
@@ -178,7 +183,8 @@ nar_lex_unit_bare  <- unique(fold(nar_lex_unit_bare))
 nar_lex_numbered_roads$surface_fold <- fold(nar_lex_numbered_roads$surface)
 
 save(nar_lex_types, nar_lex_dirs, nar_lex_prov, nar_prov_lang,
-     nar_lex_unit_words, nar_lex_unit_bare, nar_lex_numbered_roads,
+     nar_lex_unit_words, nar_lex_unit_bare, nar_lex_unit_ambiguous,
+     nar_lex_numbered_roads,
      file = "R/sysdata.rda", version = 3, compress = "xz")
 
 cat("Wrote R/sysdata.rda:",

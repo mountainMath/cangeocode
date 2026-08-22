@@ -331,6 +331,34 @@ threaded out on `nar_parse_one()`'s `traits` column, because they record *how* a
 several forms end in identical columns. The pattern is computed once, in `nar_parse_rules()`,
 before the gazetteer runs — it describes the parse, not the corrected result.
 
+### Two collisions between the parser's vocabulary and real place names
+
+**`STE` is Suite and it is also Sainte.** Left unguarded, `Sault Ste. Marie` parses as a unit
+called `SAULT MARIE` and the municipality is lost outright — 36,711 NAR addresses' worth.
+`nar_take_unit_segments()` therefore requires a designator's *value* to look like a unit number
+(a digit, or a lone letter) before accepting it. That requirement is confined to
+`nar_lex_unit_ambiguous`, which is `STE` and nothing else, and **must not be widened to every
+designator**: `APT BSMT` and `APT TRLR` are real units whose value is a word, and applying the
+rule to `APT` collapses the whole run into the street name and drops the civic number with it.
+Both directions are regression-tested.
+
+**NAR keeps periods in municipality names; `nar_norm_text()` strips them from input.** `ST.
+JOHN'S` (54,129 addresses), `SAULT STE. MARIE` (36,711) and `ST. ALBERT` (29,097) can therefore
+never match a parsed fold key. `nar_gazetteer_sql()` folds periods out of *both* sides with
+`replace(..., '.', '')` — on the `MunAlias` join, the `PostalMun` subquery, `mun_exact`, and the
+two fuzzy street comparisons. It deliberately does **not** do so on the exact-branch
+`Streets.NAME_FOLD` join, which would cost the `str_name_idx` index; street-name periods (104,272
+addresses, 0.6%) stay unhandled there by design. This was NL's 68.5% in the eval.
+
+### The eval harness samples repeatably
+
+`data-raw/eval_normalize.R` Part A draws with `USING SAMPLE reservoir(N ROWS) REPEATABLE (...)`.
+DuckDB's sampler does **not** take R's `set.seed()`, so without `REPEATABLE` every run draws a
+different sample and a before/after comparison measures the sampler rather than the change — at
+N = 5,000 a rate near 0.95 carries roughly 0.6 points of noise, wide enough to hide or invent most
+of the effects worth chasing. The SQL is an `sprintf` template, so a literal percent sign in it has
+to be doubled.
+
 ### `R/misc.R`
 
 Package-level `@import dplyr` / `@importFrom` block, a no-op `ignore_unused_imports()` that

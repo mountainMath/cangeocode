@@ -151,7 +151,7 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
              -- code supplies one, taking the busiest municipality in the FSA.
              -- Both may be absent, which the exact branch below picks up.
              coalesce(nullif(p.mun_fold, ''),
-                      (SELECT strip_accents(upper(pm.MAIL_MUN_NAME))
+                      (SELECT replace(strip_accents(upper(pm.MAIL_MUN_NAME)), '.', '')
                          FROM PostalMun pm
                         WHERE pm.FSA = p.fsa AND p.fsa <> ''
                         ORDER BY pm.N_ADDRESSES DESC LIMIT 1)) AS mun_use
@@ -164,11 +164,11 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
              s.OFFICIAL_STREET_DIR  AS STREET_DIR,
              s.MAIL_MUN_NAME, s.MAIL_PROV_ABVN, s.N_ADDRESSES,
              greatest(
-               jaro_winkler_similarity(p.name_fold, s.NAME_FOLD),
-               jaro_winkler_similarity(p.name_fold, s.MAIL_NAME_FOLD)) AS name_sim,
+               jaro_winkler_similarity(p.name_fold, replace(s.NAME_FOLD, '.', '')),
+               jaro_winkler_similarity(p.name_fold, replace(s.MAIL_NAME_FOLD, '.', ''))) AS name_sim,
              0.72 * greatest(
-                      jaro_winkler_similarity(p.name_fold, s.NAME_FOLD),
-                      jaro_winkler_similarity(p.name_fold, s.MAIL_NAME_FOLD))
+                      jaro_winkler_similarity(p.name_fold, replace(s.NAME_FOLD, '.', '')),
+                      jaro_winkler_similarity(p.name_fold, replace(s.MAIL_NAME_FOLD, '.', '')))
              + 0.10 * CASE WHEN p.type = '' THEN 1
                            WHEN p.type IN (s.OFFICIAL_STREET_TYPE, s.MAIL_STREET_TYPE) THEN 1
                            ELSE 0 END
@@ -184,13 +184,20 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                            WHEN p.civic BETWEEN s.MIN_CIVIC_NO AND s.MAX_CIVIC_NO THEN 1
                            ELSE 0 END
                AS score
-             , strip_accents(upper(s.MAIL_MUN_NAME)) = p.mun_use AS mun_exact
+             , replace(strip_accents(upper(s.MAIL_MUN_NAME)), '.', '')
+                 = p.mun_use AS mun_exact
         FROM probe p
         -- Through the alias set rather than straight at MAIL_MUN_NAME: the name
         -- someone writes and the name NAR files under are often different names
         -- for overlapping places, in both directions.
         JOIN MunAlias m
-          ON m.NAME_FOLD = p.mun_use
+          -- Periods come off both sides. NAR files ST. JOHN'S, SAULT STE.
+          -- MARIE and ST. ALBERT with them, 1,027,129 addresses' worth, while
+          -- nar_norm_text() strips them from input as mere abbreviation marks.
+          -- Without this the two never meet and those cities resolve to
+          -- nothing. MunAlias is 18,313 rows, so scanning it costs nothing --
+          -- do not move this onto Streets, where it would cost the index.
+          ON replace(m.NAME_FOLD, '.', '') = p.mun_use
          AND (p.prov = '' OR m.PROV_ABVN = p.prov)
         JOIN Streets s
           ON s.MUN_KEY = m.MUN_KEY

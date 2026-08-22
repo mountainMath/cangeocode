@@ -75,7 +75,12 @@ if (grepl("A", PARTS)) {
       FROM Addresses
      WHERE length(OFFICIAL_STREET_NAME) > 0 AND CIVIC_NO IS NOT NULL
        AND length(MAIL_MUN_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
-     USING SAMPLE %d ROWS", N))
+     -- REPEATABLE, or DuckDB draws a fresh sample every run and a before/after
+     -- comparison measures the sampler rather than the change. At N = 5,000 a
+     -- rate near 0.95 carries about 0.6 points of sampling noise, wide enough
+     -- to hide or invent most of the effects worth chasing. Note this string is
+     -- an sprintf template: a literal percent sign has to be doubled.
+     USING SAMPLE reservoir(%d ROWS) REPEATABLE (20260821)", N))
 
   r <- nar_render_surface(rows)
   t0 <- Sys.time()

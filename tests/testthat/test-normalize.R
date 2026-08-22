@@ -405,3 +405,43 @@ test_that("the pattern survives gazetteer resolution", {
   expect_equal(r$parse_source, "gazetteer")
   expect_equal(as.character(r$pattern), "civic_street")
 })
+
+test_that("Sainte in a place name is not read as a Suite designator", {
+  # STE abbreviates Suite, but it is also Sainte. Requiring a unit designator's
+  # value to look like a unit number is what tells them apart: "Sault Marie" is
+  # a word, "600" is not. Without this the municipality is eaten outright.
+  # The requirement is confined to STE on purpose -- see the next test.
+  r <- normalize_address(c("29 Hocking Ave, Sault Ste. Marie, ON",
+                           "100 Main St, Ste-Foy, QC",
+                           "Suite 600, 100 Main St, Calgary, AB",
+                           "Ste 4B, 100 Queen St, Toronto, ON"))
+  expect_equal(r$MUN_NAME, c("SAULT STE MARIE", "STE-FOY", "CALGARY", "TORONTO"))
+  expect_equal(r$APT_NO_LABEL, c(NA, NA, "600", "4B"))
+  expect_equal(r$CIVIC_NO, c(29, 100, 100, 100))
+})
+
+test_that("an unambiguous unit designator still accepts a word for a value", {
+  # The Sainte guard must not spread to the other designators: APT is never a
+  # place name, and the value it introduces is routinely a word rather than a
+  # number. Widening the rule to every designator drops the civic number off
+  # these outright, because the whole run collapses into the street name.
+  r <- normalize_address(c("Apt Bsmt, 2768 Euclid Ave, Vancouver, BC",
+                           "Apt Trlr, 22848 Old Yale Rd, Langley, BC"))
+  expect_equal(r$APT_NO_LABEL, c("BSMT", "TRLR"))
+  expect_equal(r$CIVIC_NO, c(2768, 22848))
+  expect_equal(r$STREET_NAME, c("EUCLID", "OLD YALE"))
+})
+
+test_that("a period in a municipality name does not block the gazetteer", {
+  skip_if_no_duckdb_spatial()
+  # NAR files ST. JOHN'S, SAULT STE. MARIE and ST. ALBERT with their periods --
+  # 1,027,129 addresses between them -- while nar_norm_text() strips periods
+  # from input as abbreviation marks. Both sides have to be folded or those
+  # cities resolve to nothing at all.
+  con <- local_mini_gazetteer()
+  res <- nar_parse_rules("207 Doyle Street, St. John's, NL")
+  out <- nar_resolve_gazetteer(res, con)
+  expect_equal(out$parse_source, "gazetteer")
+  expect_equal(out$STREET_NAME, "Doyle")
+  expect_equal(out$MUN_NAME, "ST. JOHN'S")
+})

@@ -10,6 +10,14 @@ reference:
   contents:
   - reverse_geocode
 
+- title: Address normalization
+  desc: >
+    Parse free-text Canadian addresses into the components NAR is keyed on,
+    and sort them by the shape they parsed as.
+  contents:
+  - normalize_address
+  - address_pattern
+
 - title: The NAR database
   desc: >
     Download and open a National Address Repository release, and get query

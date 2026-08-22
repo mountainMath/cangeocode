@@ -96,3 +96,28 @@ skip_if_no_duckdb_spatial <- function() {
   }, error = function(e) FALSE)
   testthat::skip_if_not(ok, "DuckDB spatial extension unavailable")
 }
+
+#' A three-row gazetteer in a throwaway writable database
+#'
+#' The real fixture connection is read-only, which is right for what it tests
+#' but leaves no way to exercise the gazetteer SQL against contrived rows. This
+#' builds just the three tables nar_gazetteer_sql() reads.
+local_mini_gazetteer <- function(env = parent.frame()) {
+  con <- DBI::dbConnect(duckdb::duckdb())
+  withr::defer(DBI::dbDisconnect(con, shutdown = TRUE), envir = env)
+  DBI::dbExecute(con, "CREATE TABLE Streets AS SELECT
+      'Doyle' AS OFFICIAL_STREET_NAME, 'ST' AS OFFICIAL_STREET_TYPE,
+      '' AS OFFICIAL_STREET_DIR, 'DOYLE' AS MAIL_STREET_NAME,
+      'ST' AS MAIL_STREET_TYPE, '' AS MAIL_STREET_DIR,
+      'ST. JOHN''S' AS MAIL_MUN_NAME, 'NL' AS MAIL_PROV_ABVN,
+      '10' AS PROV_CODE, 'St. John''s' AS CSD_ENG_NAME,
+      '10:CY:St. John''s' AS MUN_KEY, 'DOYLE' AS NAME_FOLD,
+      'DOYLE' AS MAIL_NAME_FOLD, 120 AS N_ADDRESSES,
+      1 AS MIN_CIVIC_NO, 400 AS MAX_CIVIC_NO")
+  DBI::dbExecute(con, "CREATE TABLE MunAlias AS SELECT
+      'ST. JOHN''S' AS NAME_FOLD, 'NL' AS PROV_ABVN,
+      '10:CY:St. John''s' AS MUN_KEY, 120 AS N_ADDRESSES")
+  DBI::dbExecute(con, "CREATE TABLE PostalMun AS SELECT
+      'A1E' AS FSA, 'ST. JOHN''S' AS MAIL_MUN_NAME, 120 AS N_ADDRESSES")
+  con
+}

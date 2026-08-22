@@ -375,6 +375,16 @@ nar_take_unit_segments <- function(segs, lang = "en") {
 
   is_num <- function(t) grepl("^[0-9]+[A-Z]?$", t)
 
+  # STE is the one unit designator that is also an ordinary word: it
+  # abbreviates Suite, but it is equally Sainte, so left unguarded "Sault Ste.
+  # Marie" reads as a unit called "Sault Marie" and the municipality is lost.
+  # Only for those words is the value required to look like a unit number -- a
+  # digit ("600", "4B", "5TH") or a lone letter ("A"). Every other designator
+  # is unambiguous and keeps taking whatever follows it, because "Apt Bsmt"
+  # and "Apt Trlr" are real units whose value is a word rather than a number.
+  is_unit_value <- function(v) grepl("[0-9]", v) | grepl("^[A-Z]$", v)
+  needs_number <- function(f) any(f %in% nar_lex_unit_ambiguous)
+
   classify <- function(seg) {
     f <- nar_fold(seg)
     n <- length(seg)
@@ -389,8 +399,9 @@ nar_take_unit_segments <- function(segs, lang = "en") {
     # one of these words is not swallowed whole.
     if (n <= 3 && any(f %in% nar_lex_unit_words)) {
       value <- seg[!(f %in% nar_lex_unit_words) & seg != "#"]
-      if (length(value)) return(paste(value, collapse = " "))
-      return(seg[1])
+      if (!length(value)) return(seg[1])
+      if (!needs_number(f) || all(is_unit_value(nar_fold(value))))
+        return(paste(value, collapse = " "))
     }
     NA_character_
   }
@@ -448,7 +459,9 @@ nar_take_leading_unit <- function(toks, lang = "en") {
 
   # "APT 302 1055 ...", "UNIT 4B 100 ...". Requires something to follow the
   # unit value, or the whole string is just a unit and no street.
-  if (nar_fold(first) %in% nar_lex_unit_words && length(toks) >= 3) {
+  if (nar_fold(first) %in% nar_lex_unit_words && length(toks) >= 3 &&
+      (!nar_fold(first) %in% nar_lex_unit_ambiguous ||
+       grepl("[0-9]|^[A-Z]$", nar_fold(toks[2])))) {
     return(list(unit = toks[2], civic = NA_character_, rest = toks[-(1:2)]))
   }
 

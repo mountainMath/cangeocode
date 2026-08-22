@@ -32,7 +32,8 @@ con <- nar_connection()
 
 ``` r
 DBI::dbListTables(con)
-#> [1] "Addresses"    "Locations"    "nar_metadata"
+#> [1] "Addresses"    "Locations"    "MunAlias"     "PostalMun"    "Streets"     
+#> [6] "nar_metadata"
 ```
 
 **`Addresses`** has one row per civic address — the street name and number, the

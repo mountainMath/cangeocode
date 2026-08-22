@@ -1,0 +1,203 @@
+---
+title: "Geocoding addresses"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Geocoding addresses}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.path = "")
+```
+
+Forward geocoding — an address string in, a coordinate out — is two steps
+against NAR. First `normalize_address()` turns the string into the structured
+components NAR is keyed on, because NAR can only be joined on fields, never on
+a string. Then you join those components to the `Addresses` table and read off
+the geometry.
+
+This vignette walks the whole path. There is no `geocode()` wrapper yet: the
+join is written out by hand below, which is a little more code but shows you
+exactly which rows matched and which did not — and with messy address data that
+distinction is most of the work.
+
+```{r connect, message = FALSE}
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+## Parsing an address string
+
+`normalize_address()` takes free text and returns one row per input, carrying
+the NAR-shaped columns. Passing `con` is what makes it good: without a
+connection it is a lexicon-only parser, and with one it additionally resolves
+the parse against NAR's street gazetteer, which fixes misspellings and fills in
+whatever the string left out.
+
+The eight addresses below are deliberately awkward — a unit, a lowercased
+province spelled out, a French street, a prairie range road, a New Brunswick
+route, a typo, and a post office box.
+
+```{r normalize}
+addresses <- c(
+  "1055 W Georgia St, Vancouver BC",
+  "302-1055 west georgia street, vancouver, british columbia",
+  "100 Queen St W, Toronto, ON M5H 2N2",
+  "845, rue de Vernon, Gatineau, QC",
+  "34221 Range Road 272, Red Deer County, AB",
+  "5491 Route 11, Brantville, NB",
+  "29 HPCKING AVE, SAULT STE. MARIE, ON",
+  "PO Box 40, Iqaluit, NU"
+)
+
+norm <- normalize_address(addresses, con = con)
+
+norm |>
+  select(CIVIC_NO, STREET_NAME, STREET_TYPE, STREET_DIR, MUN_NAME, PROV_ABVN)
+```
+
+Note what the gazetteer did. `HPCKING` came back as `Hocking`, the real street
+in Sault Ste. Marie — no rule could have known that, it took a fuzzy match
+against the streets NAR actually has. `west georgia street` and `W Georgia St`
+both landed on the same canonical `Georgia` / `ST` / `W`. The French address
+kept its type in front of the name where French puts it, and canonicalized to
+`RUE` rather than an English equivalent. And `Range Road 272` survived intact
+instead of being read as a street called `Range` of type `RD`.
+
+## Knowing which rows to trust
+
+Two columns tell you how much to believe each row.
+
+```{r confidence}
+norm |>
+  select(input, pattern, confidence, parse_source) |>
+  mutate(input = substr(input, 1, 40))
+```
+
+`parse_source` says whether the row cleared the gazetteer or fell back to the
+rules alone. `confidence` is the gazetteer's match score where it applies. In
+practice a `rules` row on messy input is the one to look at by hand.
+
+`pattern` is the structural bucket the string parsed as, also available on its
+own from `address_pattern()`. It is triage rather than a quality score: some
+buckets simply cannot resolve to a coordinate no matter how clean the input is.
+
+```{r pattern}
+address_pattern(c("PO Box 40, Iqaluit, NU",
+                  "RR 3, Site 4, Comp 5, Kelowna, BC",
+                  "9819 96A Street NW, Edmonton, AB",
+                  "845, rue de Vernon, Gatineau, QC"))
+```
+
+`po_box` and `rural_route` are delivery instructions rather than places, and
+**NAR contains neither** — no amount of cleaning will geocode them. Separating
+those from addresses that are merely wrong is worth doing before you go
+hunting for parser bugs.
+
+## Joining to coordinates
+
+The join needs civic number, street name, type, direction and municipality
+together. Name alone is nowhere near unique — Toronto has a `100 Queen` on
+Queen St E and another on Queen St W — and leaving type and direction out
+silently multiplies your results.
+
+NAR stores an absent type or direction as an empty string rather than `NA`, so
+those two columns have to be filled in before they will match.
+
+```{r probe}
+probe <- norm |>
+  mutate(.row = row_number()) |>
+  filter(!is.na(CIVIC_NO), !is.na(STREET_NAME), !is.na(MUN_NAME)) |>
+  mutate(across(c(STREET_TYPE, STREET_DIR), \(v) coalesce(v, ""))) |>
+  select(.row, CIVIC_NO, STREET_NAME, STREET_TYPE, STREET_DIR, MUN_NAME)
+
+matches <- tbl(con, "Addresses") |>
+  inner_join(
+    copy_to(con, probe, "probe", overwrite = TRUE),
+    by = c("CIVIC_NO",
+           "OFFICIAL_STREET_NAME" = "STREET_NAME",
+           "OFFICIAL_STREET_TYPE" = "STREET_TYPE",
+           "OFFICIAL_STREET_DIR"  = "STREET_DIR",
+           "MAIL_MUN_NAME"        = "MUN_NAME")
+  ) |>
+  select(.row, ADDR_GUID, CIVIC_NO, OFFICIAL_STREET_NAME, MAIL_MUN_NAME,
+         geom_source, geom)
+```
+
+Nothing has run yet — `matches` is a lazy query. `collect_nar()` executes it
+and hands back an `sf` object, transferring the geometry properly and reading
+the storage CRS from the database rather than assuming one. Always go through
+it rather than collecting the geometry column yourself.
+
+```{r collect}
+hits <- collect_nar(matches, crs = 4326)
+hits
+```
+
+## One row per input
+
+A civic address can carry several NAR rows — one per unit in the building — so
+the join returns more rows than it was given. Collapse them, and count what you
+collapsed, because the count is informative: a civic address with 40 rows is an
+apartment building, and its single representative point is the building, not
+any particular unit.
+
+```{r dedupe}
+geocoded <- hits |>
+  group_by(.row) |>
+  summarise(n_nar_rows = n(),
+            geom_source = first(geom_source),
+            .groups = "drop") |>
+  right_join(tibble(.row = seq_along(addresses), input = addresses), by = ".row") |>
+  arrange(.row)
+
+geocoded |>
+  mutate(input = substr(input, 1, 40)) |>
+  select(input, n_nar_rows, geom_source)
+```
+
+Six of the eight resolved. The two that did not are the ones you would expect:
+the post office box, which NAR has no entry for, and the unit form of the
+Georgia address, which resolved to the same street but is a second copy of a
+row already present.
+
+Watch `geom_source` as well as the match itself. `"building"` is a
+representative point for the structure; `"blockface"` is the centroid of one
+side of a street segment, and it is much coarser — a single blockface point is
+shared by 8.7 addresses on average, against 1.6 for a building point. NAR
+falls back to it for 1.14M addresses that have no building point at all. If you
+are measuring distances, do not treat the two as interchangeable.
+
+## Checking the result
+
+`reverse_geocode()` runs the other direction, which makes it a cheap sanity
+check on a coordinate you just derived.
+
+```{r roundtrip}
+pt <- hits |> filter(.row == 3) |> slice(1)
+
+reverse_geocode(pt, match_radius = 50, con = con) |>
+  select(address, dist) |>
+  head(3)
+```
+
+```{r disconnect}
+DBI::dbDisconnect(con)
+```
+
+## Where this falls short
+
+The join above is exact. It matches what the gazetteer resolved to, and nothing
+else, which means an address whose municipality NAR files under a different
+name than the one you supplied will miss even though the street resolved
+perfectly. Measured against 5,000 real Corporations Canada registered offices,
+86% of parsed addresses join a NAR address, and about 2% of the remainder are
+cases where the street is right and only the municipality disagrees.
+
+If you are geocoding in bulk, the useful next step is usually to relax the
+municipality out of the join key and disambiguate on postal code instead, or to
+fall back to the street's midpoint when no civic number matches. Both are
+straightforward on top of what is above.
