@@ -28,7 +28,7 @@ outside the database}
 
 \item{auth_mun}{Whether `MUN_NAME` is the caller's authoritative value}
 
-\item{...}{Passed to the `bc` tier}
+\item{...}{Passed to the online tiers; see [geocode()] on how they are split}
 }
 \value{
 A data frame with one row per row of `res`, carrying `ADDR_GUID`,

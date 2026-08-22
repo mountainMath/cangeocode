@@ -34,6 +34,9 @@ nar_blockface_uncertainty_m <- function() 176
 #'   on either side of it. See the section below.
 #' * **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
 #'   **`bc_locality`** -- answered by the `bc` tier. See [bc_geocode()].
+#' * **`nrcan`** -- answered by the `nrcan` tier. One value rather than several,
+#'   because only one class of geolocator answer survives its floors at all.
+#'   See [nrcan_geocode()].
 #' * **`not_covered`** -- the address parsed to a province this database does
 #'   not hold, so no tier could have matched it. Only a partial import (see the
 #'   `provinces` argument of [nar_connection()]) ever produces this, and it is
@@ -54,12 +57,22 @@ nar_blockface_uncertainty_m <- function() 176
 #'   honoured: what is sent is rebuilt from the components after any
 #'   `prov`/`mun` override, and a point outside `within` is discarded rather
 #'   than returned.
+#' * **`"nrcan"`** -- ask NRCan's national [geolocator][nrcan_geocode()].
+#'   Answers `nrcan`. Also one network request per unplaced row, and it covers
+#'   the whole country, so unlike `"bc"` there is no province that excludes a
+#'   row from being sent. **It belongs last.** Its surviving answers are
+#'   roughly interpolation-grade at the median with a much longer tail, and it
+#'   has no score of its own -- everything that separates a hit from a
+#'   confident wrong answer is done by re-parsing the returned title, which is
+#'   strict but not free of false positives.
 #'
 #' The default `c("nar", "nar_interpolate")` is offline and prefers a real NAR
 #' record over an interpolated one. `method = "nar"` keeps only the addresses
 #' NAR actually carries. `c("nar", "nar_interpolate", "bc")` adds the BC
 #' service as a last resort, and `c("bc", "nar")` prefers it over NAR wherever
-#' it answers.
+#' it answers. `"nrcan"` is the national counterpart to `"bc"` and is the only
+#' tier that answers with no local database at all, which is the case it exists
+#' for; it should be named after every other tier, never before one.
 #'
 #' A row NAR holds without coordinates (`nar_no_geometry`) is passed on to the
 #' next tier: knowing the address exists is worth reporting, but it is not worth
@@ -136,8 +149,9 @@ nar_blockface_uncertainty_m <- function() 176
 #' length-4 numeric `c(xmin, ymin, xmax, ymax)`, interpreted in `crs` unless it
 #' carries its own. **Authoritative**, and applied to every tier.
 #' @param method Tiers to try, in priority order: any of `"nar"`,
-#' `"nar_interpolate"` and `"bc"`. Default `c("nar", "nar_interpolate")`, which
-#' is the offline pair. See the section below.
+#' `"nar_interpolate"`, `"bc"` and `"nrcan"`. Default
+#' `c("nar", "nar_interpolate")`, which is the offline pair. See the section
+#' below.
 #' @param geometry Whether to return an `sf` object with POINT geometry.
 #' Unmatched rows get an empty point. Default `FALSE`, which returns `lon` and
 #' `lat` columns instead.
@@ -147,8 +161,12 @@ nar_blockface_uncertainty_m <- function() 176
 #' @param con An open NAR connection to reuse. The caller keeps ownership: a
 #' connection passed in here is left open, while one opened internally is closed
 #' again before returning.
-#' @param ... Passed to [bc_geocode()] when `method` includes `"bc"`, which is
-#' where `min_score`, `api_key` and `rate` go. Otherwise unused.
+#' @param ... Passed to the online tiers named in `method`. `rate` is
+#' understood by both of them; `min_score` and `api_key` are [bc_geocode()]'s,
+#' as is anything else, which it forwards to its own service as a query
+#' parameter. [nrcan_geocode()] is given only the arguments it declares, so a
+#' BC-only argument passed alongside `"nrcan"` reaches the BC tier alone rather
+#' than erroring. Unused when `method` names no online tier.
 #' @return A data frame with one row per input, carrying every column
 #' [normalize_address()] returns plus `ADDR_GUID`, `match_method`,
 #' `uncertainty_m`, `n_matches`, and either `lon`/`lat` or an `sf` geometry
@@ -163,6 +181,9 @@ nar_blockface_uncertainty_m <- function() 176
 #'
 #' # Add the BC service as a last resort. Makes network requests.
 #' geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
+#'
+#' # NRCan's geolocator is national, so it can back up the whole country.
+#' geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"))
 #'
 #' # Parse once, resolve many times, and keep only the precise matches.
 #' parsed <- normalize_address(addresses)
@@ -279,7 +300,7 @@ nar_geocode_geometry <- function(out, x, y, con, crs = 4326, geometry = FALSE) {
 #' @param bounds_geom The same restriction as an `sfc`, for the tiers that run
 #' outside the database
 #' @param auth_mun Whether `MUN_NAME` is the caller's authoritative value
-#' @param ... Passed to the `bc` tier
+#' @param ... Passed to the online tiers; see [geocode()] on how they are split
 #' @return A data frame with one row per row of `res`, carrying `ADDR_GUID`,
 #' `match_method`, `uncertainty_m`, `n_matches`, `x` and `y`
 #' @keywords internal
@@ -297,6 +318,7 @@ nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
   if (!n) return(out)
 
   probe <- nar_geocode_probe(res, auth_mun = auth_mun)
+  dots <- list(...)
 
   # Priority is expressed as running order: each tier sees only the rows its
   # predecessors left unplaced, and a row is unplaced exactly when it has no
@@ -311,7 +333,16 @@ nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
       nar             = nar_geocode_tier_nar(out, probe, todo, con, bounds),
       nar_interpolate = nar_geocode_tier_interp(out, probe, todo, con, bounds),
       bc              = nar_geocode_tier_bc(res, out, todo, con,
-                                            bounds = bounds_geom, ...))
+                                            bounds = bounds_geom, ...),
+      # The two online tiers have different vocabularies, so `...` cannot go to
+      # both: `min_score` is meaningless here and the BC tier forwards anything
+      # it does not recognize to its own service as a query parameter. The
+      # geolocator takes exactly one query parameter, so its argument list is
+      # closed and can be filtered against.
+      nrcan           = do.call(nar_geocode_tier_nrcan,
+                                c(list(res, out, todo, con,
+                                       bounds = bounds_geom),
+                                  nar_nrcan_dots(dots))))
   }
   nar_geocode_mark_uncovered(out, res, con)
 }
@@ -626,6 +657,29 @@ nar_geocode_interp_sql <- function(probe, bounds = "") {
       bounds))
 }
 
+#' Pick the `...` arguments the geolocator tier understands
+#'
+#' @description `geocode(...)` has to serve two online tiers whose arguments do
+#' not overlap. The BC tier keeps receiving all of `...`, because
+#' [bc_geocode()] forwards what it does not recognize to its own service as a
+#' query parameter and a filter would break that. [nrcan_geocode()] has no such
+#' passthrough -- the geolocator takes one query parameter -- so its formals are
+#' a closed set and unknown names can be dropped rather than raising an error
+#' about an argument meant for the other tier.
+#'
+#' Derived from the formals rather than listed, so an argument added to
+#' [nrcan_geocode()] does not have to be remembered here.
+#' @param dots `list(...)` as [nar_geocode_match()] captured it
+#' @return The subset of `dots` to forward
+#' @keywords internal
+nar_nrcan_dots <- function(dots) {
+  if (!length(dots) || is.null(names(dots))) return(list())
+  # The tier supplies these itself, so a caller-supplied one would be silently
+  # overridden or would conflict with an argument geocode() already owns.
+  supplied <- c("x", "prov", "geometry", "crs", "con")
+  dots[intersect(names(dots), setdiff(names(formals(nrcan_geocode)), supplied))]
+}
+
 #' Validate and normalize the `method` argument
 #'
 #' @description Partial matching, deduplication, and an error naming the tier
@@ -635,7 +689,7 @@ nar_geocode_interp_sql <- function(probe, bounds = "") {
 #' @return A character vector of tier names
 #' @keywords internal
 nar_geocode_methods <- function(method) {
-  known <- c("nar", "nar_interpolate", "bc")
+  known <- c("nar", "nar_interpolate", "bc", "nrcan")
   if (!length(method) || !is.character(method)) {
     stop("`method` must be one or more of ", paste0('"', known, '"', collapse = ", "),
          ", in the order they should be tried.", call. = FALSE)

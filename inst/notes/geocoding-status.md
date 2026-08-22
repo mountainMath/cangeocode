@@ -1,7 +1,8 @@
 # Forward geocoding: what resolves, what does not, and what is not built yet
 
 `geocode()` (`R/geocode.R`) turns an address string into a coordinate by parsing it with
-`normalize_address()` and resolving the result against NAR. This note records what it
+`normalize_address()` and resolving the result against NAR, optionally falling through to an
+online service. This note records what it
 currently reaches, how the accuracy figures in its documentation were measured, and the
 pathways that were sized but not built.
 
@@ -28,6 +29,18 @@ error against the point that was dropped. 10,559,271 distinct civic points, of w
 `set.seed(20260821)`, 600 rows for the coverage figures and a further `set.seed(1)` draw of
 250 already-placed rows for the distance comparison. It makes one network request per
 address, so it is not part of any test or check.
+
+**Agreement with NRCan's geolocator** comes from `data-raw/probe_geolocator.R`, which draws
+`USING SAMPLE reservoir(n ROWS) REPEATABLE (42)` from NAR's own building-point addresses and
+asks the service for each one. Figures below are the 423-address run. It queries the live
+service and is likewise not part of any test or check.
+
+**NAR is the reference here, and a reference is not ground truth.** NAR is accurate in
+general, but it has its own poor and outright wrong records, so a large distance in these
+tables is a *disagreement* and the geolocator is sometimes the one that is right. This matters
+most in the tails: the multi-kilometre survivors are as likely to be bad NAR records as bad
+geolocator answers, and the p50/p90 figures are safe only because a systematic bias would have
+to be shared by both sources to survive at the median.
 
 ## Where it stands
 
@@ -98,7 +111,7 @@ reproducibility against NAR wants the first alone.
 
 `bc_validate()` now gives the first measurement of it, for one province. See below.
 
-## How far NAR's points sit from an independent source
+## How far NAR's points sit from a second source
 
 250 BC addresses drawn from the same corporations file, geocoded through NAR and then again
 through the BC Address Geocoder, keeping the rows BC resolved to `bc_site` or `bc_civic`
@@ -122,6 +135,14 @@ its median at 4.2 m, and against BC it is 26.7 m. The difference is almost exact
 sitting on top of a source disagreement looks like. The 2.7 km p95 is two rows, both
 long rural blocks.
 
+**The two sources are not independent, so this cannot be read as a benchmark of NAR.** BC's
+geocoder and NAR's BC records plausibly share upstream data, so agreement between them is
+partly agreement with themselves and the disagreement above is a *lower* bound on how far
+apart two genuinely independent sources would be. Where they do differ, **BC's answer is the
+more reliable of the two** — it is a parcel-level provincial authority, and NAR is a national
+compilation of what the provinces and municipalities supplied. Benchmarking NAR properly needs
+a source that shares nothing with it, which the package does not currently have.
+
 Not enough rows per province, and one province only, to generalize. Growing this into a real
 calibration — and into a defensible `uncertainty_m` for the `bc_*` tiers, which is currently
 the one set of numbers in this package that was not measured — is the obvious next piece of
@@ -140,6 +161,11 @@ Decomposed on the same draw, as a share of all 5,000:
 - the remainder — the street exists in NAR under a municipality that did not match.
 
 Combined ceiling for the NAR-only pathway is therefore around 93%.
+
+The `"nrcan"` tier reaches very little of this: appending it recovers 8.1% of the unplaced,
+for the reason given in its own section below — the addresses NAR cannot place are largely
+the ones no national compilation has. The road network file remains the pathway that would
+actually move this number.
 
 ## Measured and deliberately not done
 
@@ -188,6 +214,124 @@ pool.
 
 No API key is needed for modest use; `api_key` is there for jobs that warrant registering.
 
+## The NRCan geolocator binding
+
+`nrcan_geocode()` and the `"nrcan"` tier `geocode(method = )` can name, over
+`https://geolocator.api.geo.ca/geolocation/en/locate?q=`. Keyless, national, and needing no
+local database, which is the whole reason to want it: it is the only tier that can answer
+before a NAR release has been downloaded, and the only one that covers provinces a partial
+import does not hold.
+
+**It does not reverse geocode, and the alternatives were checked rather than assumed.**
+`locate?lat=&lon=` returns `{"error": "Missing query parameter 'q'"}`; `reverse`,
+`reverse/en` and `reverse-geocode` are all 404; the retired
+`geogratis.gc.ca/services/geolocation` host redirects to this same endpoint and still demands
+`q`. There is no reverse capability to bind. `reverse_geocode()` stays NAR-backed and local.
+
+**It always answers, and it answers plausibly**, which is a harder problem than BC's. BC at
+least returns a score to disbelieve; this service returns none. `1 Rue Notre-Dame Ouest,
+Montreal, QC` comes back as a real `INTERPOLATED_POSITION` on a real Rue Notre-Dame Ouest —
+in Lorrainville, 500 km away — with nothing in the response marking it as a substitution. So
+the accuracy question is a filtering question, and the numbers below are all about which
+floor is applied.
+
+**What the floors are worth.** Of 423 addresses, 383 produced a usable answer, and 204
+(**48.2% of everything queried**) survived both floors. Distances are to NAR's own building
+point, with the caveat above — this is agreement with NAR, not accuracy:
+
+| | n | p50 | p90 | p95 | max | >1 km |
+| --- | --- | --- | --- | --- | --- | --- |
+| `Street` + `INTERPOLATED_POSITION` only | 267 | — | 1044 m | — | 2728 km | — |
+| + province and municipality as substrings of the title | 224 | — | 264 m | — | 190 km | 17 |
+| + component agreement (**shipped**) | 204 | 33 m | 115 m | 212 m | 2733 m | 1 |
+
+The 2728 km in the first row is not a typo: without the second floor the service will answer
+a Quebec address with a Yukon street of the same name.
+
+**The component floor is a strict improvement over comparing the title as a string**, not a
+recall-for-precision trade. It removes 27 answers the substring floor kept — median **1615 m**
+off, 16 of them over a kilometre, worst `61 Oakridge BLVD, OAK BLUFF, MB` →
+`61 Oak Bluff Road, Brandon` at 190 km — and it *recovers* 7 the substring floor rejected, all
+of them right (28–215 m), where the service returned an incorporated or parent municipality
+name: `City Of St. Catharines` for `ST CATHARINES`, `Montréal` for `MONTRÉAL-NORD`,
+`Saint-Simon` for `SAINT-SIMON-DE-BAGOT`. Whole-word containment on the municipality field is
+what buys those back.
+
+**Why answers were rejected**, over the 423:
+
+| reason | n |
+| --- | --- |
+| top result was not `Street`/`INTERPOLATED_POSITION` | 116 |
+| no usable answer at all | 40 |
+| municipality disagreed | 30 |
+| street name disagreed | 28 |
+| street type disagreed | 5 |
+
+The largest bucket is the service declining to resolve the civic number — an
+`INTERPOLATED_CENTROID` says it found the street but not the number. Those are not wrong
+answers, they are refusals, and a **street-centroid tier would be the way to use them** (see
+below); today they are dropped.
+
+**The 6 survivors past 300 m are all legitimate long rural roads** where interpolation over a
+sparse civic range is genuinely uncertain — and where, NAR not being ground truth, some of the
+gap may be NAR's — `23 Lakeshore RD E, ORO-MEDONTE, ON` at 2733 m,
+`3330 Prospect RD, PROSPECT, NS` at 738 m. Only one survivor in 204 exceeds a kilometre. That
+is the residual the floors cannot reach, because the answer is on the right street in the
+right town.
+
+**`uncertainty_m` is 150, and it is not comparable to `nar_blockface`'s 176** even though it
+is the smaller number. Both are p90s, but a blockface error is bounded by the length of a
+block, while this is a percentile on a tail running to 2.7 km. 150 is the conservative of the
+two p90s measured (115 m at n=204, 152 m at n=88 on the earlier sample), and the function's
+own documentation says so.
+
+**Query spelling was an open question and is now closed.** Sending `ST` or `Street`, `NB` or
+`New Brunswick`, changes the outcome for one address in 139 over the same sample, so the tier
+sends NAR's own abbreviations. The knob survives in the probe harness (`PROBE_EXPAND`) only
+to re-check that. It is not entirely cosmetic in one respect: some queries return HTTP 200
+with a body of `{"message": "Internal server error"}` instead of a results array, reproducible
+per query rather than transient, and which spelling triggers it varies —
+`100 Water St, Charlottetown, PE` fails where the spelled-out form works, and
+`1155 Robson Street, Vancouver, BC` fails the other way round.
+
+**As a fallback for NAR's tail it is worth much less than BC's geocoder, and this is the
+number to know before reaching for it.** On the 5,000 corporations addresses,
+`c("nar", "nar_interpolate")` left 495 unplaced (9.9%); the geolocator placed **40 of them —
+8.1%** — lifting overall coverage from 90.1% to 90.9%. BC's service, by comparison, recovers
+75 of 76. The reason is coverage rather than independence: the addresses NAR cannot place
+are largely the ones no national compilation has, so the geolocator fails on the same rows,
+whereas BC's provincial records genuinely hold addresses NAR's BC extract does not. Of the 495 it was asked, 127 produced no answer at all and
+149 came back as a street centroid.
+
+**Roughly half of its street-name rejections on that tail are the floor's fault, not the
+service's.** 103 of the 495 were rejected on the street name, and inspecting them: only 4
+involve the gazetteer rewriting the query. The rest are the *parser* handing over a dirty
+street name and the service quietly cleaning it up —
+
+| query sent | title returned | verdict |
+| --- | --- | --- |
+| `KING ST W SCOTIA` | `40 King Street West, City Of Toronto` | right, rejected (building name in the name) |
+| `CHEM DE HARDWOOD FLAT` | `836 Chemin De Hardwood Flat, Bury` | right, rejected (type left in the name) |
+| `ATHLONE AVENIUE` | `49 Athlone Avenue, City Of Brampton` | right, rejected (misspelled type) |
+| `50TH` | `4943 50 Street, Red Deer` | right, rejected (ordinal vs cardinal) |
+| `ST-VALLIER` | `571 Rue Saint-Vallier Ouest, Québec` | right, rejected (`ST` not expanded to `SAINT`) |
+
+44 of the 103 have the returned name as a **whole-word subset** of the query name, 7 the
+reverse, and 11 differ only by `ST`/`SAINT` or by an ordinal suffix; 52 are genuinely
+unrelated streets that the floor is right to reject. So the tier's own tolerance for junk —
+which is exactly what would make it valuable on the addresses the parser mangles — is being
+thrown away by an equality test. **This is the ranked next step for this binding**, and it has
+to be done carefully: relaxing to containment is what let `28 Silver ST, CORNER BROOK` through
+in the first place, so any relaxation needs the same before/after distance measurement the
+current floor got. Some of it belongs upstream in the parser instead (`ST` → `SAINT` is a
+normalizer question, see the normalization note).
+
+**Where it sits in a `method` chain.** After everything else, always. It is slower than the
+local tiers by three orders of magnitude, it is the only tier whose uncertainty is unbounded,
+and roughly half of what it is asked is rejected. What it is genuinely good for is not
+NAR's tail but the case where there is **no NAR to fall back from**: a fresh install with
+nothing downloaded, or the `not_covered` rows a single-province import produces.
+
 ## Not built yet, in the order the measurements justify
 
 ### 1. Statistics Canada Road Network File (RNF)
@@ -222,3 +366,10 @@ its centroid with an uncertainty of half its length. Cheap to build on the exist
 `Streets` table, and it converts a `none` into a coarse but honest answer. Deliberately
 last, because it is only worth having once the tiers above it have taken everything they
 can.
+
+The geolocator measurement sharpened the case for this one: its single largest rejection
+bucket, 116 of 423, is `INTERPOLATED_CENTROID` — the service found the street and declined
+the civic number. That is exactly the answer this tier would return, so the same
+classification would let `nar_nrcan_floors()` accept those as a `nrcan_street` method instead
+of dropping them, once there is an `uncertainty_m` convention for a street centroid to
+report.

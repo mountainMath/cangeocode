@@ -25,10 +25,12 @@ reference:
 
 - title: External geocoders
   desc: >
-    The Province of British Columbia's Address Geocoder, as a fallback for BC
-    addresses NAR cannot place and as an independent source to validate
-    against. Makes network requests.
+    Online services that place an address without a local database: NRCan's
+    national geolocator, and the Province of British Columbia's Address
+    Geocoder, the latter also a second source to check a result against.
+    Both make network requests.
   contents:
+  - nrcan_geocode
   - bc_geocode
   - bc_validate
 

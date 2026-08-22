@@ -93,7 +93,7 @@ test_that("the query string is rebuilt from the components, not the input", {
     STREET_DIR = c("W", NA), MUN_NAME = c("VANCOUVER", "VICTORIA"),
     PROV_ABVN = c("BC", "BC"), stringsAsFactors = FALSE)
 
-  s <- nar_bc_address_string(res)
+  s <- nar_address_string(res)
   expect_equal(s[1], "990A GEORGIA ST W, VANCOUVER, BC")
   expect_equal(s[2], "12 MAIN ST, VICTORIA, BC")
   expect_false(any(grepl("junk", s)))
@@ -103,7 +103,7 @@ test_that("components the caller never supplied are simply absent", {
   res <- data.frame(CIVIC_NO = "12", STREET_NAME = "MAIN",
                     MUN_NAME = "VICTORIA", PROV_ABVN = "BC",
                     stringsAsFactors = FALSE)
-  expect_equal(nar_bc_address_string(res), "12 MAIN, VICTORIA, BC")
+  expect_equal(nar_address_string(res), "12 MAIN, VICTORIA, BC")
 })
 
 test_that("the bc tier only sends the BC rows still unplaced", {

@@ -14,8 +14,8 @@ rows its predecessors left without a position. `match_method` reports which one 
 draws, the exact tier places 84.9% and interpolation lifts that to **89.1%**, in 0.9s for
 the whole batch.
 
-The vocabulary is `"nar"` (exact lookup), `"nar_interpolate"`, and `"bc"`, defaulting to
-`c("nar", "nar_interpolate")` — the offline pair. **`method` replaced the earlier `source`,
+The vocabulary is `"nar"` (exact lookup), `"nar_interpolate"`, `"bc"` and `"nrcan"`, defaulting
+to `c("nar", "nar_interpolate")` — the offline pair. **`method` replaced the earlier `source`,
 `interpolate` and `fallback` arguments**, which were three ways of saying the same thing and
 could not express an ordering. `nar_geocode_methods()` validates it; exact matches beat
 prefixes in `pmatch()`, so `"nar"` is unambiguous against `"nar_interpolate"`.
@@ -33,6 +33,7 @@ last leaves interpolated rows with no `ADDR_GUID`.
 | `nar_blockface` | in NAR, but only a blockface centroid | 176 |
 | `nar_interpolated` | not in NAR; placed between the flanking civics | `0.5 * span` |
 | `nar_no_geometry` | in NAR (`ADDR_GUID` is set) but unplaceable | `NA` |
+| `nrcan` | interpolated by NRCan's geolocator, past both floors | 150 |
 | `not_covered` | parsed to a province this (partial) database does not hold | `NA` |
 | `none` | not found | `NA` |
 
@@ -52,6 +53,15 @@ is no second point, and continuing the run's spacing scores a 15.1 m median but 
 end of a run. Interpolation is same-parity only (4.2 m median against 35.2 m pooling both
 sides, and 16.9 m for nearest-known-civic), and takes only `geom_source = 'building'` flanks,
 since compounding a 176 m blockface error at each end would be presented as precision.
+
+**`...` has to serve two online services with different vocabularies**, and they are not
+interchangeable: `min_score` is BC's and would be an unused-argument error at the geolocator.
+BC keeps receiving all of `...` — forwarding unknown names to its service as query parameters
+is a documented feature of that binding — while `nar_nrcan_dots()` passes on only the names
+matching `nrcan_geocode()`'s own formals, minus the five the tier supplies itself. It reads
+those from `formals()` rather than a literal list, so adding an argument to `nrcan_geocode()`
+routes it automatically. That is also why `nrcan_geocode()` deliberately has **no `...` of its
+own**: its formals have to be a closed set for the filter to mean anything.
 
 `prov`, `mun` and `within` are **authoritative** — they override whatever the address string
 said, and the override lands on the returned row too, so a result never reports a province
@@ -83,7 +93,7 @@ because these are freshly computed values rather than a stored geometry column; 
 CRS is still read from the database with `nar_crs()`, and `sf` handles the axis order that
 `collect_nar()` needs `always_xy` for.
 
-## `R/geocode_bc.R` — the one external geocoder
+## `R/geocode_bc.R` — the provincial geocoder
 
 A binding to the Province of British Columbia's [Address Geocoder]. `bc_geocode()` is the
 client, `nar_geocode_tier_bc()` is the `"bc"` tier `method` can name, and `bc_validate()`
@@ -105,7 +115,8 @@ precision vocabulary into deliberately pessimistic order-of-magnitude metres. Tr
 ranking safe to filter on, not as an error bar comparable to the NAR tiers'. Calibrating them
 is named as the next step in the note.
 
-**The tier rebuilds the query string from the components rather than forwarding `input`.** `prov`/`mun` are authoritative and overwrite the parsed columns, so forwarding the
+**Both online tiers rebuild the query string from the components rather than forwarding
+`input`.** `prov`/`mun` are authoritative and overwrite the parsed columns, so forwarding the
 original string would silently discard the caller's constraint the moment a row fell through.
 `within` is enforced too, in R — the SQL predicate cannot reach a point that came from another
 service, so a fallback point outside the bounds is discarded rather than returned.
@@ -123,3 +134,97 @@ object precisely so that is possible.
 
 [Address Geocoder]: https://geocoder.api.gov.bc.ca/
 
+## `R/geocode_nrcan.R` — the national geocoder
+
+A binding to NRCan's [geolocator], `https://geolocator.api.geo.ca/geolocation/en/locate?q=`:
+keyless, national, and needing no local database, which is what makes it the tier that can
+answer before anything has been downloaded. `nrcan_geocode()` is the client and
+`nar_geocode_tier_nrcan()` the `"nrcan"` tier. Unlike BC it is **not filtered by province** —
+it covers the country — but it is still the tier to name last, because it is the only one
+whose accuracy is a percentile on a long tail rather than a bound.
+
+**There is no reverse geocoding here, and not for want of looking.** `locate?lat=&lon=`
+returns `{"error": "Missing query parameter 'q'"}`, `reverse` and `reverse-geocode` are 404,
+and the retired `geogratis.gc.ca/services/geolocation` host redirects to this same `q`-only
+endpoint. Reverse geocoding stays NAR-backed and local.
+
+**The service always answers, and it answers plausibly**, which is worse than BC's failure
+mode: no score comes back to disbelieve. `1 Rue Notre-Dame Ouest, Montreal, QC` returns a real
+`INTERPOLATED_POSITION` for a real Rue Notre-Dame Ouest — in Lorrainville, 500 km away, with
+nothing in the response saying so. So the accuracy question here is entirely a *filtering*
+question, and two floors do all the work:
+
+1. the top result must be `Street` / `INTERPOLATED_POSITION`. `INTERPOLATED_CENTROID` means
+   "found the street, not the civic number", and a `Geoname` means the address degraded to a
+   populated place — `Zzzzqqq nowhere at all` ranks a village first.
+2. the returned `title` must re-parse, **component by component**, to the address that was
+   sent (`nar_nrcan_agreement()`).
+
+Only the **top** result is read. The service ranks, and a scan for a better-agreeing result
+further down would be picking the answer to fit the question.
+
+**Comparing the title as a whole string does not work**, and each failure is a separate
+mechanism: the municipality migrating into the street name (`28 Silver ST, CORNER BROOK` →
+`28 Brook Street, Corner Brook` — `Brook` is in both), a silently substituted street type
+(`330 Spadina RD` → `330 Spadina Avenue`, 3 km), and a wholly different street of the right
+shape (`61 Oakridge BLVD, OAK BLUFF, MB` → `61 Oak Bluff Road, Brandon`, 190 km). Field-wise
+comparison catches all three and is a **strict improvement**, not a precision-for-recall
+trade: over 423 addresses it removes 27 answers the substring test kept (median 1615 m off,
+16 of them past a kilometre) and recovers 7 it wrongly rejected (28–215 m), where the service
+returned an incorporated or parent municipality — `City Of St. Catharines`, `Montréal` for
+`MONTRÉAL-NORD`. Measured, not assumed.
+
+The rules within `nar_nrcan_agreement()` are deliberately asymmetric. `""` is *absent*, and an
+absent component cannot contradict, so a street type the query never carried is not evidence
+against an answer that has one. The two exceptions are the **street name and the civic
+number**: those are what was being asked, so a missing one means nothing was verified rather
+than nothing disagreed. The municipality is compared by **whole-word containment** in either
+direction, because the service returns incorporated forms (`City Of Toronto` for `TORONTO`)
+and NAR returns the bare name; `\b` is safe there only because `nar_key_fold()` has already
+left nothing but A–Z, 0–9 and spaces.
+
+**The title is parsed without the gazetteer, and that is load-bearing.** Passing `con` to
+`normalize_address()` for the title makes the floor launder the very error it exists to
+catch: `105 Pouch Cove LINE, BAULINE, NL` was answered with `Pouch Cove` 4.6 km away, and the
+gazetteer resolves `Pouch Cove` to `BAULINE` (adjacent NL communities share one NAR
+municipality), rewriting the answer into the question. Nothing is lost by dropping it —
+incorporated names are handled by the containment rule and accents by folding, neither of
+which needs a database.
+
+The **query** side, by contrast, *is* gazetteer-resolved, since it is whatever `geocode()`
+parsed. So the floor verifies that the service answered what the package asked, not what the
+user typed: `12 Main St, Moncton, NB` is sent as `12 Martin ST` (NAR has no Main Street in
+Moncton and the similarity gate resolves it) and the returned `12 Martin Street` agrees. That
+is correct — the rewriting is the normalizer's documented job and is visible in the result's
+own columns — but it means a `nrcan` row inherits the normalizer's confidence, not only the
+service's.
+
+**`uncertainty_m` is 150**, and it is **not comparable to `nar_blockface`'s 176** despite
+being the smaller number. Both are p90s, but a blockface error is *bounded* by the length of
+the block, while this one is a percentile on a tail that runs to 2.7 km. 150 is the
+conservative of the two p90s measured (115 m over n=204, 152 m over n=88).
+
+Same `capacity`/`fill_time_s` throttling trap as BC, same `req_error(is_error = ~FALSE)` —
+**a failed lookup is data, not an exception**. One quirk is this service's own: some queries
+return HTTP 200 with a body of `{"message": "Internal server error"}` instead of the results
+array. It is reproducible per query rather than transient, and `nar_nrcan_top()` detects it
+structurally — a parsed body with names is an object, hence this; an unnamed one is the
+array. Reading it as a result would take `message` for a title.
+
+**The known weakness is that the street-name rule is equality.** On addresses NAR could not
+place — the ones this tier exists for — half its street-name rejections are the service
+answering correctly through a dirty parse (`ATHLONE AVENIUE`, `CHEM DE HARDWOOD FLAT`,
+`50TH` against `50 Street`) and being refused. Relaxing it is the ranked next step and is not
+free: containment is precisely what let `28 Silver ST, CORNER BROOK` through. The sizing is
+in the status note.
+
+Tests run against `tests/testthat/fixtures/nrcan-*.json` captured from the live service, and
+four of the six fixtures are wrong answers a naive binding would accept.
+`data-raw/probe_geolocator.R` measures the tier by calling `nar_nrcan_top()` and
+`nar_nrcan_floors()` themselves, so the harness measures the shipped code rather than a
+restatement of it. It scores against NAR's building points, which are a **reference and not
+ground truth** — NAR has its own bad records, so a large distance means the two disagree, not
+that the geolocator is wrong. The numbers it produced are in
+[`../inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md).
+
+[geolocator]: https://geolocator.api.geo.ca/

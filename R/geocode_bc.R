@@ -102,8 +102,8 @@ nar_bc_feature <- function(resp, min_score = 60) {
 #' @description A binding to the Province of British Columbia's public
 #' [Address Geocoder](https://geocoder.api.gov.bc.ca/). It covers BC only, and
 #' complements the NAR pathway in two ways: as a fallback for BC addresses
-#' [geocode()] cannot place, and as an independent positional source to
-#' validate NAR against -- see [bc_validate()].
+#' [geocode()] cannot place, and as a second positional source to check NAR
+#' against -- see [bc_validate()].
 #'
 #' @section What a response means: **The service always answers.** Given
 #' `"1234 Nonexistentzzz Rd, Victoria, BC"` it returns the centre of Victoria
@@ -221,11 +221,19 @@ bc_geocode <- function(x, min_score = 60, api_key = NULL, rate = 5,
 #' Check NAR geocoding results against the BC Address Geocoder
 #'
 #' @description Re-geocodes each address with the BC service and reports how far
-#' its answer sits from the one already obtained, in metres. This is the only
-#' independent positional source currently wired up, and it is the way to answer
-#' questions [geocode()] cannot answer about itself -- whether a match is right
-#' at all, and how much error NAR's own points carry, which `uncertainty_m`
-#' explicitly excludes.
+#' its answer sits from the one already obtained, in metres. It is the way to
+#' answer a question [geocode()] cannot answer about itself -- whether a match is
+#' right at all -- and where the two differ, **BC's answer is the more reliable**:
+#' it is a parcel-level provincial authority, while NAR is a national compilation
+#' of what provinces and municipalities supplied.
+#'
+#' @section What a disagreement does and does not prove: The two sources are
+#' **not independent** -- BC's geocoder and NAR's BC records plausibly share
+#' upstream data -- so `bc_dist_m` is not a benchmark of NAR's accuracy. Small
+#' distances can be two views of one underlying record agreeing with itself, and
+#' the distribution is a lower bound on how far apart genuinely independent
+#' sources would sit. Use it to find suspect rows, which it does well, rather
+#' than to estimate the error `uncertainty_m` excludes.
 #'
 #' Rows outside British Columbia are skipped rather than sent, since the service
 #' does not cover them and would answer about a BC place of the same name.
@@ -296,15 +304,15 @@ nar_geocode_points <- function(g) {
 
 #' Rebuild an address string from parsed components
 #'
-#' @description The BC service takes a string, so the components have to be
-#' re-rendered to reach it. Rebuilding rather than forwarding the original input
+#' @description Both online services take a string, so the components have to be
+#' re-rendered to reach them. Rebuilding rather than forwarding the original input
 #' is what carries the authoritative `prov`/`mun` constraints through: those
 #' overwrite the parsed columns, and a caller who asserted a municipality would
 #' otherwise watch it be ignored the moment a row fell through to the fallback.
 #' @param res A [normalize_address()] result
 #' @return A character vector of address strings
 #' @keywords internal
-nar_bc_address_string <- function(res) {
+nar_address_string <- function(res) {
   col <- function(name) {
     v <- res[[name]]
     if (is.null(v)) rep(NA_character_, nrow(res)) else as.character(v)
@@ -342,7 +350,7 @@ nar_geocode_tier_bc <- function(res, out, todo, con, bounds = NULL, ...) {
   todo <- todo[!is.na(prov[todo]) & prov[todo] == "BC"]
   if (!length(todo)) return(out)
 
-  b <- bc_geocode(nar_bc_address_string(res[todo, , drop = FALSE]),
+  b <- bc_geocode(nar_address_string(res[todo, , drop = FALSE]),
                   geometry = TRUE, crs = nar_crs(con), ...)
   ok <- b$match_method != "none"
 

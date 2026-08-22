@@ -13,14 +13,15 @@ note. Do not fold it back into the geocoding story.
 
 The current implementation is built entirely on Statistics Canada's **NAR**
 (National Address Repository) bulk CSV releases, imported into a local **DuckDB** database with
-the `spatial` extension. One online geocoder is wired up — the Province of British Columbia's
-Address Geocoder, as a BC-only fallback and validation source. Road network files are named in
-`DESCRIPTION` as a future source but are not implemented yet.
+the `spatial` extension. Two online geocoders are wired up as fallback tiers: NRCan's national
+geolocator, and the Province of British Columbia's Address Geocoder, the latter BC-only and also
+a validation source. Neither offers reverse geocoding — that is NAR-backed and local. Road
+network files are named in `DESCRIPTION` as a future source but are not implemented yet.
 
 Public API (see `NAMESPACE`): `nar_connection()`, `nar_provinces()`,
 `available_nar_versions()`, `collect_nar()`, `reverse_geocode()`, `normalize_address()`,
-`address_pattern()`, `address_key()`, `format_address()`, `geocode()`, `bc_geocode()`,
-`bc_validate()`.
+`address_pattern()`, `address_key()`, `format_address()`, `geocode()`, `nrcan_geocode()`,
+`bc_geocode()`, `bc_validate()`.
 
 This file records the repo-wide facts: what to run, what the environment needs, how the tests
 and vignettes are built, and the conventions. **Why each component is shaped the way it is lives
@@ -115,7 +116,7 @@ covers the code you are about to touch.**
 | **[`spatial.md`](spatial.md)** — start here | `R/geo_helpers.R`, `R/reverse_geocode.R`, `collect_nar()`, CRS handling | all spatial SQL is TEMP macros defined once; geometry is stored *untagged* so the RTREE index can exist and the CRS is re-attached at query time; the zonemap prefilter is the biggest win in the package and is not an index; every lon/lat transform needs `always_xy = TRUE` |
 | **[`nar-database.md`](nar-database.md)** | `R/nar.R`, `R/nar_zip.R`, `R/nar_provinces.R` — download, schema, partial imports, version discovery | `nar_schema_version()` is 6 and older databases must keep working; a single province is fetched by HTTP range over the archive's own central directory; `BG` is Building and `BF` is Blockface, and a blockface distance is not comparable to a building one |
 | **[`normalization.md`](normalization.md)** | `R/normalize_address.R`, `R/normalize_pattern.R`, `R/normalize_gazetteer.R`, `R/address_format.R` | numbered rural roads carry no street type at all; `STE` is Suite *and* Sainte, and all three unit paths must know it; `name_sim` is not a similarity |
-| **[`geocoding.md`](geocoding.md)** | `R/geocode.R`, `R/geocode_bc.R` | `method` names the tiers *in priority order*; "unplaced" is `is.na(x)`, never `match_method == "none"`; matching both NAR name families with `OR` instead of a `UNION` is a 99x slowdown; BC always answers, so a response is not a match |
+| **[`geocoding.md`](geocoding.md)** | `R/geocode.R`, `R/geocode_bc.R`, `R/geocode_nrcan.R` | `method` names the tiers *in priority order*; "unplaced" is `is.na(x)`, never `match_method == "none"`; matching both NAR name families with `OR` instead of a `UNION` is a 99x slowdown; both online services always answer, so a response is not a match; the geolocator's returned title must be re-parsed *without* the gazetteer or the floor launders the error it exists to catch |
 
 ### Status notes
 
@@ -125,8 +126,8 @@ record the design.
 
 - **[`inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md)**
   — what `geocode()` resolves and what it does not: tier coverage, the interpolation
-  accuracy tables, how far its points sit from an independent source, and the pathways sized
-  but not built (road network file, centroid tier).
+  accuracy tables, how far its points sit from a second source and why that is not a
+  benchmark, what the online tiers add, and the pathways sized but not built (road network file, centroid tier).
 - **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
   — where address normalization currently falls short: the measured failure modes, the things
   tried and rejected, and the ranked next steps. Read it before changing the parser or the

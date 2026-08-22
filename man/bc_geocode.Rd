@@ -42,8 +42,8 @@ either `lon`/`lat` or an `sf` geometry column.
 A binding to the Province of British Columbia's public
 [Address Geocoder](https://geocoder.api.gov.bc.ca/). It covers BC only, and
 complements the NAR pathway in two ways: as a fallback for BC addresses
-[geocode()] cannot place, and as an independent positional source to
-validate NAR against -- see [bc_validate()].
+[geocode()] cannot place, and as a second positional source to check NAR
+against -- see [bc_validate()].
 }
 \section{What a response means}{
  **The service always answers.** Given

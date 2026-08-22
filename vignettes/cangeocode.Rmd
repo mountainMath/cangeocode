@@ -331,8 +331,8 @@ DBI::dbDisconnect(con)
 
 `vignette("geocoding")` covers the other direction — `geocode()`, which turns
 an address string into a coordinate and reports how it was found and what that
-cost, along with the address parser behind it and the independent BC geocoder
-you can check a result against.
+cost, along with the address parser behind it and the BC geocoder you can check
+a result against.
 
 `vignette("querying-nar")` covers using the database directly — filtering the
 full address table with dplyr, joining to `Locations` for federal riding and

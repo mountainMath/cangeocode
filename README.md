@@ -17,9 +17,10 @@ Both are built on Statistics Canada's
 imports into a local [DuckDB](https://duckdb.org) database.
 
 Everything runs on your own machine: no API keys, no rate limits, and no
-address ever leaves it. The one exception is opt-in — `bc_geocode()` and
-`geocode(method = c(..., "bc"))` call the Province of British Columbia's public
-geocoder, and nothing contacts it unless you name it.
+address ever leaves it. The exceptions are opt-in — `geocode(method = c(..., "bc"))`
+calls the Province of British Columbia's public geocoder and
+`geocode(method = c(..., "nrcan"))` calls NRCan's national one. Nothing contacts
+either unless you name it.
 
 ## Installation
 
@@ -142,12 +143,15 @@ priority:
 geocode(addresses, method = "nar")                      # NAR records only
 geocode(addresses, method = c("nar", "nar_interpolate")) # the default
 geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
+geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"))
 geocode(addresses, method = c("bc", "nar"))             # prefer BC where it answers
 ```
 
-`"nar"` looks the civic number up directly, `"nar_interpolate"` places the ones
-NAR does not carry, and `"bc"` asks the Province of BC's geocoder. The default
-is the offline pair; nothing reaches the network unless `"bc"` is named.
+`"nar"` looks the civic number up directly and `"nar_interpolate"` places the
+ones NAR does not carry; `"bc"` asks the Province of BC's geocoder and
+`"nrcan"` NRCan's national one. The default is the offline pair; nothing
+reaches the network unless `"bc"` or `"nrcan"` is named, and both belong last
+in the list.
 
 ### Constraining the search
 
@@ -215,7 +219,30 @@ number and street name from 98.8% and resolves 86.5% to an address NAR actually
 holds. `vignette("address-normalization")` has the rest of the numbers and the
 known limits.
 
-## British Columbia: an independent geocoder
+## Canada-wide: the NRCan geolocator
+
+`nrcan_geocode()` binds NRCan's [geolocator](https://geolocator.api.geo.ca/).
+It is national, needs no API key and no local database, which makes `"nrcan"`
+the one tier that answers before a NAR release has been downloaded — and the
+one that covers provinces a single-province import does not hold.
+
+``` r
+geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"))
+```
+
+Two things to know before relying on it. The service **always answers**, and
+without a score to disbelieve: asked for a Montreal street it will happily
+return the same street name 500 km away. `cangeocode` therefore re-parses the
+address it gets back and requires it to agree, component by component, with the
+one that was sent; roughly half of what is asked is rejected on that basis, and
+the rejected rows keep a `nrcan_reject` column saying why. And as a fallback for
+NAR's own gaps it is worth much less than BC's geocoder — it recovers about 8%
+of what NAR leaves unplaced, because the addresses NAR lacks are largely the
+ones no national compilation has.
+
+It does not do reverse geocoding; `reverse_geocode()` is NAR-backed and local.
+
+## British Columbia: a second geocoder
 
 `bc_geocode()` binds the Province of BC's
 [Address Geocoder](https://geocoder.api.gov.bc.ca/). It covers BC only, needs
@@ -230,7 +257,9 @@ geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
 On a sample of 600 BC addresses the NAR pathway placed 524 and gave up on 76;
 the fallback resolved 75 of those, 31 of them at address level.
 
-As **validation**, since it is an independent source of position:
+As **validation**, since it is a second source of position — and the more
+reliable of the two where they differ, being a parcel-level provincial
+authority rather than a national compilation:
 
 ``` r
 g <- geocode(c("525 Superior St, Victoria, BC", "800 Robson St, Vancouver, BC"))

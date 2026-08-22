@@ -16,7 +16,7 @@ NAR, and hands back one row per input in input order, saying for each one
 
 This vignette covers the whole path: the basic call, reading the columns that
 qualify every result, choosing which methods to try, constraining the search,
-and checking an answer against an independent source. The parsing step has a
+and checking an answer against a second source. The parsing step has a
 vignette of its own — `vignette("address-normalization")` — since normalizing
 addresses is useful whether or not a coordinate comes out at the end.
 
@@ -170,7 +170,7 @@ street only** — pooling both sides costs a median 35.2 m against 4.2 m — and
 than continuing the run's spacing, which scores a respectable 15.1 m median but
 a 237 m 90th percentile. Those rows come back `none`.
 
-There is a third tier, `"bc"`, further down.
+There are two further tiers, `"bc"` and `"nrcan"`, further down.
 
 ## Constraining the search
 
@@ -317,9 +317,13 @@ geocode("100 Queen St W, Toronto, ON", geometry = TRUE, con = con) |>
 ```
 
 For British Columbia there is a stronger check available: the Province of BC
-publishes its own [Address Geocoder](https://geocoder.api.gov.bc.ca/), which is
-an entirely independent source of position. `bc_validate()` geocodes a result
-again through that service and reports the distance between the two answers.
+publishes its own [Address Geocoder](https://geocoder.api.gov.bc.ca/), a
+parcel-level provincial authority. `bc_validate()` geocodes a result again
+through that service and reports the distance between the two answers. Where
+they disagree, BC's answer is generally the more reliable of the two — but the
+two sources are not independent of each other, so a small distance is weaker
+evidence than it looks, and the distances are a way to find suspect rows rather
+than a measurement of how accurate NAR is.
 
 **This is the one path in the package that sends an address off your machine**,
 and nothing reaches it unless you call one of these functions.
@@ -390,6 +394,39 @@ name a usable match, and `bc_score` has to clear `min_score`, which defaults to
 result when the service is confident, it is just not an address. Either way a
 rejected row keeps its score and its `bc_faults`, so what was thrown away stays
 readable rather than vanishing. See `?bc_geocode`.
+
+## The national geolocator
+
+`"nrcan"` is the other online tier, backed by NRCan's
+[geolocator](https://geolocator.api.geo.ca/). Unlike `"bc"` it covers the whole
+country, and it needs no local database at all — which makes it the only tier
+that can answer before a NAR release has been imported, and the one that covers
+provinces a single-province import does not hold.
+
+``` r
+geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"), con = con)
+```
+
+It has the same trap as the BC service, in a sharper form: **it always answers,
+and it gives you no score to disbelieve.** Asked for `1 Rue Notre-Dame Ouest,
+Montreal, QC` it returns a real, precisely interpolated position on a real Rue
+Notre-Dame Ouest — in Lorrainville, 500 km away — with nothing in the response
+marking it as a substitution.
+
+So the tier re-parses the address the service hands back and requires it to
+agree, component by component, with the one that was sent: same street name,
+same civic number, and no contradiction on type, direction, municipality or
+province. Roughly half of what is asked is rejected on that basis, and a
+rejected row keeps a `nrcan_reject` column naming the component that
+disagreed, so what was thrown away stays readable. Of the answers that survive,
+the median sits 33 m from NAR's own building point and the 90th percentile at
+115 m, which is what `uncertainty_m = 150` reports.
+
+Two caveats worth having before you reach for it. As a fallback for NAR's own
+gaps it is worth much less than the BC tier — it places about 8% of what NAR
+leaves unplaced, because the addresses NAR lacks are largely the ones no
+national compilation has. And it does not reverse geocode; `reverse_geocode()`
+is NAR-backed and runs locally. See `?nrcan_geocode`.
 
 
 ``` r
