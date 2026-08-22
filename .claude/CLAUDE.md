@@ -18,8 +18,8 @@ Address Geocoder, as a BC-only fallback and validation source. Road network file
 `DESCRIPTION` as a future source but are not implemented yet.
 
 Public API (see `NAMESPACE`): `nar_connection()`, `available_nar_versions()`, `collect_nar()`,
-`reverse_geocode()`, `normalize_address()`, `address_pattern()`, `geocode()`, `bc_geocode()`,
-`bc_validate()`.
+`reverse_geocode()`, `normalize_address()`, `address_pattern()`, `address_key()`,
+`format_address()`, `geocode()`, `bc_geocode()`, `bc_validate()`.
 
 This file records **why the code is shaped the way it is**, and it is the only document in
 `.claude/`. Longer-form notes live in **`inst/notes/`** and ship with the package:
@@ -368,12 +368,20 @@ before the gazetteer runs — it describes the parse, not the corrected result.
 
 **`STE` is Suite and it is also Sainte.** Left unguarded, `Sault Ste. Marie` parses as a unit
 called `SAULT MARIE` and the municipality is lost outright — 36,711 NAR addresses' worth.
-`nar_take_unit_segments()` therefore requires a designator's *value* to look like a unit number
-(a digit, or a lone letter) before accepting it. That requirement is confined to
+`nar_is_unit_value()` therefore requires a designator's *value* to look like a unit number (a
+digit, or a lone letter) before accepting it. That requirement is confined to
 `nar_lex_unit_ambiguous`, which is `STE` and nothing else, and **must not be widened to every
 designator**: `APT BSMT` and `APT TRLR` are real units whose value is a word, and applying the
 rule to `APT` collapses the whole run into the street name and drops the civic number with it.
 Both directions are regression-tested.
+
+**All three unit paths must apply it.** The guard first went in on
+`nar_take_unit_segments()` alone, which was enough only for comma-delimited input: without commas
+the municipality is not a segment of its own, so `123 Main St Sault Ste Marie ON` reached
+`nar_take_trailing_unit()` instead and lost the city through the other door. `nar_is_unit_value()`
+exists so the three callers — segments, leading, trailing — cannot drift apart again. Note that
+neither half of the eval harness catches this: Part A renders its municipalities out of NAR into a
+comma-delimited form, so a comma-less place name is a form the noise grammar never produces.
 
 **NAR keeps periods in municipality names; `nar_norm_text()` strips them from input.** `ST.
 JOHN'S` (54,129 addresses), `SAULT STE. MARIE` (36,711) and `ST. ALBERT` (29,097) can therefore
@@ -382,6 +390,50 @@ never match a parsed fold key. `nar_gazetteer_sql()` folds periods out of *both*
 two fuzzy street comparisons. It deliberately does **not** do so on the exact-branch
 `Streets.NAME_FOLD` join, which would cost the `str_name_idx` index — so street-name periods stay
 unhandled there by design.
+
+### `R/address_format.R` — putting the components back together
+
+`normalize_address()` takes an address apart; `address_key()` and `format_address()` put it back,
+once for a machine and once for a person. Both accept **either** a `normalize_address()` result or
+the raw strings, resolved by `nar_as_components()`, so a caller who only wants the output never has
+to name the columns. Passing `prov`/`con` alongside an already-parsed data frame is an **error**
+rather than silently ignored — those arguments change the parse, and dropping a constraint the
+caller asked for is worse than refusing it.
+
+`address_key()` folds through `nar_key_fold()`, which is `nar_fold()` plus two rules that exist for
+the same reason the gazetteer's `replace(..., '.', '')` does: **periods and apostrophes vanish
+outright** (NAR keeps them in `ST. JOHN'S`, the parser strips them, and a key has to see past that),
+while every other separator becomes a space, so `NOTRE-DAME` keys as `NOTRE DAME` rather than
+`NOTREDAME`. Fields run **broad to narrow** — province, municipality, street, civic — so sorting
+keys clusters a street, and a missing field leaves an empty slot rather than shifting the rest
+along.
+
+**A row with no street name keys to `NA`, not to an empty string.** Otherwise every unparseable row
+in a file joins to every other unparseable row, which is the worst failure a match key has. Note
+this does not fully protect the join: `dplyr` matches `NA` to `NA` by default, which the
+documentation says explicitly.
+
+The unit is **out of the key by default**, so the key is a building. Including it keys a tenant, at
+the cost that the unit is the least reliably parsed component — the tradeoff is documented rather
+than decided.
+
+`format_address()` places the street type **by language, not by province**: it leads only when the
+canonical type exists in French alone, so `Rue` in Ottawa still reads correctly and the three
+canonicals both vocabularies share (`RTE`, `CONC`, `PK`) stay in English order. That is a
+refinement of the rule in `data-raw/render_address.R`, which keys on `prov == "QC"` because it is
+rendering *from* NAR rows and knows the province is the truth there. A civic suffix is glued on
+(`990A`) unless it carries punctuation, in which case it is a fraction and gets a space (`12 1/2`,
+not `121/2`).
+
+Component **case is left exactly as parsed**, which for a gazetteer row means NAR's own
+convention: names mixed case, types and directions and municipalities in capitals (`Burrard ST`).
+Measured on the 2026-06 release, `OFFICIAL_STREET_NAME` is mixed case on 16.09M rows while
+`OFFICIAL_STREET_TYPE` and `OFFICIAL_STREET_DIR` are uppercase on **all** of them. The uneven look
+is therefore NAR's, and imposing a house style would mean re-casing `McTavish`.
+
+`test-address-format.R` asserts the round trip: `address_key(format_address(x)) == address_key(x)`.
+A formatter that emitted something the parser could not read back would silently break the one
+workflow it exists for.
 
 ### `R/geocode.R` — the forward query layer
 
@@ -449,9 +501,11 @@ why `nar_geocode_candidates()` exists and why both tiers go through it. Otherwis
 is needed: the folded street-key join costs 0.05s for a 5-row probe and 0.08s for a 200-row
 one, so **batch into one call rather than looping**.
 
-Street type and direction are compared through `upper()` on the NAR side. NAR stores the
-`OFFICIAL_*` family Mixed Case and the `MAIL_*` family UPPERCASE, and the gazetteer hands
-back the `OFFICIAL_*` spelling — without the fold, `24 Sussex Dr, Ottawa` matches nothing.
+Street type and direction are compared through `upper()` on the NAR side. NAR stores
+`OFFICIAL_STREET_NAME` Mixed Case against the `MAIL_*` family's UPPERCASE, and the gazetteer
+hands back the `OFFICIAL_*` spelling — without the fold, `24 Sussex Dr, Ottawa` matches nothing.
+(The type and direction columns are uppercase in both families, so the fold is redundant there
+and kept for uniformity.)
 
 Coordinates are built in `sf` from the returned `x`/`y` rather than through `collect_nar()`,
 because these are freshly computed values rather than a stored geometry column; the storage

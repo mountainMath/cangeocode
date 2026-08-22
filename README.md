@@ -167,6 +167,23 @@ needs no database at all. Two of them exist to say *this will never resolve*:
 Separating those out first keeps them from sitting in the failure pile looking
 like parser bugs.
 
+`address_key()` puts the components back together as a single string that two
+spellings of the same address share, which is what matching two lists needs:
+
+``` r
+address_key(c("1055 West Georgia Street, Vancouver, British Columbia",
+              "Suite 1500 - 1055 W Georgia St, Vancouver, B.C. V6E 4N7",
+              "1055 w georgia st vancouver bc"), con = con)
+#> [1] "BC|VANCOUVER|GEORGIA|ST|W|1055|" "BC|VANCOUVER|GEORGIA|ST|W|1055|"
+#> [3] "BC|VANCOUVER|GEORGIA|ST|W|1055|"
+```
+
+Case, accents and the punctuation NAR and the parser disagree on are all folded
+out, the unit is left out unless you ask for it, and a row with no street name
+keys to `NA` rather than to an empty string so unparseable rows cannot all join
+to each other. `format_address()` is the readable counterpart, for writing a
+cleaned column back out.
+
 Measured on 5,000 real filings nobody cleaned, the parser extracts a civic
 number and street name from 98.8% and resolves 86.0% to an address NAR actually
 holds. `vignette("address-normalization")` has the rest of the numbers and the

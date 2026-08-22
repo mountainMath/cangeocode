@@ -192,7 +192,7 @@ type in front of the name.
 ## Matching two lists of addresses
 
 This is what normalization is mostly *for*. The same building, written five
-ways, has to collapse to one thing:
+ways, has to collapse to one thing, and `address_key()` is what collapses it:
 
 
 ``` r
@@ -202,27 +202,63 @@ variants <- c("1055 West Georgia Street, Vancouver, British Columbia",
               "1055 w georgia st vancouver bc",
               "1055 W Georgia, Vancouver, BC")
 
-keys <- normalize_address(variants, con = con) |>
-  mutate(key = paste(CIVIC_NO, STREET_NAME, STREET_TYPE, STREET_DIR,
-                     MUN_NAME, PROV_ABVN, sep = "|"))
-
-keys$key
-#> [1] "1055|Georgia|ST|W|VANCOUVER|BC" "1055|Georgia|ST|W|VANCOUVER|BC"
-#> [3] "1055|Georgia|ST|W|VANCOUVER|BC" "1055|Georgia|ST|W|VANCOUVER|BC"
-#> [5] "1055|Georgia|ST|W|VANCOUVER|BC"
-n_distinct(keys$key)
+keys <- address_key(variants, con = con)
+keys
+#> [1] "BC|VANCOUVER|GEORGIA|ST|W|1055|" "BC|VANCOUVER|GEORGIA|ST|W|1055|"
+#> [3] "BC|VANCOUVER|GEORGIA|ST|W|1055|" "BC|VANCOUVER|GEORGIA|ST|W|1055|"
+#> [5] "BC|VANCOUVER|GEORGIA|ST|W|1055|"
+n_distinct(keys)
 #> [1] 1
 ```
 
 Five spellings, one key — including the last one, which never named a street
-type at all and had `ST` supplied by the gazetteer.
+type at all and had `ST` supplied by the gazetteer. Pass `con` (or normalize
+with it first): two lists cannot key alike on a street name only one of them
+spelled correctly, and the gazetteer is what fixes that.
 
-Build the key from the columns your comparison actually cares about.
-`APT_NO_LABEL` is deliberately *not* in the key above, so all five rows are the
-same building; put it in when you are matching units rather than buildings.
-`POSTAL_CODE` is a good tiebreaker and a poor key — it is present on only about
-half of real input, and a missing value would split a group that should have
-joined.
+The fields run broad to narrow, so sorting the keys clusters a street together,
+and a component the parse did not find leaves an empty slot rather than
+shifting the others along. A row with no street name gets `NA` rather than an
+empty key — otherwise every unparseable row in the file would join to every
+other one. Watch for that at the join: `dplyr` matches `NA` to `NA` by default,
+so filter those rows out or pass `na_matches = "never"`.
+
+The unit is left out by default, which is why all five rows above are the same
+building. `address_key(variants, unit = TRUE)` keys the tenant instead — worth
+it when you are matching companies rather than premises, at the cost that the
+unit is the least reliably parsed component, so a row that wrote its suite
+somewhere the parser did not look will split off on its own. `POSTAL_CODE` is
+in neither form: it is a good tiebreaker and a poor key, present on only about
+half of real input, and a missing value splits a group that should have joined.
+
+## Writing the result back out
+
+`format_address()` is the readable counterpart — the canonical components
+written the way an address is written, which is what you want in a cleaned
+column or in a report of what a parse actually resolved to:
+
+
+``` r
+format_address(c("suite 800-666 burrard st, vancouver, b.c. v6c2x8",
+                 "12 1/2 rue notre-dame e, montreal, quebec",
+                 "100 queen street west, toronto, ontario"), con = con)
+#> [1] "800-666 Burrard ST, VANCOUVER, BC V6C 2X8" "12 1/2 RUE Notre-Dame E, MONTRÉAL, QC"    
+#> [3] "100 Queen ST W, TORONTO, ON"
+```
+
+The street type is placed by language rather than by province, so a `Rue` in
+Ottawa still reads correctly.
+
+The case looks uneven, and that is NAR's own convention rather than an
+oversight: it writes street names in mixed case and street types, directions
+and municipalities in capitals. Deferring to it is the same choice the rest of
+the package makes — imposing a house style would mean re-casing names like
+`McTavish` and `L'Île-Bizard`, where NAR's capitals are deliberate. Rows the
+gazetteer never saw have nothing to defer to and come back upper case
+throughout.
+
+What comes out parses back to the same key it went in as, so a column cleaned
+this way still joins to the column it was cleaned from.
 
 ## What it gets wrong
 

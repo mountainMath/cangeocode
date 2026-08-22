@@ -74,6 +74,20 @@ two address lists to each other needs the parse and never needs a coordinate.
   contains neither, so they separate "this address is wrong" from "this address
   was never going to be in the gazetteer".
 
+* New `address_key()` collapses a parse into a single string that two spellings
+  of the same address share, which is what a join or a deduplication needs.
+  Components are folded past case, accents and the punctuation NAR and the
+  parser disagree on, so `St. John's` and `SAINT JOHNS` key alike. The unit is
+  left out by default, keying a building rather than a tenant; `unit = TRUE`
+  keys the tenant. A row with no street name keys to `NA` rather than to an
+  empty string, so unparseable rows cannot all join to each other.
+
+* New `format_address()` writes the components back out as one readable line,
+  with the unit hyphenated onto the civic number and the postal code spaced.
+  The street type is placed by language rather than by province, so a `Rue` in
+  Ottawa still reads correctly. Output parses back to the same `address_key()`,
+  so a cleaned column still joins to the column it was cleaned from.
+
 ## British Columbia
 
 * New `bc_geocode()` binds the Province of BC's public Address Geocoder. No API

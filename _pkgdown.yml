@@ -14,11 +14,14 @@ reference:
 - title: Address normalization
   desc: >
     Parse free-text Canadian addresses into the components NAR is keyed on,
-    and sort them by the shape they parsed as. Useful on its own for matching
-    and deduplicating address lists, not only as a step towards a coordinate.
+    sort them by the shape they parsed as, and put them back together as a
+    match key or a readable line. Useful on its own for matching and
+    deduplicating address lists, not only as a step towards a coordinate.
   contents:
   - normalize_address
   - address_pattern
+  - address_key
+  - format_address
 
 - title: External geocoders
   desc: >
