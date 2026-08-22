@@ -176,3 +176,39 @@ local_mini_gazetteer <- function(env = parent.frame()) {
       'A1E' AS FSA, 'ST. JOHN''S' AS MAIL_MUN_NAME, 120 AS N_ADDRESSES")
   con
 }
+
+#' A miniature release split by province, named the way StatCan names its own
+#'
+#' The real bulk zip carries one `Address_<SGC code>.csv` per province, and
+#' that naming is what both the partial download and the append path key off.
+#' `local_nar_fixture()` writes `Address_BC.csv`, which deliberately does not
+#' match it -- a file the pattern cannot place is treated as shared and always
+#' loaded, which is how the guides and the readme survive a partial download.
+#' So the province tests need a fixture of their own.
+nar_province_fixture <- function(provinces = c("BC", "AB"), env = parent.frame()) {
+  dir <- withr::local_tempdir(.local_envir = env)
+  tbl <- nar_province_table()
+  for (abvn in provinces) {
+    code <- tbl$code[match(abvn, tbl$abvn)]
+    rows <- lapply(nar_address_rows(blockface = TRUE), function(r) {
+      # Province columns, plus a GUID prefix so the two provinces cannot
+      # collide on a key.
+      r[9] <- code
+      r[18] <- abvn
+      r[1] <- paste0(abvn, "-", r[1])
+      r[2] <- paste0(abvn, "-", r[2])
+      r
+    })
+    lines <- c(paste(nar_address_header(TRUE), collapse = ","),
+               vapply(rows, paste, character(1), collapse = ","))
+    writeLines(lines, file.path(dir, paste0("Address_", code, ".csv")))
+
+    loc <- nar_location_lines()
+    loc[-1] <- paste0(abvn, "-", loc[-1])
+    writeLines(loc, file.path(dir, paste0("Location_", code, ".csv")))
+  }
+  # A member the province pattern cannot place, standing in for the release's
+  # user guide.
+  writeLines("not a province file", file.path(dir, "NAR_User_Guide.txt"))
+  dir
+}

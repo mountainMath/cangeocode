@@ -38,10 +38,36 @@ NAR_CACHE_PATH=~/data/nar
 ```
 
 The first call then downloads the NAR release from StatCan and imports it.
-**Expect this to take a while and to use real disk** — a few hundred megabytes
-over the wire (the package raises R's timeout to 20 minutes, because the
-StatCan connection can be slow) and roughly **5 GB on disk** for the 2026-06
-release. Every call after that opens the existing database instantly.
+**Expect this to take a while and to use real disk** — 1.7 GB over the wire
+(the package raises R's timeout to 20 minutes, because the StatCan connection
+can be slow) and roughly **5 GB on disk** for the 2026-06 release. Every call
+after that opens the existing database instantly. In an interactive session the
+first call asks whether you want all of it.
+
+### Just one province
+
+The StatCan release is split by province and the server honours range requests,
+so you can download only the provinces you need:
+
+``` r
+con <- nar_connection(provinces = "PE")
+```
+
+That is 10 MB and about 40 seconds for a working Prince Edward Island
+geocoder — British Columbia is 192 MB, Ontario 552 MB. The addresses are the
+same NAR rows either way, so a partial database geocodes its own provinces
+exactly as well as a national one does; it simply holds nothing outside them,
+which `geocode()` reports as `not_covered` rather than as a failure to match.
+
+Coverage is recorded in the database and checked before anything is downloaded,
+so asking for a province you already have downloads nothing, and asking for one
+you do not adds just that province rather than rebuilding:
+
+``` r
+nar_provinces(con)
+#> [1] "PE"
+con <- nar_connection(provinces = c("PE", "NB"))   # fetches NB only
+```
 
 ## Documentation
 

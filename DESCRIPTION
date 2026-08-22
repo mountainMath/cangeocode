@@ -27,6 +27,7 @@ NeedsCompilation: no
 LazyData: true
 Depends: R (>= 4.1)
 Imports: 
+    curl (>= 5.0),
     dplyr (>= 1.1),
     rvest (>= 1.0.0),
     readr (>= 2.1),

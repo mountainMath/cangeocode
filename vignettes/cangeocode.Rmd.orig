@@ -33,10 +33,11 @@ NAR_CACHE_PATH=~/data/nar
 ```
 
 **Budget for the first download.** `nar_connection()` fetches the release from
-StatCan, unzips it, and builds the database. That is a multi-hundred-megabyte
-download over a connection slow enough that the package raises R's timeout to
-20 minutes, and it lands roughly **5 GB on disk** for the 2026-06 release.
-Every later call reuses the file and opens instantly.
+StatCan, unzips it, and builds the database. That is a 1.7 GB download over a
+connection slow enough that the package raises R's timeout to 20 minutes, and
+it lands roughly **5 GB on disk** for the 2026-06 release. Every later call
+reuses the file and opens instantly. In an interactive session the first call
+asks whether you want all of it — see below.
 
 ```{r connect, message = FALSE}
 library(cangeocode)
@@ -48,6 +49,45 @@ con <- nar_connection()
 `nar_connection()` is both the installer and the accessor: it downloads and
 imports on first use for a given version, and simply opens the file after that.
 Passing it around beats reopening the database, which matters below.
+
+### Downloading one province instead of the country
+
+The StatCan release is one zip whose member files are split by province, and
+the server honours HTTP range requests. So the package can read the archive's
+own index — a few kilobytes, no data transfer — and then fetch only the members
+a province needs:
+
+```{r provinces, eval = FALSE}
+pei <- nar_connection(provinces = "PE")
+```
+
+That is 10 MB and about 40 seconds for a working Prince Edward Island
+geocoder. British Columbia is 192 MB, Ontario 552 MB, the whole country
+1,666 MB.
+
+These are the same NAR rows, not a reduced product: a partial database returns
+the same `ADDR_GUID` and the same coordinates a national one does. What it does
+not have is anything outside its provinces, and `geocode()` says so —
+`match_method` comes back as `not_covered` rather than `none`, because an
+Ontario address asked of a PEI database is not a bad address.
+
+Coverage is recorded in the database and checked before anything is
+downloaded. Asking for a province you already have downloads nothing; asking
+for one you do not adds just that province rather than rebuilding.
+
+```{r provinces-add, eval = FALSE}
+nar_provinces(pei)
+#> [1] "PE"
+
+both <- nar_connection(provinces = c("PE", "NB"))   # fetches New Brunswick only
+nar_provinces(both)
+#> [1] "NB" "PE"
+```
+
+Provinces can be named by abbreviation, by full name, or by SGC code, and
+`provinces = "all"` is the whole country. `refresh = TRUE` rebuilds whatever
+coverage the database already has, so refreshing a British Columbia database
+does not silently turn it into a national one.
 
 ## Reverse geocoding a point
 

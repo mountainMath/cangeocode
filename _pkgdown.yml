@@ -44,6 +44,7 @@ reference:
     results back as `sf`.
   contents:
   - nar_connection
+  - nar_provinces
   - available_nar_versions
   - collect_nar
 

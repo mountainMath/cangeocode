@@ -4,12 +4,15 @@
 \alias{nar_write_metadata}
 \title{Record NAR database metadata}
 \usage{
-nar_write_metadata(con, version)
+nar_write_metadata(con, version, provinces = nar_all_provinces())
 }
 \arguments{
 \item{con}{A writable DuckDB connection}
 
 \item{version}{Normalized NAR version string}
+
+\item{provinces}{Coverage marker: `"ALL"`, or the two-letter abbreviations
+the import actually loaded}
 }
 \value{
 The connection, invisibly

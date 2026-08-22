@@ -63,20 +63,57 @@ nar_load_spatial <- function(con) {
 #'
 #' @param con A writable DuckDB connection
 #' @param version Normalized NAR version string
+#' @param provinces Coverage marker: `"ALL"`, or the two-letter abbreviations
+#'   the import actually loaded
 #' @return The connection, invisibly
 #' @keywords internal
-nar_write_metadata <- function(con, version) {
+nar_write_metadata <- function(con, version, provinces = nar_all_provinces()) {
   DBI::dbExecute(con, "CREATE OR REPLACE TABLE nar_metadata (key VARCHAR, value VARCHAR);")
   meta <- data.frame(
     key = c("version", "crs", "lonlat_crs", "schema_version",
-            "package_version", "imported_at"),
+            "package_version", "imported_at", "provinces"),
     value = c(version, nar_storage_crs(), nar_lonlat_crs(),
               as.character(nar_schema_version()),
               as.character(utils::packageVersion("cangeocode")),
-              format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"))
+              format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
+              nar_coverage_value(provinces))
   )
   DBI::dbAppendTable(con, "nar_metadata", meta)
   invisible(con)
+}
+
+#' Update the recorded coverage of an existing database
+#'
+#' @description Written last on an append path, after the data and the derived
+#' tables are in place, so an interrupted append under-reports what it holds
+#' rather than over-reporting it. The cost of the former is one redundant
+#' download; the cost of the latter is a province that silently answers
+#' nothing.
+#' @param con A writable DuckDB connection
+#' @param provinces `"ALL"` or a character vector of abbreviations
+#' @return The connection, invisibly
+#' @keywords internal
+nar_set_coverage <- function(con, provinces) {
+  # Forced before the delete: a caller computing the new coverage from the old
+  # one would otherwise have its promise evaluated against a table this
+  # function has already emptied.
+  value <- nar_coverage_value(provinces)
+  DBI::dbExecute(con, "DELETE FROM nar_metadata WHERE key = 'provinces';")
+  DBI::dbAppendTable(con, "nar_metadata",
+                     data.frame(key = "provinces", value = value))
+  invisible(con)
+}
+
+#' Serialize a coverage set for the metadata table
+#'
+#' @param provinces `"ALL"` or a character vector of abbreviations
+#' @return A character scalar
+#' @keywords internal
+nar_coverage_value <- function(provinces) {
+  if (is.null(provinces) || identical(provinces, nar_all_provinces())) {
+    return(nar_all_provinces())
+  }
+  paste(sort(unique(provinces)), collapse = ",")
 }
 
 #' Render a CRS as a string DuckDB's spatial extension accepts
@@ -113,13 +150,16 @@ nar_crs_string <- function(crs) {
 #' point and added `geom_source` to tell the two apart. Version 4 added the
 #' `Streets` gazetteer that [normalize_address()] resolves against, and version
 #' 5 the `MunAlias` and `PostalMun` tables that let a municipality be reached by
-#' any of its names, or by postal code alone.
+#' any of its names, or by postal code alone. Version 6 records which provinces
+#' the database actually holds, so a partial import can be recognized as one --
+#' a database without that key predates province subsetting and is therefore
+#' national, which is what [nar_coverage()] falls back to.
 #' Databases built by earlier versions still work, with the features that need
 #' the newer tables degrading rather than failing; see [nar_within_radius()]
 #' and [nar_has_streets()].
 #' @return Integer schema version
 #' @keywords internal
-nar_schema_version <- function() 5L
+nar_schema_version <- function() 6L
 
 #' Read NAR database metadata
 #'

@@ -84,6 +84,10 @@ one answered:
   on either side of it. See the section below.
 * **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
   **`bc_locality`** -- answered by the `bc` tier. See [bc_geocode()].
+* **`not_covered`** -- the address parsed to a province this database does
+  not hold, so no tier could have matched it. Only a partial import (see the
+  `provinces` argument of [nar_connection()]) ever produces this, and it is
+  deliberately distinct from `none`: the address may be perfectly good.
 * **`none`** -- nothing resolved.
 }
 \section{Choosing the tiers}{

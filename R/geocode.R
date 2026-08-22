@@ -34,6 +34,10 @@ nar_blockface_uncertainty_m <- function() 176
 #'   on either side of it. See the section below.
 #' * **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
 #'   **`bc_locality`** -- answered by the `bc` tier. See [bc_geocode()].
+#' * **`not_covered`** -- the address parsed to a province this database does
+#'   not hold, so no tier could have matched it. Only a partial import (see the
+#'   `provinces` argument of [nar_connection()]) ever produces this, and it is
+#'   deliberately distinct from `none`: the address may be perfectly good.
 #' * **`none`** -- nothing resolved.
 #'
 #' @section Choosing the tiers: `method` is a vector of tier names in priority
@@ -309,6 +313,31 @@ nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
       bc              = nar_geocode_tier_bc(res, out, todo, con,
                                             bounds = bounds_geom, ...))
   }
+  nar_geocode_mark_uncovered(out, res, con)
+}
+
+#' Separate "not in the gazetteer" from "not in this database"
+#'
+#' @description A partial NAR import holds only the provinces it downloaded, so
+#' an address in a province it does not hold cannot match however good the
+#' parse is. Reporting that as `none` would say the address is wrong; it says
+#' instead that this database was never asked to know.
+#'
+#' Only rows whose province is both **parsed** and demonstrably outside the
+#' coverage are marked. An unparsed province stays `none`, because nothing has
+#' been established about it, and a national database marks nothing at all.
+#' @param out The result so far
+#' @param res Parsed components
+#' @param con A NAR connection
+#' @return `out`, with `match_method` set to `"not_covered"` where it applies
+#' @keywords internal
+nar_geocode_mark_uncovered <- function(out, res, con) {
+  have <- nar_coverage(con)
+  if (identical(have, nar_all_provinces())) return(out)
+  prov <- res$PROV_ABVN
+  uncovered <- !is.na(prov) & nzchar(prov) & !(toupper(prov) %in% have) &
+    out$match_method == "none"
+  out$match_method[uncovered] <- "not_covered"
   out
 }
 

@@ -17,9 +17,10 @@ the `spatial` extension. One online geocoder is wired up — the Province of Bri
 Address Geocoder, as a BC-only fallback and validation source. Road network files are named in
 `DESCRIPTION` as a future source but are not implemented yet.
 
-Public API (see `NAMESPACE`): `nar_connection()`, `available_nar_versions()`, `collect_nar()`,
-`reverse_geocode()`, `normalize_address()`, `address_pattern()`, `address_key()`,
-`format_address()`, `geocode()`, `bc_geocode()`, `bc_validate()`.
+Public API (see `NAMESPACE`): `nar_connection()`, `nar_provinces()`,
+`available_nar_versions()`, `collect_nar()`, `reverse_geocode()`, `normalize_address()`,
+`address_pattern()`, `address_key()`, `format_address()`, `geocode()`, `bc_geocode()`,
+`bc_validate()`.
 
 This file records **why the code is shaped the way it is**, and it is the only document in
 `.claude/`. Longer-form notes live in **`inst/notes/`** and ship with the package:
@@ -74,6 +75,10 @@ Two knobs matter:
 - `local_nar_fixture(blockface = TRUE/FALSE)` emits the 31-column 2026-06 layout or the older
   29-column one. **Both must keep passing** — that pair is the regression test for the positional
   column shift and for the conditional blockface fallback.
+- `nar_province_fixture()` writes a release named the way StatCan names its own
+  (`Address_59.csv`, `Address_48.csv`) plus one member no province owns, which is what the
+  partial-import and append tests key off. `local_nar_fixture()` deliberately does *not* — its
+  `Address_BC.csv` is unplaceable, hence shared, hence always loaded.
 - `local_nar_env()` mocks `available_nar_versions()` (the only function that scrapes StatCan) and
   points `NAR_CACHE_PATH` and `nar_exdir` at temp dirs. The mock takes `...` because the
   `refresh` argument is threaded through to it. Anything calling `nar_connection()` needs
@@ -191,14 +196,16 @@ permanent-table hop:
 and `reverse_geocode()` — they duplicate `geom` and would silently go stale if the geometry were
 reprojected.
 
-`nar_schema_version()` is **5**. Version 2 added the `x`/`y` columns and fixed the lon/lat
+`nar_schema_version()` is **6**. Version 2 added the `x`/`y` columns and fixed the lon/lat
 datum; version 3 added the blockface fallback and `geom_source`; version 4 added the `Streets`
-gazetteer; version 5 added `MunAlias` and `PostalMun`. Older databases still work — version 1
-without the prefilter and with `Locations` geometry off by ~1.1 m, version 2 without a
-`geom_source` column and with no geometry on the 1.14M blockface-only addresses, versions 3 and
-below with `normalize_address()` falling back to rules only and `geocode(mun = )` erroring
-outright. Only a `refresh = TRUE` rebuild picks these up. The gate is `nar_has_streets()`,
-which tests for the tables rather than reading the version number.
+gazetteer; version 5 added `MunAlias` and `PostalMun`; version 6 added the `provinces` metadata
+key. Older databases still work — version 1 without the prefilter and with `Locations` geometry
+off by ~1.1 m, version 2 without a `geom_source` column and with no geometry on the 1.14M
+blockface-only addresses, versions 3 and below with `normalize_address()` falling back to rules
+only and `geocode(mun = )` erroring outright, and versions 5 and below reading as national —
+which they are, since nothing before 6 could import a subset. Only a `refresh = TRUE` rebuild
+picks these up. The gate is `nar_has_streets()`, which tests for the tables rather than reading
+the version number.
 
 Both spatial tables get an RTREE index on `geom` and a btree on `LOC_GUID`. Distances are in
 **metres** because the storage CRS is projected, which is why `match_radius` needs no conversion.
@@ -206,6 +213,102 @@ Both spatial tables get an RTREE index on `geom` and a btree on `LOC_GUID`. Dist
 DDL here must use `dbExecute()`, not `dbSendQuery()`: an uncleared result set keeps the
 connection busy, the final `CHECKPOINT` never lands, and the leftover WAL makes the subsequent
 **read-only** reopen fail outright.
+
+### Partial imports: one province instead of the country
+
+> `R/nar_provinces.R` (the vocabulary), `R/nar_zip.R` (the transport),
+> `nar_connection(provinces = )` and the `nar_import_*` family in `R/nar.R` (the flow).
+
+The StatCan bulk zip has its members **split by province** — `Addresses/Address_59.csv` is
+British Columbia, and Ontario is split further into `_part_N` — and www150 honours HTTP range
+requests. Together those two facts mean a caller who wants one province can read the archive's
+own central directory for ~7 KB and then fetch only that province's members. Measured on
+2026-06: PE 10 MB, NU 1, NT 2, YT 2, NL 23, SK 39, NB 43, MB 51, NS 55, AB 170, BC 192, QC 534,
+ON 552, everything 1,666. A working PEI geocoder is 10 MB and ~40 s end to end, and it returns
+the **same `ADDR_GUID` and the same coordinates** as the national database — these are the same
+NAR rows, not a reduced product.
+
+**Everything in `nar_zip.R` goes through a *reader*** — `function(from, len)` returning raw
+bytes, carrying the resource size as an attribute. `nar_range_reader()` is the HTTP one and
+`nar_file_reader()` serves a local file through the identical interface, which is what lets
+`test-zip.R` exercise the zip parsing and reassembly against archives it builds itself with no
+server. Same seam, same reason, as `nar_version_table()` taking an already-parsed document.
+
+Three things in that file are load-bearing and non-obvious:
+
+- **`nar_le()` accumulates into a double.** `readBin()`'s 4-byte integer is *signed*, so offsets
+  past 2^31 come back negative — and a 1.7 GB archive is already close to that. ZIP64 is handled
+  in both places it can appear (the tail locator and the per-entry extra field id `0x0001`)
+  because the release is not far from outgrowing the 32-bit fields.
+- **`nar_zip_copy_members()` rebuilds local headers from the central directory rather than
+  copying them.** The CD is the authoritative record of the sizes: an archive with the streaming
+  flag (bit 3) set writes zeros in the local header and trails the real sizes after the data.
+  Rebuilding also lets that flag be cleared, so the output needs no data descriptors. The local
+  header's own name/extra lengths still have to be read to find where the data starts — they
+  need not match the CD's.
+- **Compressed bytes are copied verbatim, never inflated.** The result is an ordinary zip, so
+  `utils::unzip()` and everything downstream of it is byte-for-byte the same code path whether
+  one province or the country was downloaded.
+
+`nar_release_directory()` **memoizes the parsed index per session, keyed by URL**. Reading it
+off the real archive takes ~34 s — a single small range read, but the server is slow to first
+byte — and the interactive prompt and the download that follows would otherwise each pay it. A
+release at a given URL is immutable, so there is nothing to invalidate.
+
+**Coverage is recorded, not inferred.** `nar_metadata`'s `provinces` key holds either `"ALL"` or
+a comma-separated list, and `nar_coverage()` falls back to `"ALL"` for databases without the key
+— correctly, since nothing before schema 6 could import a subset. `nar_import_plan()` is the
+whole decision and is a pure function of (does the file exist, what does it cover, what was
+asked, was `refresh` passed), which is why it is tested directly:
+
+| cached | asked | result |
+| --- | --- | --- |
+| national | anything | nothing to fetch |
+| `BC` | `BC` | nothing to fetch |
+| `BC` | `BC`, `AB` | fetch `AB`, **append** |
+| `BC` | all | fetch all, **rebuild** |
+| `BC` | nothing, `refresh = TRUE` | fetch `BC` — refreshing must not widen the database |
+| nothing | nothing | `NULL`, meaning *ask* |
+
+That `NULL` is not the empty vector, and `nar_connection()` tests for it explicitly
+(`is.null(plan$fetch) || length(plan$fetch)`) — `length(NULL)` is 0, so the obvious check would
+skip the prompt entirely.
+
+**The create path publishes by rename; the append path cannot.** A fresh import builds into
+`<path>.duckdb.building` and renames on success, so a failed run leaves nothing later calls
+would mistake for a finished database. An append writes into the live file, so instead the
+*coverage metadata is written last* — after the data and the derived tables. A crash mid-append
+therefore leaves a database that **under**-reports what it holds, costing one redundant
+download, rather than one that over-reports and silently answers nothing for a province.
+
+`nar_set_coverage()` computes `nar_coverage_value(provinces)` **before** its own `DELETE`. The
+caller passes `union(nar_coverage(con), plan$fetch)`, and R's lazy evaluation would otherwise
+force that promise against a table the function had already emptied — which read as `"ALL"` and
+recorded coverage of `"AB,ALL"`.
+
+`nar_build_derived()` **drops and recreates** `Streets`/`MunAlias`/`PostalMun` on every import,
+append included. They are aggregates over the whole `Addresses` table, so a street that gained
+addresses needs its counts and civic range recomputed, not extended.
+
+`nar_import_tables()` holds the geometry decisions **once**, for both paths. An appended
+province whose `x`/`y` disagreed with its `geom` would break the zonemap prefilter for those
+rows alone, which is close to undebuggable. The append itself is
+`INSERT INTO <table> BY NAME (<rendered lazy query>)` — one pass, and matching by name rather
+than position so a column-order difference is a no-op instead of a silent transposition.
+
+`geocode()` answers **`not_covered`**, via `nar_geocode_mark_uncovered()`, for a row whose
+parsed province is outside the coverage. Only rows where the province was actually parsed *and*
+is demonstrably outside are marked: an unparsed province stays `none`, because nothing has been
+established about it, and a national database marks nothing at all. Reporting an Ottawa address
+as `none` against a PEI database would say the address is wrong; this says the database was
+never asked to know.
+
+**`nar_zip_member_province()` returns `NA` for anything that is not a per-province CSV** — the
+user guides, the readme, the directory entries — and those members are carried along in every
+subset regardless. This is also why `local_nar_fixture()` (which writes `Address_BC.csv`, not
+the SGC-coded name) keeps working unchanged: an unplaceable member is shared, so it always
+loads. The province tests need `nar_province_fixture()`, which names its files the way StatCan
+does.
 
 ### Version discovery and offline use
 
@@ -506,6 +609,7 @@ last leaves interpolated rows with no `ADDR_GUID`.
 | `nar_blockface` | in NAR, but only a blockface centroid | 176 |
 | `nar_interpolated` | not in NAR; placed between the flanking civics | `0.5 * span` |
 | `nar_no_geometry` | in NAR (`ADDR_GUID` is set) but unplaceable | `NA` |
+| `not_covered` | parsed to a province this (partial) database does not hold | `NA` |
 | `none` | not found | `NA` |
 
 `uncertainty_m` is defined as the **90th-percentile error this package adds relative to

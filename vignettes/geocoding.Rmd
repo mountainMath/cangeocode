@@ -92,7 +92,13 @@ so one call with a thousand addresses is worlds away from a thousand calls.
 | `nar_blockface` | in NAR, but only a blockface centroid is available |
 | `nar_interpolated` | not in NAR; placed between the flanking civic numbers |
 | `nar_no_geometry` | in NAR — `ADDR_GUID` names the record — but unplaceable |
+| `not_covered` | in a province this database does not hold |
 | `none` | not found |
+
+`not_covered` only ever appears against a database imported for selected
+provinces (`nar_connection(provinces = )`). It is kept apart from `none`
+because it says nothing about the address: no tier could have matched it, so
+the parse was never tested.
 
 `uncertainty_m` prices each of those: it is the **90th-percentile error this
 package adds relative to NAR's own building point**. Zero for an exact match,
@@ -348,7 +354,7 @@ place at all:
 
 ``` r
 hard <- c("2912 West Broadway, Vancouver, BC",
-          "33695 South Fraser Way, Abbotsford, BC",
+          "1 Nesters Rd, Whistler, BC",
           "7165 Nakiska Dr, Vernon, BC")
 
 geocode(hard, con = con)$match_method
@@ -356,10 +362,10 @@ geocode(hard, con = con)$match_method
 
 geocode(hard, method = c("nar", "nar_interpolate", "bc"), con = con) |>
   select(input, match_method, uncertainty_m)
-#>                                    input match_method uncertainty_m
-#> 1      2912 West Broadway, Vancouver, BC     bc_civic            20
-#> 2 33695 South Fraser Way, Abbotsford, BC     bc_block           100
-#> 3            7165 Nakiska Dr, Vernon, BC     bc_civic            20
+#>                               input match_method uncertainty_m
+#> 1 2912 West Broadway, Vancouver, BC     bc_civic            20
+#> 2        1 Nesters Rd, Whistler, BC    bc_street           500
+#> 3       7165 Nakiska Dr, Vernon, BC     bc_civic            20
 ```
 
 On a sample of 600 BC addresses that NAR's own pathway placed 524 of, the tier

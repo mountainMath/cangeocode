@@ -9,7 +9,7 @@ test_that("import builds the expected tables, indexes and metadata", {
                   c("add_geom_idx", "add_loc_guid_idx", "loc_geom_idx", "loc_loc_guid_idx",
                     "str_name_idx", "str_mail_name_idx", "str_mun_key_idx",
                     "mun_alias_idx", "pm_fsa_idx"))
-  expect_equal(nar_meta_value(con, "schema_version"), "5")
+  expect_equal(nar_meta_value(con, "schema_version"), "6")
   expect_equal(nar_meta_value(con, "crs"), nar_storage_crs())
   expect_equal(nar_meta_value(con, "lonlat_crs"), nar_lonlat_crs())
   expect_equal(nar_meta_value(con, "version"), "test-01")

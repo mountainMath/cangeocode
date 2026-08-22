@@ -3,16 +3,43 @@
 #
 #
 #' Get NAR data
-#' @description This function downloads the NAR data if necessary and returns a connection the NAR database
+#' @description This function downloads the NAR data if necessary and returns a
+#' connection to the NAR database.
+#'
+#' The StatCan release is one ~1.7 GB zip whose member files are split by
+#' province, and the server honours HTTP range requests, so `provinces` can
+#' restrict the download to the provinces that are actually wanted -- 192 MB
+#' for British Columbia, 10 MB for Prince Edward Island. The addresses are the
+#' same NAR rows either way, so a partial database geocodes its own provinces
+#' exactly as well as a national one does; it simply holds nothing outside
+#' them, which [geocode()] reports as `not_covered` rather than as a failure
+#' to match.
+#'
+#' Coverage is recorded in the database and checked before anything is
+#' downloaded. A national database already satisfies every request, and asking
+#' for a province an existing partial database lacks adds just that province
+#' rather than rebuilding.
 #' @param version Version of the NAR database to connect to. Default is "latest".
+#' @param provinces Provinces to make available, as two-letter abbreviations,
+#'   SGC codes or full names -- or `"all"` for the whole country. `NULL`, the
+#'   default, keeps whatever a cached database already holds; when there is
+#'   nothing cached it prompts in an interactive session and downloads the
+#'   whole country otherwise.
 #' @param refresh Logical indicating whether to refresh the local cache of the NAR database.
 #' @return A connection to the NAR database containing Addresses and Locations tables
 #' @export
 #' @examples
 #' \dontrun{
 #' con <- nar_connection()
+#'
+#' # British Columbia only: 192 MB rather than 1.7 GB.
+#' bc <- nar_connection(provinces = "BC")
+#' nar_provinces(bc)
+#'
+#' # Add a province to an existing partial database.
+#' bc_ab <- nar_connection(provinces = c("BC", "AB"))
 #' }
-nar_connection <- function(version="latest", refresh=FALSE) {
+nar_connection <- function(version="latest", provinces=NULL, refresh=FALSE) {
   cache_path <- Sys.getenv("NAR_CACHE_PATH")
   if (cache_path == "") {
     stop("Please set the NAR_CACHE_PATH environment variable to a valid directory path.")
@@ -20,241 +47,48 @@ nar_connection <- function(version="latest", refresh=FALSE) {
   if (!dir.exists(cache_path)) {
     dir.create(cache_path, recursive=TRUE)
   }
+  provinces <- nar_normalize_provinces(provinces)
   version <- nar_resolve_version(version, cache_path, refresh = refresh)
   nar_path <- file.path(cache_path, paste0(version,".duckdb"))
-  if (!file.exists(nar_path) || refresh) {
+
+  plan <- nar_import_plan(nar_path, provinces, refresh)
+
+  # A NULL `fetch` means "still to be decided", which is not the same as the
+  # empty vector meaning "nothing to download".
+  if (is.null(plan$fetch) || length(plan$fetch)) {
     url <- available_nar_versions() |>
       filter(.data$path == !!version | .data$version == !!version) |>
       pull(url)
+    if (is.null(plan$fetch)) plan$fetch <- nar_choose_provinces(url)
+
     exdir <- getOption("nar_exdir")
     # Only a directory this function created may be deleted afterwards; a
     # caller-supplied `nar_exdir` belongs to the caller.
     downloaded <- is.null(exdir)
     if (downloaded) {
-      message("Downloading NAR data version ",version," from StatCan.")
+      exdir <- file.path(tempdir(), "nar_extract")
+      unlink(exdir, recursive = TRUE)
       tmp <- tempfile(fileext = ".zip")
       to <- options("timeout")
       # set timeout to 20 minutes if it's less than that, StatCan connection can be very slow
       options(timeout = max(1200, as.numeric(unlist(to)), na.rm = TRUE))
-      utils::download.file(url, tmp, mode="wb")
+      if (identical(plan$fetch, nar_all_provinces())) {
+        message("Downloading NAR data version ",version," from StatCan.")
+        utils::download.file(url, tmp, mode="wb")
+      } else {
+        # Range-fetch only this province's members. The result is an ordinary
+        # zip, so everything downstream is identical to the national path.
+        nar_download_provinces(url, plan$fetch, tmp)
+      }
       options(timeout = to)
-
-      exdir <- file.path(tempdir(),"nar_extract")
       utils::unzip(tmp, exdir=exdir)
       unlink(tmp)
     } else {
       message("Using cached NAR data version ",version," from ",exdir,".")
     }
 
-    address_data_paths <- list.files(exdir, pattern="Address_.*\\.csv$", full.names=TRUE, recursive=TRUE)
-    location_data_paths <- list.files(exdir, pattern="Location_.*\\.csv$", full.names=TRUE, recursive=TRUE)
-    if (!length(address_data_paths) || !length(location_data_paths)) {
-      stop("No NAR Address/Location CSVs found under ", exdir, ".")
-    }
+    nar_import_release(nar_path, exdir, version, plan)
 
-    address_schema <- nar_csv_schema(address_data_paths[1], nar_address_types(),
-                                     required = c("LOC_GUID", "ADDR_GUID", "BG_X", "BG_Y"))
-    location_schema <- nar_csv_schema(location_data_paths[1], nar_location_types(),
-                                      required = c("LOC_GUID", "BG_LATITUDE", "BG_LONGITUDE"))
-
-    # Releases before 2026-06 carry no blockface columns, so the fallback has to
-    # be built from what the header actually offers.
-    has_blockface <- all(c("BF_REPPOINT_X", "BF_REPPOINT_Y") %in%
-                           names(address_schema))
-
-    address_arrow <- arrow::open_dataset(address_data_paths,
-                                         format = "csv",
-                                         skip_rows = 1,
-                                         schema = address_schema)
-    location_arrow <- arrow::open_dataset(location_data_paths,
-                                          format = "csv",
-                                          skip_rows = 1,
-                                          schema = location_schema)
-
-
-
-    # Build into a side path and publish by renaming once the import has
-    # completed. A database that fails partway through would otherwise be left
-    # at `nar_path`, where every later call -- seeing the file exist -- would
-    # treat it as a finished import and hand out a connection with no
-    # Addresses table.
-    build_path <- paste0(nar_path, ".building")
-    if (file.exists(build_path)) unlink(build_path, recursive = TRUE)
-    import_complete <- FALSE
-    on.exit(if (!import_complete && file.exists(build_path))
-              unlink(build_path, recursive = TRUE), add = TRUE)
-
-    con <- DBI::dbConnect(duckdb::duckdb(dbdir=build_path))
-    nar_load_spatial(con)
-    nar_write_metadata(con, version)
-    nar_register_spatial(con)
-
-    # The building point (BG) is the primary geometry; where it is absent the
-    # blockface centroid (BF) stands in -- a much coarser point shared by every
-    # address on one side of a street -- and geom_source records which was used.
-    # x/y mirror whichever point geom ended up holding rather than BG alone:
-    # DuckDB maintains min/max zonemaps for plain numeric columns, and the
-    # bounding-box prefilter in nar_within_radius() uses them to skip most row
-    # groups, so they have to agree with the geometry they are filtering.
-    message("Importing address data.")
-
-    dplyr::copy_to(con,
-                   address_arrow |>
-                     arrow::to_duckdb(),
-                   name = "AddressesTemp", temporary = TRUE, overwrite = TRUE)
-
-    addresses <- con |> tbl("AddressesTemp")
-
-    if (has_blockface) {
-      addresses <- addresses |>
-        mutate(x=dplyr::coalesce(.data$BG_X, .data$BF_REPPOINT_X),
-               y=dplyr::coalesce(.data$BG_Y, .data$BF_REPPOINT_Y),
-               geom_source=dplyr::case_when(!is.na(.data$BG_X) ~ "building",
-                                            !is.na(.data$BF_REPPOINT_X) ~ "blockface",
-                                            TRUE ~ NA_character_))
-    } else {
-      addresses <- addresses |>
-        mutate(x=.data$BG_X, y=.data$BG_Y,
-               geom_source=dplyr::if_else(is.na(.data$BG_X),
-                                          NA_character_, "building"))
-    }
-
-    dplyr::copy_to(con,
-                   addresses |>
-                     mutate(geom=st_point(.data$x, .data$y)) |>
-                     select(-"BG_X", -"BG_Y"),
-                   name = "Addresses", temporary = FALSE, overwrite = TRUE)
-
-    message("Indexing address data.")
-
-    DBI::dbExecute(con, "DROP TABLE AddressesTemp;")
-    DBI::dbExecute(con, "CREATE INDEX add_geom_idx ON Addresses USING RTREE (geom);")
-    DBI::dbExecute(con, "CREATE INDEX add_loc_guid_idx ON Addresses (LOC_GUID);")
-
-    message("Importing location data.")
-    dplyr::copy_to(con,
-                   location_arrow |>
-                     arrow::to_duckdb(),
-                   name = "LocationsTemp", temporary = TRUE, overwrite = TRUE)
-
-    dplyr::copy_to(con,
-                   con |>
-                     tbl("LocationsTemp") |>
-                     mutate(geom=nar_store(nar_point(.data$BG_LONGITUDE,.data$BG_LATITUDE))) |>
-                     mutate(x=st_x(.data$geom), y=st_y(.data$geom)) |>
-                     select(-"BG_LATITUDE", -"BG_LONGITUDE"),
-                   name = "Locations", temporary = FALSE, overwrite = TRUE)
-
-    message("Indexing location data.")
-
-    DBI::dbExecute(con, "DROP TABLE LocationsTemp;")
-    DBI::dbExecute(con, "CREATE INDEX loc_geom_idx ON Locations USING RTREE (geom);")
-    DBI::dbExecute(con, "CREATE INDEX loc_loc_guid_idx ON Locations (LOC_GUID);")
-
-    # The street gazetteer that normalize_address() resolves against: one row
-    # per distinct street, which is 374k rows against the address table's 17.4M.
-    # Both name families are carried because neither is complete on its own --
-    # MAIL_STREET_NAME is empty for 957k addresses while OFFICIAL_STREET_NAME is
-    # empty for 95, and where both are present they still differ beyond case for
-    # 530k. A parser that only knew one of them would fail to match the other.
-    #
-    # NAME_FOLD is the join key: accent- and case-insensitive, so a user typing
-    # an accent-free query string reaches the accented stored name. It is
-    # materialized rather than computed per query so the join can use the index.
-    message("Building street gazetteer.")
-    # MUN_KEY is the jurisdictional bucket a street sits in -- the CSD, which is
-    # a statistical boundary drawn from jurisdictional divisions. It is what
-    # candidate streets are restricted to, rather than the mailing city, because
-    # the two do not nest: see MunAlias below.
-    DBI::dbExecute(con, "
-      CREATE TABLE Streets AS
-      SELECT OFFICIAL_STREET_NAME, OFFICIAL_STREET_TYPE, OFFICIAL_STREET_DIR,
-             MAIL_STREET_NAME, MAIL_STREET_TYPE, MAIL_STREET_DIR,
-             MAIL_MUN_NAME, MAIL_PROV_ABVN, PROV_CODE, CSD_ENG_NAME,
-             PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME AS MUN_KEY,
-             strip_accents(upper(OFFICIAL_STREET_NAME)) AS NAME_FOLD,
-             strip_accents(upper(MAIL_STREET_NAME)) AS MAIL_NAME_FOLD,
-             count(*) AS N_ADDRESSES,
-             min(CIVIC_NO) AS MIN_CIVIC_NO,
-             max(CIVIC_NO) AS MAX_CIVIC_NO
-      FROM Addresses
-      GROUP BY ALL;")
-    DBI::dbExecute(con, "CREATE INDEX str_name_idx ON Streets (NAME_FOLD);")
-    DBI::dbExecute(con, "CREATE INDEX str_mail_name_idx ON Streets (MAIL_NAME_FOLD);")
-    DBI::dbExecute(con, "CREATE INDEX str_mun_key_idx ON Streets (MUN_KEY);")
-
-    # Every name a locality answers to, mapped to the buckets it can mean.
-    #
-    # A mailing city and a CSD are different kinds of object and neither
-    # contains the other. One mailing city can span several jurisdictions, one
-    # jurisdiction carries many mailing cities, and amalgamation left legacy
-    # names alive on both sides -- people still write Scarborough, and NAR still
-    # files it that way, while the CSD has been Toronto for decades. Treating
-    # the municipality as a single canonical string therefore loses matches in
-    # both directions, so it is stored as an alias set instead: mailing city,
-    # English CSD name and French CSD name all become lookup keys onto the same
-    # MUN_KEY, and a name that means several buckets simply returns all of them.
-    DBI::dbExecute(con, "
-      CREATE TABLE MunAlias AS
-      SELECT NAME_FOLD, PROV_ABVN, MUN_KEY, sum(n) AS N_ADDRESSES
-      FROM (
-        SELECT strip_accents(upper(MAIL_MUN_NAME)) AS NAME_FOLD,
-               MAIL_PROV_ABVN AS PROV_ABVN,
-               PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME AS MUN_KEY,
-               count(*) AS n
-          FROM Addresses
-         WHERE length(MAIL_MUN_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
-         GROUP BY ALL
-        UNION ALL
-        SELECT strip_accents(upper(CSD_ENG_NAME)), MAIL_PROV_ABVN,
-               PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME, count(*)
-          FROM Addresses
-         WHERE length(CSD_ENG_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
-         GROUP BY ALL
-        UNION ALL
-        SELECT strip_accents(upper(CSD_FRE_NAME)), MAIL_PROV_ABVN,
-               PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME, count(*)
-          FROM Addresses
-         WHERE length(CSD_FRE_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
-         GROUP BY ALL
-      )
-      GROUP BY ALL;")
-    DBI::dbExecute(con, "CREATE INDEX mun_alias_idx ON MunAlias (NAME_FOLD);")
-
-    # Forward-sortation-area to municipality. 10k rows for 1,672 FSAs, and the
-    # median FSA maps to exactly one municipality, so a postal code in the input
-    # pins the municipality even when the string never names it -- which is what
-    # makes a comma-less address resolvable.
-    DBI::dbExecute(con, "
-      CREATE TABLE PostalMun AS
-      SELECT substr(MAIL_POSTAL_CODE, 1, 3) AS FSA,
-             MAIL_MUN_NAME, MAIL_PROV_ABVN,
-             count(*) AS N_ADDRESSES
-      FROM Addresses
-      WHERE length(MAIL_POSTAL_CODE) = 6 AND length(MAIL_MUN_NAME) > 0
-      GROUP BY ALL;")
-    DBI::dbExecute(con, "CREATE INDEX pm_fsa_idx ON PostalMun (FSA);")
-
-
-
-    # Checkpoint and fully shut down before reopening read-only: any WAL left
-    # behind cannot be replayed by a read-only connection, which then fails to
-    # open the database at all.
-    DBI::dbExecute(con, "CHECKPOINT;")
-    DBI::dbDisconnect(con, shutdown = TRUE)
-
-    if (file.exists(nar_path)) unlink(nar_path, recursive = TRUE)
-    if (!file.rename(build_path, nar_path)) {
-      stop("Could not move the imported database into place at ", nar_path, ".")
-    }
-    import_complete <- TRUE
-
-    message("NAR data version ",version," successfully imported.")
-
-
-    # cleanup
-    address_arrow <- NULL
-    location_arrow <- NULL
     if (downloaded) unlink(exdir, recursive=TRUE)
   }
 
@@ -275,6 +109,436 @@ nar_connection <- function(version="latest", refresh=FALSE) {
 
   return(con)
 }
+
+
+#' Decide what still has to be downloaded
+#'
+#' @description Compares what the cached database already holds against what
+#' was asked for, and returns the provinces to fetch plus whether they are
+#' added to the existing database or replace it.
+#'
+#' The rules are the ones a user would state: a national database satisfies
+#' everything, so asking for a province it already contains downloads nothing;
+#' asking for provinces a partial database lacks adds only the missing ones;
+#' and asking for the whole country when only a province is cached rebuilds,
+#' since the national release is being downloaded in full regardless.
+#'
+#' `refresh` re-downloads whatever the database currently covers, so refreshing
+#' a British Columbia database does not silently turn it into a national one.
+#' @param nar_path Path to the `<version>.duckdb` file
+#' @param provinces Canonical abbreviations, `"ALL"`, or `NULL` for unspecified
+#' @param refresh Whether the caller asked to rebuild
+#' @return A list of `fetch` (provinces to download, `NULL` when the caller must
+#'   still be asked, empty when nothing is needed) and `append`
+#' @keywords internal
+nar_import_plan <- function(nar_path, provinces, refresh) {
+  cached <- file.exists(nar_path)
+
+  if (cached && !refresh) {
+    have <- nar_cached_coverage(nar_path)
+    if (is.null(provinces)) return(list(fetch = character(0), append = FALSE))
+    if (nar_covers_set(have, provinces)) {
+      return(list(fetch = character(0), append = FALSE))
+    }
+    if (identical(provinces, nar_all_provinces())) {
+      message("Cached database holds ", nar_coverage_label(have),
+              "; rebuilding it for all of Canada.")
+      return(list(fetch = nar_all_provinces(), append = FALSE))
+    }
+    add <- setdiff(provinces, have)
+    message("Cached database holds ", nar_coverage_label(have), "; adding ",
+            nar_coverage_label(add), ".")
+    return(list(fetch = add, append = TRUE))
+  }
+
+  if (cached && refresh && is.null(provinces)) {
+    # Rebuild what is there rather than quietly widening or narrowing it.
+    provinces <- nar_cached_coverage(nar_path)
+  }
+  # NULL propagates so the caller can prompt once it has a URL to size against.
+  list(fetch = provinces, append = FALSE)
+}
+
+
+#' Coverage of a cached NAR database, without holding the connection open
+#'
+#' @param nar_path Path to the `<version>.duckdb` file
+#' @return `"ALL"` or a character vector of abbreviations
+#' @keywords internal
+nar_cached_coverage <- function(nar_path) {
+  con <- DBI::dbConnect(duckdb::duckdb(dbdir = nar_path, read_only = TRUE))
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE))
+  nar_coverage(con)
+}
+
+
+#' Does one coverage set satisfy another?
+#'
+#' @param have `"ALL"` or a character vector of abbreviations
+#' @param want `"ALL"` or a character vector of abbreviations
+#' @return `TRUE` when nothing further needs downloading
+#' @keywords internal
+nar_covers_set <- function(have, want) {
+  if (identical(have, nar_all_provinces())) return(TRUE)
+  if (identical(want, nar_all_provinces())) return(FALSE)
+  all(want %in% have)
+}
+
+
+#' Ask which provinces to download
+#'
+#' @description Only ever called when there is nothing cached and the caller
+#' named no provinces. In an interactive session it reads the release's own zip
+#' index -- a few kilobytes, no data transfer -- so the menu can show what each
+#' choice actually costs, and offers the whole country first. Non-interactively
+#' it downloads the whole country without asking, which is what every existing
+#' script expects.
+#' @param url URL of the StatCan release zip
+#' @return `"ALL"` or a single province abbreviation
+#' @keywords internal
+nar_choose_provinces <- function(url) {
+  if (!interactive()) return(nar_all_provinces())
+
+  sizes <- tryCatch(nar_release_sizes(url), error = function(e) NULL)
+  if (is.null(sizes)) return(nar_all_provinces())
+
+  # Whole country first: it is the status quo and the safe default.
+  sizes <- sizes[order(sizes$abvn != nar_all_provinces()), , drop = FALSE]
+  labels <- sprintf("%s (%s MB)", sizes$name,
+                    format(round(sizes$mb), big.mark = ","))
+
+  message("\nThe NAR release is split by province, so you can download just ",
+          "the provinces you need.\nA partial database geocodes those ",
+          "provinces exactly as well as the national one does.")
+  choice <- utils::menu(labels, title = "Which NAR data would you like to download?")
+  if (choice == 0) stop("No NAR data selected.", call. = FALSE)
+  sizes$abvn[choice]
+}
+
+
+#' Import a NAR release, or add provinces to an existing database
+#'
+#' @description Wraps the whole create-or-append decision so
+#' [nar_connection()] reads as a sequence of steps rather than as two
+#' interleaved import paths.
+#'
+#' A fresh import builds into a side path and is published by renaming, so a
+#' run that fails partway leaves no database behind that later calls would
+#' mistake for a finished one. An append has no such luxury -- it writes into
+#' the live file -- so it is the coverage metadata that is updated last, after
+#' the data and the derived tables are in place. A crash mid-append therefore
+#' leaves a database that under-reports what it holds, which costs a redundant
+#' download rather than producing wrong answers.
+#' @param nar_path Path to the `<version>.duckdb` file
+#' @param exdir Directory holding the extracted NAR CSVs
+#' @param version Normalized version string
+#' @param plan The list returned by [nar_import_plan()]
+#' @return `nar_path`, invisibly
+#' @keywords internal
+nar_import_release <- function(nar_path, exdir, version, plan) {
+  address_data_paths <- list.files(exdir, pattern="Address_.*\\.csv$", full.names=TRUE, recursive=TRUE)
+  location_data_paths <- list.files(exdir, pattern="Location_.*\\.csv$", full.names=TRUE, recursive=TRUE)
+  if (!length(address_data_paths) || !length(location_data_paths)) {
+    stop("No NAR Address/Location CSVs found under ", exdir, ".")
+  }
+
+  # A caller-supplied nar_exdir may hold the whole release even when only one
+  # province was asked for, so the file list is filtered to the plan rather
+  # than trusted to match it.
+  if (!identical(plan$fetch, nar_all_provinces())) {
+    keep <- function(paths) {
+      prov <- nar_zip_member_province(paths)
+      paths[is.na(prov) | prov %in% plan$fetch]
+    }
+    address_data_paths <- keep(address_data_paths)
+    location_data_paths <- keep(location_data_paths)
+    if (!length(address_data_paths) || !length(location_data_paths)) {
+      stop("No NAR CSVs for ", nar_coverage_label(plan$fetch), " found under ",
+           exdir, ".")
+    }
+  }
+
+  address_schema <- nar_csv_schema(address_data_paths[1], nar_address_types(),
+                                   required = c("LOC_GUID", "ADDR_GUID", "BG_X", "BG_Y"))
+  location_schema <- nar_csv_schema(location_data_paths[1], nar_location_types(),
+                                    required = c("LOC_GUID", "BG_LATITUDE", "BG_LONGITUDE"))
+
+  address_arrow <- arrow::open_dataset(address_data_paths,
+                                       format = "csv",
+                                       skip_rows = 1,
+                                       schema = address_schema)
+  location_arrow <- arrow::open_dataset(location_data_paths,
+                                        format = "csv",
+                                        skip_rows = 1,
+                                        schema = location_schema)
+
+  if (plan$append) {
+    con <- DBI::dbConnect(duckdb::duckdb(dbdir = nar_path))
+    on.exit(try(DBI::dbDisconnect(con, shutdown = TRUE), silent = TRUE), add = TRUE)
+    nar_load_spatial(con)
+    nar_register_spatial(con)
+
+    nar_import_tables(con, address_arrow, location_arrow, append = TRUE)
+    nar_build_derived(con)
+    covered <- union(nar_coverage(con), plan$fetch)
+    nar_set_coverage(con, covered)
+
+    DBI::dbExecute(con, "CHECKPOINT;")
+    DBI::dbDisconnect(con, shutdown = TRUE)
+    on.exit()
+    message("NAR data for ", nar_coverage_label(plan$fetch), " added.")
+    return(invisible(nar_path))
+  }
+
+  # Build into a side path and publish by renaming once the import has
+  # completed. A database that fails partway through would otherwise be left
+  # at `nar_path`, where every later call -- seeing the file exist -- would
+  # treat it as a finished import and hand out a connection with no
+  # Addresses table.
+  build_path <- paste0(nar_path, ".building")
+  if (file.exists(build_path)) unlink(build_path, recursive = TRUE)
+  import_complete <- FALSE
+  on.exit(if (!import_complete && file.exists(build_path))
+            unlink(build_path, recursive = TRUE), add = TRUE)
+
+  con <- DBI::dbConnect(duckdb::duckdb(dbdir=build_path))
+  nar_load_spatial(con)
+  nar_write_metadata(con, version, plan$fetch)
+  nar_register_spatial(con)
+
+  nar_import_tables(con, address_arrow, location_arrow, append = FALSE)
+  nar_build_derived(con)
+
+  # Checkpoint and fully shut down before reopening read-only: any WAL left
+  # behind cannot be replayed by a read-only connection, which then fails to
+  # open the database at all.
+  DBI::dbExecute(con, "CHECKPOINT;")
+  DBI::dbDisconnect(con, shutdown = TRUE)
+
+  if (file.exists(nar_path)) unlink(nar_path, recursive = TRUE)
+  if (!file.rename(build_path, nar_path)) {
+    stop("Could not move the imported database into place at ", nar_path, ".")
+  }
+  import_complete <- TRUE
+
+  message("NAR data version ",version," (", nar_coverage_label(plan$fetch),
+          ") successfully imported.")
+  invisible(nar_path)
+}
+
+
+#' Build or extend the Addresses and Locations tables
+#'
+#' @description The geometry decisions live here and are made once, so the
+#' append path cannot drift from the create path -- an appended province whose
+#' `x`/`y` disagreed with its `geom` would silently break the bounding-box
+#' prefilter for those rows alone, which is close to undebuggable.
+#'
+#' The building point (BG) is the primary geometry; where it is absent the
+#' blockface centroid (BF) stands in -- a much coarser point shared by every
+#' address on one side of a street -- and `geom_source` records which was used.
+#' `x`/`y` mirror whichever point `geom` ended up holding rather than `BG`
+#' alone: DuckDB maintains min/max zonemaps for plain numeric columns, and the
+#' bounding-box prefilter in [nar_within_radius()] uses them to skip most row
+#' groups, so they have to agree with the geometry they are filtering.
+#' @param con A writable DuckDB connection
+#' @param address_arrow Arrow dataset over the Address CSVs
+#' @param location_arrow Arrow dataset over the Location CSVs
+#' @param append Whether to insert into existing tables
+#' @return The connection, invisibly
+#' @keywords internal
+nar_import_tables <- function(con, address_arrow, location_arrow, append) {
+  # Releases before 2026-06 carry no blockface columns, so the fallback has to
+  # be built from what the header actually offers.
+  has_blockface <- all(c("BF_REPPOINT_X", "BF_REPPOINT_Y") %in%
+                         names(address_arrow$schema))
+
+  message("Importing address data.")
+
+  dplyr::copy_to(con,
+                 address_arrow |>
+                   arrow::to_duckdb(),
+                 name = "AddressesTemp", temporary = TRUE, overwrite = TRUE)
+
+  addresses <- con |> tbl("AddressesTemp")
+
+  if (has_blockface) {
+    addresses <- addresses |>
+      mutate(x=dplyr::coalesce(.data$BG_X, .data$BF_REPPOINT_X),
+             y=dplyr::coalesce(.data$BG_Y, .data$BF_REPPOINT_Y),
+             geom_source=dplyr::case_when(!is.na(.data$BG_X) ~ "building",
+                                          !is.na(.data$BF_REPPOINT_X) ~ "blockface",
+                                          TRUE ~ NA_character_))
+  } else {
+    addresses <- addresses |>
+      mutate(x=.data$BG_X, y=.data$BG_Y,
+             geom_source=dplyr::if_else(is.na(.data$BG_X),
+                                        NA_character_, "building"))
+  }
+
+  addresses <- addresses |>
+    mutate(geom=st_point(.data$x, .data$y)) |>
+    select(-"BG_X", -"BG_Y")
+
+  nar_materialize(con, addresses, "Addresses", append)
+
+  DBI::dbExecute(con, "DROP TABLE AddressesTemp;")
+  if (!append) {
+    message("Indexing address data.")
+    DBI::dbExecute(con, "CREATE INDEX add_geom_idx ON Addresses USING RTREE (geom);")
+    DBI::dbExecute(con, "CREATE INDEX add_loc_guid_idx ON Addresses (LOC_GUID);")
+  }
+
+  message("Importing location data.")
+  dplyr::copy_to(con,
+                 location_arrow |>
+                   arrow::to_duckdb(),
+                 name = "LocationsTemp", temporary = TRUE, overwrite = TRUE)
+
+  locations <- con |>
+    tbl("LocationsTemp") |>
+    mutate(geom=nar_store(nar_point(.data$BG_LONGITUDE,.data$BG_LATITUDE))) |>
+    mutate(x=st_x(.data$geom), y=st_y(.data$geom)) |>
+    select(-"BG_LATITUDE", -"BG_LONGITUDE")
+
+  nar_materialize(con, locations, "Locations", append)
+
+  DBI::dbExecute(con, "DROP TABLE LocationsTemp;")
+  if (!append) {
+    message("Indexing location data.")
+    DBI::dbExecute(con, "CREATE INDEX loc_geom_idx ON Locations USING RTREE (geom);")
+    DBI::dbExecute(con, "CREATE INDEX loc_loc_guid_idx ON Locations (LOC_GUID);")
+  }
+
+  invisible(con)
+}
+
+
+#' Write a lazy query into a permanent table, creating it or adding to it
+#'
+#' @description The append branch renders the same lazy pipeline to SQL and
+#' inserts it in one pass, rather than staging it to a second temporary table
+#' first. `INSERT ... BY NAME` matches columns by name, so a column-order
+#' difference between the pipeline and the existing table is a no-op instead of
+#' a silent transposition.
+#' @param con A writable DuckDB connection
+#' @param query A lazy `dbplyr` table
+#' @param name Target table name
+#' @param append Whether the table already exists and should be added to
+#' @return The connection, invisibly
+#' @keywords internal
+nar_materialize <- function(con, query, name, append) {
+  if (append) {
+    DBI::dbExecute(con, paste0("INSERT INTO ", name, " BY NAME (",
+                               dbplyr::sql_render(query), ");"))
+  } else {
+    dplyr::copy_to(con, query, name = name, temporary = FALSE, overwrite = TRUE)
+  }
+  invisible(con)
+}
+
+
+#' Build the gazetteer tables normalize_address() resolves against
+#'
+#' @description These are aggregates over the whole `Addresses` table, so on an
+#' append they are rebuilt rather than added to -- a street that gained
+#' addresses needs its counts and civic-number range recomputed, not extended.
+#' They cost a few grouped scans, which is small beside the import that
+#' preceded them.
+#' @param con A writable DuckDB connection
+#' @return The connection, invisibly
+#' @keywords internal
+nar_build_derived <- function(con) {
+  # The street gazetteer that normalize_address() resolves against: one row
+  # per distinct street, which is 374k rows against the address table's 17.4M.
+  # Both name families are carried because neither is complete on its own --
+  # MAIL_STREET_NAME is empty for 957k addresses while OFFICIAL_STREET_NAME is
+  # empty for 95, and where both are present they still differ beyond case for
+  # 530k. A parser that only knew one of them would fail to match the other.
+  #
+  # NAME_FOLD is the join key: accent- and case-insensitive, so a user typing
+  # an accent-free query string reaches the accented stored name. It is
+  # materialized rather than computed per query so the join can use the index.
+  message("Building street gazetteer.")
+  # MUN_KEY is the jurisdictional bucket a street sits in -- the CSD, which is
+  # a statistical boundary drawn from jurisdictional divisions. It is what
+  # candidate streets are restricted to, rather than the mailing city, because
+  # the two do not nest: see MunAlias below.
+  DBI::dbExecute(con, "DROP TABLE IF EXISTS Streets;")
+  DBI::dbExecute(con, "
+    CREATE TABLE Streets AS
+    SELECT OFFICIAL_STREET_NAME, OFFICIAL_STREET_TYPE, OFFICIAL_STREET_DIR,
+           MAIL_STREET_NAME, MAIL_STREET_TYPE, MAIL_STREET_DIR,
+           MAIL_MUN_NAME, MAIL_PROV_ABVN, PROV_CODE, CSD_ENG_NAME,
+           PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME AS MUN_KEY,
+           strip_accents(upper(OFFICIAL_STREET_NAME)) AS NAME_FOLD,
+           strip_accents(upper(MAIL_STREET_NAME)) AS MAIL_NAME_FOLD,
+           count(*) AS N_ADDRESSES,
+           min(CIVIC_NO) AS MIN_CIVIC_NO,
+           max(CIVIC_NO) AS MAX_CIVIC_NO
+    FROM Addresses
+    GROUP BY ALL;")
+  DBI::dbExecute(con, "CREATE INDEX str_name_idx ON Streets (NAME_FOLD);")
+  DBI::dbExecute(con, "CREATE INDEX str_mail_name_idx ON Streets (MAIL_NAME_FOLD);")
+  DBI::dbExecute(con, "CREATE INDEX str_mun_key_idx ON Streets (MUN_KEY);")
+
+  # Every name a locality answers to, mapped to the buckets it can mean.
+  #
+  # A mailing city and a CSD are different kinds of object and neither
+  # contains the other. One mailing city can span several jurisdictions, one
+  # jurisdiction carries many mailing cities, and amalgamation left legacy
+  # names alive on both sides -- people still write Scarborough, and NAR still
+  # files it that way, while the CSD has been Toronto for decades. Treating
+  # the municipality as a single canonical string therefore loses matches in
+  # both directions, so it is stored as an alias set instead: mailing city,
+  # English CSD name and French CSD name all become lookup keys onto the same
+  # MUN_KEY, and a name that means several buckets simply returns all of them.
+  DBI::dbExecute(con, "DROP TABLE IF EXISTS MunAlias;")
+  DBI::dbExecute(con, "
+    CREATE TABLE MunAlias AS
+    SELECT NAME_FOLD, PROV_ABVN, MUN_KEY, sum(n) AS N_ADDRESSES
+    FROM (
+      SELECT strip_accents(upper(MAIL_MUN_NAME)) AS NAME_FOLD,
+             MAIL_PROV_ABVN AS PROV_ABVN,
+             PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME AS MUN_KEY,
+             count(*) AS n
+        FROM Addresses
+       WHERE length(MAIL_MUN_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
+       GROUP BY ALL
+      UNION ALL
+      SELECT strip_accents(upper(CSD_ENG_NAME)), MAIL_PROV_ABVN,
+             PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME, count(*)
+        FROM Addresses
+       WHERE length(CSD_ENG_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
+       GROUP BY ALL
+      UNION ALL
+      SELECT strip_accents(upper(CSD_FRE_NAME)), MAIL_PROV_ABVN,
+             PROV_CODE || ':' || CSD_TYPE_ENG_CODE || ':' || CSD_ENG_NAME, count(*)
+        FROM Addresses
+       WHERE length(CSD_FRE_NAME) > 0 AND length(MAIL_PROV_ABVN) > 0
+       GROUP BY ALL
+    )
+    GROUP BY ALL;")
+  DBI::dbExecute(con, "CREATE INDEX mun_alias_idx ON MunAlias (NAME_FOLD);")
+
+  # Forward-sortation-area to municipality. 10k rows for 1,672 FSAs, and the
+  # median FSA maps to exactly one municipality, so a postal code in the input
+  # pins the municipality even when the string never names it -- which is what
+  # makes a comma-less address resolvable.
+  DBI::dbExecute(con, "DROP TABLE IF EXISTS PostalMun;")
+  DBI::dbExecute(con, "
+    CREATE TABLE PostalMun AS
+    SELECT substr(MAIL_POSTAL_CODE, 1, 3) AS FSA,
+           MAIL_MUN_NAME, MAIL_PROV_ABVN,
+           count(*) AS N_ADDRESSES
+    FROM Addresses
+    WHERE length(MAIL_POSTAL_CODE) = 6 AND length(MAIL_MUN_NAME) > 0
+    GROUP BY ALL;")
+  DBI::dbExecute(con, "CREATE INDEX pm_fsa_idx ON PostalMun (FSA);")
+
+  invisible(con)
+}
+
 
 
 #' Scrape availabe NAR versions from the StatCan website
