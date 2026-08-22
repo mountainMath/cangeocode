@@ -11,6 +11,15 @@ reference:
   contents:
   - geocode
 
+- title: External geocoders
+  desc: >
+    The Province of British Columbia's Address Geocoder, as a fallback for BC
+    addresses NAR cannot place and as an independent source to validate
+    against. Makes network requests.
+  contents:
+  - bc_geocode
+  - bc_validate
+
 - title: Reverse geocoding
   desc: >
     Find the addresses nearest a coordinate.

@@ -12,7 +12,7 @@ an address that does not parse cannot be resolved — see
 
 ## Reproducing the numbers
 
-Two independent measurements, both against NAR 2026-06.
+Three independent measurements, all against NAR 2026-06.
 
 **Tier coverage** comes from the same 5,000 Corporations Canada addresses that Part B of
 `data-raw/eval_normalize.R` draws — same file, same filter, same `set.seed(20260821)` — so
@@ -23,6 +23,11 @@ section of the normalization note.
 distinct civic point, drop it, interpolate from its same-side neighbours, and measure the
 error against the point that was dropped. 10,559,271 distinct civic points, of which
 9,225,453 (92.7%) have same-side flanking neighbours at all.
+
+**Agreement with the BC geocoder** comes from the same corporations file filtered to BC,
+`set.seed(20260821)`, 600 rows for the coverage figures and a further `set.seed(1)` draw of
+250 already-placed rows for the distance comparison. It makes one network request per
+address, so it is not part of any test or check.
 
 ## Where it stands
 
@@ -87,10 +92,40 @@ road access point or the driveway, and publishes no accuracy figure. `uncertaint
 therefore means "this package added nothing", not "this point is exact".
 
 If a consistent estimate ever becomes available — StatCan publishing one, or a comparison
-against an independent high-accuracy source such as the BC geocoder's `precisionPoints` —
-it should be added as a separate column rather than folded into this one. The two are
-different quantities and a caller measuring reproducibility against NAR wants the first
-alone.
+against an independent high-accuracy source — it should be added as a separate column
+rather than folded into this one. The two are different quantities and a caller measuring
+reproducibility against NAR wants the first alone.
+
+`bc_validate()` now gives the first measurement of it, for one province. See below.
+
+## How far NAR's points sit from an independent source
+
+250 BC addresses drawn from the same corporations file, geocoded through NAR and then again
+through the BC Address Geocoder, keeping the rows BC resolved to `bc_site` or `bc_civic`
+(its parcel-level precisions). Distances in metres between the two answers:
+
+| NAR tier | n | p50 | p75 | p90 | p95 | ≤25 m |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `nar_building` | 224 | 19.8 | 57.3 | 118.8 | 195.5 | 55% |
+| `nar_blockface` | 5 | 22.6 | 59.3 | 71.2 | 75.2 | 60% |
+| `nar_interpolated` | 14 | 26.7 | 111.1 | 265.2 | 2685.5 | 50% |
+
+**This is disagreement, not error.** It contains both sources' positional error *and* their
+definitional difference: NAR's `BG_X` is a representative point that the User Guide says may
+be the road access point or the driveway, while BC's is a parcel point. It is an upper bound
+on NAR's own error rather than an estimate of it — but a median of ~20 m on the tier that
+`uncertainty_m` calls 0 is the number to keep in mind when reading that 0.
+
+The `nar_interpolated` row is the interesting one: leave-one-out against NAR's own points put
+its median at 4.2 m, and against BC it is 26.7 m. The difference is almost exactly the
+~20 m floor the building tier shows, which is what a genuinely small interpolation error
+sitting on top of a source disagreement looks like. The 2.7 km p95 is two rows, both
+long rural blocks.
+
+Not enough rows per province, and one province only, to generalize. Growing this into a real
+calibration — and into a defensible `uncertainty_m` for the `bc_*` tiers, which is currently
+the one set of numbers in this package that was not measured — is the obvious next piece of
+work.
 
 ## The 10.8% that does not resolve
 
@@ -120,20 +155,42 @@ folded street-key join costs 0.05s for a 5-row probe and 0.08s for a 200-row pro
 scan is the entire cost and every probe row shares it. Batching is what matters, not
 indexing. (Callers should pass many addresses in one `geocode()` call rather than looping.)
 
+## The BC geocoder binding
+
+`bc_geocode()`, `bc_validate()`, and `geocode(fallback = "bc")`. Notes on what it turned out
+to be:
+
+**The service always answers.** `1234 Nonexistentzzz Rd, Victoria, BC` returns the centre of
+Victoria with a score of 48 — a point, not an error — so a response is not a match. Two
+independent floors decide: `matchPrecision` must be an address-level precision, and `score`
+must clear `min_score` (default 60). Both the score and the faults survive a rejection, so
+what was thrown away stays visible.
+
+**As a fallback it is worth a lot in BC.** On 600 BC addresses from the corporations file the
+NAR pathway placed 524 (87.3%) and returned `none` for 76. With `fallback = "bc"`, 75 of
+those 76 resolved: 31 at address level (`bc_site` 5, `bc_civic` 26), 18 interpolated along a
+block (`bc_block`), 26 only to a street (`bc_street`). So roughly **half the NAR failures in
+BC are real addresses BC knows about**, and the rest at least get a street.
+
+**The `bc_*` uncertainty figures are not measured.** BC publishes
+`locationPositionalAccuracy` as the categorical `high`/`medium`/`low`/`coarse` and no
+distance at all, so `nar_bc_precision()` translates its precision vocabulary into
+deliberately pessimistic order-of-magnitude metres. They are a ranking that is safe to filter
+on, not an error bar comparable to the NAR tiers'. This is the one place in the package where
+a number was chosen rather than measured, and it is flagged as such in the function's own
+documentation.
+
+**Throttling needs `capacity`, not `rate`.** `httr2::req_throttle(rate = 5)` builds a
+`5 * 60 = 300`-token bucket, so the first 300 requests go out at once — a burst allowance,
+not a throttle. `capacity = rate, fill_time_s = 1` is what actually caps it. The realm is
+named explicitly too, since a realm derived from the URL would put every address in its own
+pool.
+
+No API key is needed for modest use; `api_key` is there for jobs that warrant registering.
+
 ## Not built yet, in the order the measurements justify
 
-### 1. BC government geocoder bindings
-
-Two uses, and the second may matter more than the first. As a **fallback** it covers BC
-addresses the NAR pathway returns `none` for. As **validation** it is an independent
-positional source — the only one currently available — against which NAR's own error could
-be estimated for at least one province, which is the gap named above. Its `matchPrecision`
-and `precisionPoints` fields carry a precision vocabulary of their own that would need
-mapping onto `match_method`, and anything derived from it must respect the licence and the
-service's rate limits. Network-dependent, so it belongs behind an explicit opt-in with
-`httr2` in `Suggests`, and `R CMD check` must stay offline and clean without it.
-
-### 2. Statistics Canada Road Network File (RNF)
+### 1. Statistics Canada Road Network File (RNF)
 
 Product **92-500-X**, annual, reference date 2025-01-01, latest release 2025-06-18,
 available as shp/gml/gdb/gpkg under the Statistics Canada Open Licence. Its CRS is
@@ -158,7 +215,7 @@ Version discovery would need an `rvest` scraper of the same shape as
 `available_nar_versions()`. Guessing the download URL does not work — both
 `lrnf000r25a_e.zip` and the `.gpkg.zip` form redirect to an HTML landing page.
 
-### 3. Street or municipality centroid as a last resort
+### 2. Street or municipality centroid as a last resort
 
 The tier below RNF: when nothing places the civic number but the street is known, return
 its centroid with an uncertainty of half its length. Cheap to build on the existing

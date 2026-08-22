@@ -7,18 +7,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `cangeocode` is an R package (MIT, R >= 4.1) for geocoding and reverse geocoding Canadian
 addresses. The current implementation is built entirely on Statistics Canada's **NAR**
 (National Address Repository) bulk CSV releases, imported into a local **DuckDB** database with
-the `spatial` extension. Road network files and online geocoders are named in `DESCRIPTION` as
-future sources but are not implemented yet.
+the `spatial` extension. One online geocoder is wired up — the Province of British Columbia's
+Address Geocoder, as a BC-only fallback and validation source. Road network files are named in
+`DESCRIPTION` as a future source but are not implemented yet.
 
 Public API (see `NAMESPACE`): `nar_connection()`, `available_nar_versions()`, `collect_nar()`,
-`reverse_geocode()`, `normalize_address()`, `address_pattern()`.
+`reverse_geocode()`, `normalize_address()`, `address_pattern()`, `geocode()`, `bc_geocode()`,
+`bc_validate()`.
 
 This file records **why the code is shaped the way it is**, and it is the only document in
 `.claude/`. Longer-form notes live in **`inst/notes/`** and ship with the package:
 
 - **[`inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md)**
   — what `geocode()` resolves and what it does not: tier coverage, the interpolation
-  accuracy tables, and the pathways sized but not built (road network file, BC geocoder).
+  accuracy tables, how far its points sit from an independent source, and the pathways sized
+  but not built (road network file, centroid tier).
 - **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
   — where address normalization currently falls short: the measured failure modes, the things
   tried and rejected, and the ranked next steps. Read it before changing the parser or the
@@ -428,6 +431,47 @@ CRS is still read from the database with `nar_crs()`, and `sf` handles the axis 
 
 > Measurements, the tier ceiling and what is not built yet:
 > **[`inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md)**.
+
+### `R/geocode_bc.R` — the one external geocoder
+
+A binding to the Province of British Columbia's [Address Geocoder]. `bc_geocode()` is the
+client, `geocode(fallback = "bc")` routes the BC rows that came back `none` to it, and
+`bc_validate()` compares an existing result against BC's answer in metres. BC only: asked
+about an Ontario address the service answers with whatever BC place shares the name, so the
+fallback filters on `PROV_ABVN == "BC"` before sending anything.
+
+**The service always answers, so a response is not a match.**
+`1234 Nonexistentzzz Rd, Victoria, BC` comes back as the centre of Victoria with a score of
+48 — a point, not an error. Two independent floors decide: `nar_bc_precision()` maps
+`matchPrecision` onto a `bc_*` method, and `min_score` (default 60) rejects what the service
+itself scored badly. A rejected row keeps its `bc_score` and `bc_faults` and loses only its
+`uncertainty_m`, so what was thrown away stays readable.
+
+**The `bc_*` uncertainty figures are the only numbers in this package that were not
+measured.** BC publishes `locationPositionalAccuracy` as the categorical
+`high`/`medium`/`low`/`coarse` and no distance at all, so `nar_bc_precision()` translates its
+precision vocabulary into deliberately pessimistic order-of-magnitude metres. Treat them as a
+ranking safe to filter on, not as an error bar comparable to the NAR tiers'. Calibrating them
+is named as the next step in the note.
+
+**The fallback rebuilds the query string from the components rather than forwarding
+`input`.** `prov`/`mun` are authoritative and overwrite the parsed columns, so forwarding the
+original string would silently discard the caller's constraint the moment a row fell through.
+`within` is enforced too, in R — the SQL predicate cannot reach a point that came from another
+service, so a fallback point outside the bounds is discarded rather than returned.
+
+**Throttling needs `capacity`, not `rate`.** `httr2::req_throttle(rate = 5)` builds a
+`5 * 60 = 300`-token bucket and lets the first 300 requests go at once. `capacity = rate,
+fill_time_s = 1` is the actual cap, with the realm named explicitly so a URL-derived realm
+cannot give every address its own pool.
+
+`httr2` is in `Suggests` and nothing reaches the network unless one of these functions is
+called. The tests run entirely against responses captured from the live service into
+`tests/testthat/fixtures/bc-*.json`, which is also the only way the parser stays checkable
+once BC changes its scoring; `nar_bc_feature()` takes parsed JSON rather than a response
+object precisely so that is possible.
+
+[Address Geocoder]: https://geocoder.api.gov.bc.ca/
 
 ### `R/misc.R`
 

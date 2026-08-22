@@ -106,6 +106,13 @@ nar_blockface_uncertainty_m <- function() 176
 #' @param source Source dataset. Currently only `"nar"`.
 #' @param interpolate Whether to interpolate civic numbers NAR does not carry.
 #' Default `TRUE`.
+#' @param fallback What to try for rows NAR could not place. `NULL` (default)
+#' means nothing; `"bc"` sends the British Columbia rows to the Province of BC's
+#' [Address Geocoder][bc_geocode()], which is the only external service wired
+#' up and covers no other province. **This makes network requests**, one per
+#' unplaced BC address. The constraints are honoured: what is sent is rebuilt
+#' from the components after any `prov`/`mun` override, and a point falling
+#' outside `within` is discarded rather than returned.
 #' @param geometry Whether to return an `sf` object with POINT geometry.
 #' Unmatched rows get an empty point. Default `FALSE`, which returns `lon` and
 #' `lat` columns instead.
@@ -115,7 +122,8 @@ nar_blockface_uncertainty_m <- function() 176
 #' @param con An open NAR connection to reuse. The caller keeps ownership: a
 #' connection passed in here is left open, while one opened internally is closed
 #' again before returning.
-#' @param ... Additional arguments (currently unused)
+#' @param ... Passed to [bc_geocode()] when `fallback = "bc"`, which is where
+#' `min_score`, `api_key` and `rate` go. Otherwise unused.
 #' @return A data frame with one row per input, carrying every column
 #' [normalize_address()] returns plus `ADDR_GUID`, `match_method`,
 #' `uncertainty_m`, `n_matches`, and either `lon`/`lat` or an `sf` geometry
@@ -131,9 +139,10 @@ nar_blockface_uncertainty_m <- function() 176
 #' g[g$uncertainty_m <= 25, ]
 #' }
 geocode <- function(x, prov = NULL, mun = NULL, within = NULL, source = "nar",
-                    interpolate = TRUE, geometry = FALSE, crs = 4326,
-                    version = "latest", con = NULL, ...) {
+                    interpolate = TRUE, fallback = NULL, geometry = FALSE,
+                    crs = 4326, version = "latest", con = NULL, ...) {
   source <- match.arg(source, choices = c("nar"))
+  if (!is.null(fallback)) fallback <- match.arg(fallback, choices = c("bc"))
 
   if (is.null(con)) {
     con <- nar_connection(version = version)
@@ -167,9 +176,13 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL, source = "nar",
   if (!is.null(prov)) res$PROV_ABVN <- nar_recycle(prov, nrow(res), "prov")
   if (!is.null(mun))  res$MUN_NAME  <- nar_recycle(mun,  nrow(res), "mun")
 
+  bounds <- nar_geocode_bounds_geom(within, crs, con)
   hits <- nar_geocode_match(res, con, interpolate = interpolate,
-                            bounds = nar_geocode_bounds(within, crs, con),
+                            bounds = nar_geocode_bounds_sql(bounds),
                             auth_mun = !is.null(mun))
+  if (identical(fallback, "bc")) {
+    hits <- nar_geocode_bc_fallback(res, hits, con, bounds = bounds, ...)
+  }
   out <- cbind(res, hits[, c("ADDR_GUID", "match_method", "uncertainty_m",
                              "n_matches")])
 
@@ -548,7 +561,22 @@ nar_recycle <- function(v, n, what) {
 #' @return A SQL fragment to append to the join condition, or `""`
 #' @keywords internal
 nar_geocode_bounds <- function(within, crs, con) {
-  if (is.null(within)) return("")
+  nar_geocode_bounds_sql(nar_geocode_bounds_geom(within, crs, con))
+}
+
+#' Resolve `within` to a geometry in the storage CRS
+#'
+#' @description Split out from the SQL so the same restriction can be enforced
+#' twice: pushed into the NAR query as a predicate, and applied in R to points
+#' that came from somewhere else -- the BC fallback, which is a separate service
+#' and cannot be given this package's SQL.
+#' @param within An `sf`/`sfc`/`sfg`, an `st_bbox`, or a length-4 numeric
+#' @param crs CRS to interpret a bare numeric or an untagged geometry in
+#' @param con A NAR connection, for the storage CRS
+#' @return An `sfc` in the storage CRS, or `NULL`
+#' @keywords internal
+nar_geocode_bounds_geom <- function(within, crs, con) {
+  if (is.null(within)) return(NULL)
   # crs = NULL asks for output in the storage CRS, and a bare bbox given
   # alongside it is naturally in the same coordinates.
   if (is.null(crs)) crs <- nar_crs(con)
@@ -577,9 +605,20 @@ nar_geocode_bounds <- function(within, crs, con) {
   crs_in <- sf::st_crs(g)
   g <- sf::st_set_crs(sf::st_segmentize(sf::st_set_crs(g, NA), step), crs_in)
   g <- sf::st_transform(g, nar_crs(con))
-  g <- sf::st_union(g)
-  b <- sf::st_bbox(g)
+  sf::st_union(g)
+}
 
+#' The SQL predicate for a resolved `within` geometry
+#'
+#' @description The bounding box goes first so the zonemap prefilter on `x`/`y`
+#' can skip row groups before the polygon test is evaluated -- the same
+#' mechanism [nar_within_radius()] relies on.
+#' @param g An `sfc` in the storage CRS, or `NULL`
+#' @return A SQL fragment, or `""`
+#' @keywords internal
+nar_geocode_bounds_sql <- function(g) {
+  if (is.null(g)) return("")
+  b <- sf::st_bbox(g)
   sprintf("
    AND a.x BETWEEN %.3f AND %.3f AND a.y BETWEEN %.3f AND %.3f
    AND st_within(nar_xy(a.x, a.y), st_geomfromtext('%s'))",

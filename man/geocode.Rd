@@ -11,6 +11,7 @@ geocode(
   within = NULL,
   source = "nar",
   interpolate = TRUE,
+  fallback = NULL,
   geometry = FALSE,
   crs = 4326,
   version = "latest",
@@ -46,6 +47,14 @@ well as the exact one.}
 \item{interpolate}{Whether to interpolate civic numbers NAR does not carry.
 Default `TRUE`.}
 
+\item{fallback}{What to try for rows NAR could not place. `NULL` (default)
+means nothing; `"bc"` sends the British Columbia rows to the Province of BC's
+[Address Geocoder][bc_geocode()], which is the only external service wired
+up and covers no other province. **This makes network requests**, one per
+unplaced BC address. The constraints are honoured: what is sent is rebuilt
+from the components after any `prov`/`mun` override, and a point falling
+outside `within` is discarded rather than returned.}
+
 \item{geometry}{Whether to return an `sf` object with POINT geometry.
 Unmatched rows get an empty point. Default `FALSE`, which returns `lon` and
 `lat` columns instead.}
@@ -59,7 +68,8 @@ when `con` is supplied.}
 connection passed in here is left open, while one opened internally is closed
 again before returning.}
 
-\item{...}{Additional arguments (currently unused)}
+\item{...}{Passed to [bc_geocode()] when `fallback = "bc"`, which is where
+`min_score`, `api_key` and `rate` go. Otherwise unused.}
 }
 \value{
 A data frame with one row per input, carrying every column

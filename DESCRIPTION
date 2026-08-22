@@ -37,6 +37,8 @@ Imports:
     stringi (>= 1.7),
     xml2
 Suggests: 
+    httr2,
+    jsonlite,
     knitr,
     rmarkdown,
     ggplot2,

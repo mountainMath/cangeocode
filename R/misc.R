@@ -1,5 +1,5 @@
 #' @import dplyr
-#' @importFrom rlang .data
+#' @importFrom rlang .data %||%
 #' @importFrom stats setNames runif
 
 # silence warning that dbplyer is not used (explicitly)
