@@ -61,7 +61,7 @@ number of 302 and the real one is lost.</p>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_parse_one</span><span class="op">(</span><span class="va">s</span>, lang <span class="op">=</span> <span class="st">"en"</span>, prov <span class="op">=</span> <span class="cn">NA_character_</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_parse_one</span><span class="op">(</span><span class="va">s</span>, lang <span class="op">=</span> <span class="st">"en"</span>, prov <span class="op">=</span> <span class="cn">NA_character_</span>, mun_fixed <span class="op">=</span> <span class="cn">NA_character_</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -79,6 +79,16 @@ number of 302 and the real one is lost.</p>
 <dt id="arg-prov">prov<a class="anchor" aria-label="anchor" href="#arg-prov"></a></dt>
 <dd><p>A two-letter province code, or `NA`. Only the numbered-road
 step consults it, and only for the entries that are province-specific.</p></dd>
+
+
+<dt id="arg-mun-fixed">mun_fixed<a class="anchor" aria-label="anchor" href="#arg-mun-fixed"></a></dt>
+<dd><p>A municipality already taken off the string by
+[nar_mun_anchor_variants()], or `NA` to locate one here. When it is supplied
+every remaining token is the street: the comma split no longer nominates a
+municipality, and whatever trails the street type is dropped rather than
+becoming one. That is what makes a trailing comma inconsequential –
+`"6093 Iona Dr TH25"` and `"6093 Iona Dr TH25 ,"` are the same token stream
+once the comma is gone.</p></dd>
 
 </dl></div>
     <div class="section level2">

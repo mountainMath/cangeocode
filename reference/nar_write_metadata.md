@@ -5,7 +5,7 @@ Record NAR database metadata
 ## Usage
 
 ``` r
-nar_write_metadata(con, version)
+nar_write_metadata(con, version, provinces = nar_all_provinces())
 ```
 
 ## Arguments
@@ -17,6 +17,11 @@ nar_write_metadata(con, version)
 - version:
 
   Normalized NAR version string
+
+- provinces:
+
+  Coverage marker: \`"ALL"\`, or the two-letter abbreviations the import
+  actually loaded
 
 ## Value
 

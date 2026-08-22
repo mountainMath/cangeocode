@@ -100,7 +100,7 @@
       </dl></div><div class="section level2">
       <h2 id="external-geocoders">External geocoders<a class="anchor" aria-label="anchor" href="#external-geocoders"></a></h2>
 
-      <div class="section-desc"><p>The Province of British Columbia’s Address Geocoder, as a fallback for BC addresses NAR cannot place and as an independent source to validate against. Makes network requests.</p></div>
+      <div class="section-desc"><p>Online services that place an address without a local database: NRCan’s national geolocator, and the Province of British Columbia’s Address Geocoder, the latter also a second source to check a result against. Both make network requests.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -108,6 +108,13 @@
 
 
       <dl><dt>
+
+          <code><a href="nrcan_geocode.html">nrcan_geocode()</a></code>
+
+        </dt>
+        <dd>Geocode Canadian addresses with NRCan's geolocator</dd>
+
+        <dt>
 
           <code><a href="bc_geocode.html">bc_geocode()</a></code>
 
@@ -152,6 +159,13 @@
 
         </dt>
         <dd>Get NAR data</dd>
+
+        <dt>
+
+          <code><a href="nar_provinces.html">nar_provinces()</a></code>
+
+        </dt>
+        <dd>Provinces a NAR database holds, as a user-facing value</dd>
 
         <dt>
 

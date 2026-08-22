@@ -82,8 +82,8 @@ hands back one row per input in input order, saying for each one
 cost</strong>.</p>
 <p>This vignette covers the whole path: the basic call, reading the
 columns that qualify every result, choosing which methods to try,
-constraining the search, and checking an answer against an independent
-source. The parsing step has a vignette of its own —
+constraining the search, and checking an answer against a second source.
+The parsing step has a vignette of its own —
 <code><a href="../articles/address-normalization.html">vignette("address-normalization")</a></code> — since normalizing
 addresses is useful whether or not a coordinate comes out at the
 end.</p>
@@ -178,11 +178,20 @@ else.</p>
 unplaceable</td>
 </tr>
 <tr class="odd">
+<td><code>not_covered</code></td>
+<td>in a province this database does not hold</td>
+</tr>
+<tr class="even">
 <td><code>none</code></td>
 <td>not found</td>
 </tr>
 </tbody>
 </table>
+<p><code>not_covered</code> only ever appears against a database
+imported for selected provinces
+(<code>nar_connection(provinces = )</code>). It is kept apart from
+<code>none</code> because it says nothing about the address: no tier
+could have matched it, so the parse was never tested.</p>
 <p><code>uncertainty_m</code> prices each of those: it is the
 <strong>90th-percentile error this package adds relative to NAR’s own
 building point</strong>. Zero for an exact match, 176 m for a blockface
@@ -245,7 +254,8 @@ side of the street only</strong> — pooling both sides costs a median
 past the last known civic number on a side rather than continuing the
 run’s spacing, which scores a respectable 15.1 m median but a 237 m 90th
 percentile. Those rows come back <code>none</code>.</p>
-<p>There is a third tier, <code>"bc"</code>, further down.</p>
+<p>There are two further tiers, <code>"bc"</code> and
+<code>"nrcan"</code>, further down.</p>
 </div>
 <div class="section level2">
 <h2 id="constraining-the-search">Constraining the search<a class="anchor" aria-label="anchor" href="#constraining-the-search"></a>
@@ -377,10 +387,14 @@ it a cheap sanity check on a coordinate you just derived.</p>
 <span><span class="co">#&gt; 2 10-100 W QUEEN ST, TORONTO M5H2N2   0  </span></span>
 <span><span class="co">#&gt; 3 700-65 W QUEEN ST, TORONTO M5H2M5  32.1</span></span></code></pre></div>
 <p>For British Columbia there is a stronger check available: the
-Province of BC publishes its own <a href="https://geocoder.api.gov.bc.ca/" class="external-link">Address Geocoder</a>, which is an
-entirely independent source of position. <code><a href="../reference/bc_validate.html">bc_validate()</a></code>
-geocodes a result again through that service and reports the distance
-between the two answers.</p>
+Province of BC publishes its own <a href="https://geocoder.api.gov.bc.ca/" class="external-link">Address Geocoder</a>, a
+parcel-level provincial authority. <code><a href="../reference/bc_validate.html">bc_validate()</a></code> geocodes a
+result again through that service and reports the distance between the
+two answers. Where they disagree, BC’s answer is generally the more
+reliable of the two — but the two sources are not independent of each
+other, so a small distance is weaker evidence than it looks, and the
+distances are a way to find suspect rows rather than a measurement of
+how accurate NAR is.</p>
 <p><strong>This is the one path in the package that sends an address off
 your machine</strong>, and nothing reaches it unless you call one of
 these functions.</p>
@@ -410,7 +424,7 @@ mistake.</p>
 addresses NAR cannot place at all:</p>
 <div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">hard</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"2912 West Broadway, Vancouver, BC"</span>,</span>
-<span>          <span class="st">"33695 South Fraser Way, Abbotsford, BC"</span>,</span>
+<span>          <span class="st">"1 Nesters Rd, Whistler, BC"</span>,</span>
 <span>          <span class="st">"7165 Nakiska Dr, Vernon, BC"</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
@@ -418,10 +432,10 @@ addresses NAR cannot place at all:</p>
 <span></span>
 <span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"bc"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">match_method</span>, <span class="va">uncertainty_m</span><span class="op">)</span></span>
-<span><span class="co">#&gt;                                    input match_method uncertainty_m</span></span>
-<span><span class="co">#&gt; 1      2912 West Broadway, Vancouver, BC     bc_civic            20</span></span>
-<span><span class="co">#&gt; 2 33695 South Fraser Way, Abbotsford, BC     bc_block           100</span></span>
-<span><span class="co">#&gt; 3            7165 Nakiska Dr, Vernon, BC     bc_civic            20</span></span></code></pre></div>
+<span><span class="co">#&gt;                               input match_method uncertainty_m</span></span>
+<span><span class="co">#&gt; 1 2912 West Broadway, Vancouver, BC     bc_civic            20</span></span>
+<span><span class="co">#&gt; 2        1 Nesters Rd, Whistler, BC    bc_street           500</span></span>
+<span><span class="co">#&gt; 3       7165 Nakiska Dr, Vernon, BC     bc_civic            20</span></span></code></pre></div>
 <p>On a sample of 600 BC addresses that NAR’s own pathway placed 524 of,
 the tier resolved 75 of the remaining 76 — 31 of them at address level,
 the rest to a block or a street.</p>
@@ -441,7 +455,49 @@ the service is confident, it is just not an address. Either way a
 rejected row keeps its score and its <code>bc_faults</code>, so what was
 thrown away stays readable rather than vanishing. See
 <code><a href="../reference/bc_geocode.html">?bc_geocode</a></code>.</p>
+</div>
+<div class="section level2">
+<h2 id="the-national-geolocator">The national geolocator<a class="anchor" aria-label="anchor" href="#the-national-geolocator"></a>
+</h2>
+<p><code>"nrcan"</code> is the other online tier, backed by NRCan’s <a href="https://geolocator.api.geo.ca/" class="external-link">geolocator</a>. Unlike
+<code>"bc"</code> it covers the whole country, and it needs no local
+database at all — which makes it the only tier that can answer before a
+NAR release has been imported, and the one that covers provinces a
+single-province import does not hold.</p>
 <div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"nrcan"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span></code></pre></div>
+<p>It has the same trap as the BC service, in a sharper form: <strong>it
+always answers, and it gives you no score to disbelieve.</strong> Asked
+for <code>1 Rue Notre-Dame Ouest, Montreal, QC</code> its top-ranked
+answer is a real, precisely interpolated position on a real Rue
+Notre-Dame Ouest — in Lorrainville, 500 km away — with nothing in the
+response marking it as a substitution.</p>
+<p>So the tier re-parses the address the service hands back and requires
+it to agree, component by component, with the one that was sent: same
+street name, same civic number, and no contradiction on type, direction,
+municipality or province. It applies that test to <strong>every</strong>
+result in the response rather than only the top-ranked one, which costs
+nothing — the service returns up to 25 in a single reply — and matters
+more often than you would guess. The Montréal address above is in that
+same reply, ranked seventh, and it is the one the tier returns. Where
+two survive, <code>n_matches</code> says so.</p>
+<p>Roughly half of what is asked is still rejected, and a rejected row
+keeps a <code>nrcan_reject</code> column naming the component that
+disagreed, so what was thrown away stays readable. One value in that
+column is not about the address at all: the service drops roughly one
+request in twelve with an HTTP 500, so <code><a href="../reference/nrcan_geocode.html">nrcan_geocode()</a></code>
+re-sends them (<code>retries</code>, default 3) and reports the ones
+that never came back as <code>request failed</code> rather than as an
+address it had no answer for. Of the answers that survive, the median
+sits 33 m from NAR’s own building point and the 90th percentile at 115
+m, which is what <code>uncertainty_m = 150</code> reports.</p>
+<p>Two caveats worth having before you reach for it. As a fallback for
+NAR’s own gaps it is worth much less than the BC tier — it places about
+8% of what NAR leaves unplaced, because the addresses NAR lacks are
+largely the ones no national compilation has. And it does not reverse
+geocode; <code><a href="../reference/reverse_geocode.html">reverse_geocode()</a></code> is NAR-backed and runs locally.
+See <code><a href="../reference/nrcan_geocode.html">?nrcan_geocode</a></code>.</p>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu">DBI</span><span class="fu">::</span><span class="fu"><a href="https://dbi.r-dbi.org/reference/dbDisconnect.html" class="external-link">dbDisconnect</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
@@ -457,7 +513,7 @@ that did not match. The ceiling for a NAR-only pathway is therefore
 around 93%.</p>
 <p>Two notes ship with the package and carry the measurements behind
 every figure quoted here, along with what is not built yet:</p>
-<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"geocoding-status.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"address-normalization-status.md"</span>,</span>
 <span>                      package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>

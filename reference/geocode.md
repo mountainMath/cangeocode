@@ -18,8 +18,15 @@ found at all. \* \*\*\`nar_interpolated\`\*\* – the civic number is
 known civic numbers of the same parity on either side of it. See the
 section below. \* \*\*\`bc_site\`\*\*, \*\*\`bc_civic\`\*\*,
 \*\*\`bc_block\`\*\*, \*\*\`bc_street\`\*\*, \*\*\`bc_locality\`\*\* –
-answered by the \`bc\` tier. See \[bc_geocode()\]. \* \*\*\`none\`\*\* –
-nothing resolved.
+answered by the \`bc\` tier. See \[bc_geocode()\]. \* \*\*\`nrcan\`\*\*
+– answered by the \`nrcan\` tier. One value rather than several, because
+only one class of geolocator answer survives its floors at all. See
+\[nrcan_geocode()\]. \* \*\*\`not_covered\`\*\* – the address parsed to
+a province this database does not hold, so no tier could have matched
+it. Only a partial import (see the \`provinces\` argument of
+\[nar_connection()\]) ever produces this, and it is deliberately
+distinct from \`none\`: the address may be perfectly good. \*
+\*\*\`none\`\*\* – nothing resolved.
 
 ## Usage
 
@@ -74,7 +81,7 @@ geocode(
 - method:
 
   Tiers to try, in priority order: any of \`"nar"\`,
-  \`"nar_interpolate"\` and \`"bc"\`. Default \`c("nar",
+  \`"nar_interpolate"\`, \`"bc"\` and \`"nrcan"\`. Default \`c("nar",
   "nar_interpolate")\`, which is the offline pair. See the section
   below.
 
@@ -101,8 +108,13 @@ geocode(
 
 - ...:
 
-  Passed to \[bc_geocode()\] when \`method\` includes \`"bc"\`, which is
-  where \`min_score\`, \`api_key\` and \`rate\` go. Otherwise unused.
+  Passed to the online tiers named in \`method\`. \`rate\` is understood
+  by both of them; \`min_score\` and \`api_key\` are \[bc_geocode()\]'s,
+  as is anything else, which it forwards to its own service as a query
+  parameter. \[nrcan_geocode()\] is given only the arguments it
+  declares, so a BC-only argument passed alongside \`"nrcan"\` reaches
+  the BC tier alone rather than erroring. Unused when \`method\` names
+  no online tier.
 
 ## Value
 
@@ -126,13 +138,25 @@ Geocoder\]\[bc_geocode()\]. British Columbia only, and \*\*this makes
 one network request per unplaced BC row\*\*; nothing contacts it unless
 the tier is named. The constraints are honoured: what is sent is rebuilt
 from the components after any \`prov\`/\`mun\` override, and a point
-outside \`within\` is discarded rather than returned.
+outside \`within\` is discarded rather than returned. \*
+\*\*\`"nrcan"\`\*\* – ask NRCan's national
+\[geolocator\]\[nrcan_geocode()\]. Answers \`nrcan\`. Also one network
+request per unplaced row, and it covers the whole country, so unlike
+\`"bc"\` there is no province that excludes a row from being sent.
+\*\*It belongs last.\*\* Its surviving answers are roughly
+interpolation-grade at the median with a much longer tail, and it has no
+score of its own – everything that separates a hit from a confident
+wrong answer is done by re-parsing the returned title, which is strict
+but not free of false positives.
 
 The default \`c("nar", "nar_interpolate")\` is offline and prefers a
 real NAR record over an interpolated one. \`method = "nar"\` keeps only
 the addresses NAR actually carries. \`c("nar", "nar_interpolate",
 "bc")\` adds the BC service as a last resort, and \`c("bc", "nar")\`
-prefers it over NAR wherever it answers.
+prefers it over NAR wherever it answers. \`"nrcan"\` is the national
+counterpart to \`"bc"\` and is the only tier that answers with no local
+database at all, which is the case it exists for; it should be named
+after every other tier, never before one.
 
 A row NAR holds without coordinates (\`nar_no_geometry\`) is passed on
 to the next tier: knowing the address exists is worth reporting, but it
@@ -214,6 +238,9 @@ geocode(addresses, method = "nar")
 
 # Add the BC service as a last resort. Makes network requests.
 geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
+
+# NRCan's geolocator is national, so it can back up the whole country.
+geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"))
 
 # Parse once, resolve many times, and keep only the precise matches.
 parsed <- normalize_address(addresses)

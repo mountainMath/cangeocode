@@ -52,7 +52,7 @@
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_write_metadata</span><span class="op">(</span><span class="va">con</span>, <span class="va">version</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_write_metadata</span><span class="op">(</span><span class="va">con</span>, <span class="va">version</span>, provinces <span class="op">=</span> <span class="fu"><a href="nar_all_provinces.html">nar_all_provinces</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -65,6 +65,11 @@
 
 <dt id="arg-version">version<a class="anchor" aria-label="anchor" href="#arg-version"></a></dt>
 <dd><p>Normalized NAR version string</p></dd>
+
+
+<dt id="arg-provinces">provinces<a class="anchor" aria-label="anchor" href="#arg-provinces"></a></dt>
+<dd><p>Coverage marker: `"ALL"`, or the two-letter abbreviations
+the import actually loaded</p></dd>
 
 </dl></div>
     <div class="section level2">

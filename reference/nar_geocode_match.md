@@ -56,7 +56,7 @@ nar_geocode_match(
 
 - ...:
 
-  Passed to the \`bc\` tier
+  Passed to the online tiers; see \[geocode()\] on how they are split
 
 ## Value
 

@@ -10,8 +10,8 @@ cost**.
 
 This vignette covers the whole path: the basic call, reading the columns
 that qualify every result, choosing which methods to try, constraining
-the search, and checking an answer against an independent source. The
-parsing step has a vignette of its own —
+the search, and checking an answer against a second source. The parsing
+step has a vignette of its own —
 [`vignette("address-normalization")`](https://mountainmath.github.io/cangeocode/articles/address-normalization.md)
 — since normalizing addresses is useful whether or not a coordinate
 comes out at the end.
@@ -91,7 +91,13 @@ a thousand calls.
 | `nar_blockface` | in NAR, but only a blockface centroid is available |
 | `nar_interpolated` | not in NAR; placed between the flanking civic numbers |
 | `nar_no_geometry` | in NAR — `ADDR_GUID` names the record — but unplaceable |
+| `not_covered` | in a province this database does not hold |
 | `none` | not found |
+
+`not_covered` only ever appears against a database imported for selected
+provinces (`nar_connection(provinces = )`). It is kept apart from `none`
+because it says nothing about the address: no tier could have matched
+it, so the parse was never tested.
 
 `uncertainty_m` prices each of those: it is the **90th-percentile error
 this package adds relative to NAR’s own building point**. Zero for an
@@ -169,7 +175,7 @@ on a side rather than continuing the run’s spacing, which scores a
 respectable 15.1 m median but a 237 m 90th percentile. Those rows come
 back `none`.
 
-There is a third tier, `"bc"`, further down.
+There are two further tiers, `"bc"` and `"nrcan"`, further down.
 
 ## Constraining the search
 
@@ -325,11 +331,15 @@ geocode("100 Queen St W, Toronto, ON", geometry = TRUE, con = con) |>
 
 For British Columbia there is a stronger check available: the Province
 of BC publishes its own [Address
-Geocoder](https://geocoder.api.gov.bc.ca/), which is an entirely
-independent source of position.
+Geocoder](https://geocoder.api.gov.bc.ca/), a parcel-level provincial
+authority.
 [`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md)
 geocodes a result again through that service and reports the distance
-between the two answers.
+between the two answers. Where they disagree, BC’s answer is generally
+the more reliable of the two — but the two sources are not independent
+of each other, so a small distance is weaker evidence than it looks, and
+the distances are a way to find suspect rows rather than a measurement
+of how accurate NAR is.
 
 **This is the one path in the package that sends an address off your
 machine**, and nothing reaches it unless you call one of these
@@ -366,7 +376,7 @@ cannot place at all:
 ``` r
 
 hard <- c("2912 West Broadway, Vancouver, BC",
-          "33695 South Fraser Way, Abbotsford, BC",
+          "1 Nesters Rd, Whistler, BC",
           "7165 Nakiska Dr, Vernon, BC")
 
 geocode(hard, con = con)$match_method
@@ -374,10 +384,10 @@ geocode(hard, con = con)$match_method
 
 geocode(hard, method = c("nar", "nar_interpolate", "bc"), con = con) |>
   select(input, match_method, uncertainty_m)
-#>                                    input match_method uncertainty_m
-#> 1      2912 West Broadway, Vancouver, BC     bc_civic            20
-#> 2 33695 South Fraser Way, Abbotsford, BC     bc_block           100
-#> 3            7165 Nakiska Dr, Vernon, BC     bc_civic            20
+#>                               input match_method uncertainty_m
+#> 1 2912 West Broadway, Vancouver, BC     bc_civic            20
+#> 2        1 Nesters Rd, Whistler, BC    bc_street           500
+#> 3       7165 Nakiska Dr, Vernon, BC     bc_civic            20
 ```
 
 On a sample of 600 BC addresses that NAR’s own pathway placed 524 of,
@@ -404,6 +414,58 @@ not an address. Either way a rejected row keeps its score and its
 `bc_faults`, so what was thrown away stays readable rather than
 vanishing. See
 [`?bc_geocode`](https://mountainmath.github.io/cangeocode/reference/bc_geocode.md).
+
+## The national geolocator
+
+`"nrcan"` is the other online tier, backed by NRCan’s
+[geolocator](https://geolocator.api.geo.ca/). Unlike `"bc"` it covers
+the whole country, and it needs no local database at all — which makes
+it the only tier that can answer before a NAR release has been imported,
+and the one that covers provinces a single-province import does not
+hold.
+
+``` r
+
+geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"), con = con)
+```
+
+It has the same trap as the BC service, in a sharper form: **it always
+answers, and it gives you no score to disbelieve.** Asked for
+`1 Rue Notre-Dame Ouest, Montreal, QC` its top-ranked answer is a real,
+precisely interpolated position on a real Rue Notre-Dame Ouest — in
+Lorrainville, 500 km away — with nothing in the response marking it as a
+substitution.
+
+So the tier re-parses the address the service hands back and requires it
+to agree, component by component, with the one that was sent: same
+street name, same civic number, and no contradiction on type, direction,
+municipality or province. It applies that test to **every** result in
+the response rather than only the top-ranked one, which costs nothing —
+the service returns up to 25 in a single reply — and matters more often
+than you would guess. The Montréal address above is in that same reply,
+ranked seventh, and it is the one the tier returns. Where two survive,
+`n_matches` says so.
+
+Roughly half of what is asked is still rejected, and a rejected row
+keeps a `nrcan_reject` column naming the component that disagreed, so
+what was thrown away stays readable. One value in that column is not
+about the address at all: the service drops roughly one request in
+twelve with an HTTP 500, so
+[`nrcan_geocode()`](https://mountainmath.github.io/cangeocode/reference/nrcan_geocode.md)
+re-sends them (`retries`, default 3) and reports the ones that never
+came back as `request failed` rather than as an address it had no answer
+for. Of the answers that survive, the median sits 33 m from NAR’s own
+building point and the 90th percentile at 115 m, which is what
+`uncertainty_m = 150` reports.
+
+Two caveats worth having before you reach for it. As a fallback for
+NAR’s own gaps it is worth much less than the BC tier — it places about
+8% of what NAR leaves unplaced, because the addresses NAR lacks are
+largely the ones no national compilation has. And it does not reverse
+geocode;
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+is NAR-backed and runs locally. See
+[`?nrcan_geocode`](https://mountainmath.github.io/cangeocode/reference/nrcan_geocode.md).
 
 ``` r
 

@@ -1,0 +1,37 @@
+# Copy selected members of a remote zip into a small local zip
+
+Fetches each selected member's compressed bytes and writes a fresh,
+self-contained archive containing only those members. The compressed
+data is copied verbatim – nothing is inflated here – so the result is a
+normal zip that \[utils::unzip()\] extracts, which keeps the import path
+identical whether the caller downloaded one province or the country.
+
+Local headers are rebuilt from the central directory rather than copied,
+because the central directory is the authoritative record of the sizes:
+when an archive sets the streaming flag, the local header carries zeros
+and the real sizes trail the data. Rebuilding also lets that flag be
+cleared, so no data descriptors are needed in the output.
+
+## Usage
+
+``` r
+nar_zip_copy_members(reader, entries, dest)
+```
+
+## Arguments
+
+- reader:
+
+  A reader function over the source archive
+
+- entries:
+
+  Rows of \[nar_zip_directory()\] to copy
+
+- dest:
+
+  Path to write the new archive to
+
+## Value
+
+\`dest\`, invisibly

@@ -1,0 +1,40 @@
+# Is this response a transient failure worth re-sending?
+
+\*\*The service loses roughly one request in twelve, and says so with a
+clean HTTP 500.\*\* Measured over 300 national addresses: 24 came back
+500, and every one of the 24 succeeded on a retry – 23 of them on the
+very first, with no delay. One query succeeded on the first attempt and
+then failed three times in a row afterwards, which is what rules out the
+failure being a property of the query. The 500s also fast-fail, at a
+0.23 s median against 0.59 s for a real answer, so they are not timeouts
+either. Left unretried they were silently costing about 8 the output
+from the service having no answer.
+
+Two shapes count as transient:
+
+\* \*\*any 5xx\*\*, which is the one above, plus \`429\` for rate
+limiting on the chance the service ever starts sending it; \* a
+\*\*\`200\` whose body is a JSON object rather than an array\*\*, which
+is the same server error escaping through a gateway that did not notice.
+No current query is known to produce one, but if it comes back it is the
+same fault and deserves the same response.
+
+A \`200\` carrying an empty array is \*\*not\*\* transient. That is the
+service answering "nothing", which is a legitimate answer and not
+distinguishable from a lost one anyway.
+
+## Usage
+
+``` r
+nar_nrcan_transient(resp)
+```
+
+## Arguments
+
+- resp:
+
+  A response object
+
+## Value
+
+\`TRUE\` if the request is worth re-sending

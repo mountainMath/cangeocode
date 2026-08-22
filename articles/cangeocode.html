@@ -92,11 +92,11 @@ Put it in your <code>~/.Renviron</code> so it survives a restart:</p>
 <pre><code>NAR_CACHE_PATH=~/data/nar</code></pre>
 <p><strong>Budget for the first download.</strong>
 <code><a href="../reference/nar_connection.html">nar_connection()</a></code> fetches the release from StatCan, unzips
-it, and builds the database. That is a multi-hundred-megabyte download
-over a connection slow enough that the package raises R’s timeout to 20
-minutes, and it lands roughly <strong>5 GB on disk</strong> for the
-2026-06 release. Every later call reuses the file and opens
-instantly.</p>
+it, and builds the database. That is a 1.7 GB download over a connection
+slow enough that the package raises R’s timeout to 20 minutes, and it
+lands roughly <strong>5 GB on disk</strong> for the 2026-06 release.
+Every later call reuses the file and opens instantly. In an interactive
+session the first call asks whether you want all of it — see below.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mountainmath.github.io/cangeocode/">cangeocode</a></span><span class="op">)</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://dplyr.tidyverse.org" class="external-link">dplyr</a></span><span class="op">)</span></span>
@@ -106,13 +106,49 @@ instantly.</p>
 it downloads and imports on first use for a given version, and simply
 opens the file after that. Passing it around beats reopening the
 database, which matters below.</p>
+<div class="section level3">
+<h3 id="downloading-one-province-instead-of-the-country">Downloading one province instead of the country<a class="anchor" aria-label="anchor" href="#downloading-one-province-instead-of-the-country"></a>
+</h3>
+<p>The StatCan release is one zip whose member files are split by
+province, and the server honours HTTP range requests. So the package can
+read the archive’s own index — a few kilobytes, no data transfer — and
+then fetch only the members a province needs:</p>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">pei</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/nar_connection.html">nar_connection</a></span><span class="op">(</span>provinces <span class="op">=</span> <span class="st">"PE"</span><span class="op">)</span></span></code></pre></div>
+<p>That is 10 MB and about 40 seconds for a working Prince Edward Island
+geocoder. British Columbia is 192 MB, Ontario 552 MB, the whole country
+1,666 MB.</p>
+<p>These are the same NAR rows, not a reduced product: a partial
+database returns the same <code>ADDR_GUID</code> and the same
+coordinates a national one does. What it does not have is anything
+outside its provinces, and <code><a href="../reference/geocode.html">geocode()</a></code> says so —
+<code>match_method</code> comes back as <code>not_covered</code> rather
+than <code>none</code>, because an Ontario address asked of a PEI
+database is not a bad address.</p>
+<p>Coverage is recorded in the database and checked before anything is
+downloaded. Asking for a province you already have downloads nothing;
+asking for one you do not adds just that province rather than
+rebuilding.</p>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/nar_provinces.html">nar_provinces</a></span><span class="op">(</span><span class="va">pei</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "PE"</span></span>
+<span></span>
+<span><span class="va">both</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/nar_connection.html">nar_connection</a></span><span class="op">(</span>provinces <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"PE"</span>, <span class="st">"NB"</span><span class="op">)</span><span class="op">)</span>   <span class="co"># fetches New Brunswick only</span></span>
+<span><span class="fu"><a href="../reference/nar_provinces.html">nar_provinces</a></span><span class="op">(</span><span class="va">both</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "NB" "PE"</span></span></code></pre></div>
+<p>Provinces can be named by abbreviation, by full name, or by SGC code,
+and <code>provinces = "all"</code> is the whole country.
+<code>refresh = TRUE</code> rebuilds whatever coverage the database
+already has, so refreshing a British Columbia database does not silently
+turn it into a national one.</p>
+</div>
 </div>
 <div class="section level2">
 <h2 id="reverse-geocoding-a-point">Reverse geocoding a point<a class="anchor" aria-label="anchor" href="#reverse-geocoding-a-point"></a>
 </h2>
 <p>Hand <code><a href="../reference/reverse_geocode.html">reverse_geocode()</a></code> a longitude/latitude pair and it
 returns every address within the match radius, nearest first.</p>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span>, match_radius <span class="op">=</span> <span class="fl">100</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">address</span>, <span class="va">dist</span>, <span class="va">geom_source</span><span class="op">)</span></span>
 <span><span class="co">#&gt; # A tibble: 16 × 3</span></span>
@@ -140,7 +176,7 @@ Lambert, EPSG:3347), so distances come out metric already.</p>
 <p>The default radius is 100 m. Widen it when you expect sparse coverage
 — rural addresses, industrial land — and narrow it when you only want
 the building you are standing on.</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span>, match_radius <span class="op">=</span> <span class="fl">25</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">address</span>, <span class="va">dist</span><span class="op">)</span></span>
 <span><span class="co">#&gt; # A tibble: 1 × 2</span></span>
@@ -154,7 +190,7 @@ the building you are standing on.</p>
 longitude/latitude that GPS receivers and web maps report. If your
 coordinates use a different CRS, name it with <code>crs</code>, or pass
 an <code>sf</code> object and let its own CRS speak for itself.</p>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">pt</span> <span class="op">&lt;-</span> <span class="fu">sf</span><span class="fu">::</span><span class="fu"><a href="https://r-spatial.github.io/sf/reference/sfc.html" class="external-link">st_sfc</a></span><span class="op">(</span><span class="fu">sf</span><span class="fu">::</span><span class="fu"><a href="https://r-spatial.github.io/sf/reference/st.html" class="external-link">st_point</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span><span class="op">)</span>, crs <span class="op">=</span> <span class="fl">4326</span><span class="op">)</span></span>
 <span><span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="va">pt</span>, match_radius <span class="op">=</span> <span class="fl">50</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">address</span>, <span class="va">dist</span><span class="op">)</span></span>
@@ -172,11 +208,11 @@ an <code>sf</code> object and let its own CRS speak for itself.</p>
 <h2 id="choosing-what-comes-back">Choosing what comes back<a class="anchor" aria-label="anchor" href="#choosing-what-comes-back"></a>
 </h2>
 <p><code>output</code> controls the shape of the result.</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># A single formatted string for the closest address</span></span>
 <span><span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span>, output <span class="op">=</span> <span class="st">"address"</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
 <span><span class="co">#&gt; [1] "4176 W KING EDWARD AVE, VANCOUVER V6S1N3"</span></span></code></pre></div>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># One row, every NAR column, for the closest address</span></span>
 <span><span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span>, output <span class="op">=</span> <span class="st">"components"</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">CIVIC_NO</span>, <span class="va">MAIL_STREET_NAME</span>, <span class="va">MAIL_MUN_NAME</span>, <span class="va">MAIL_POSTAL_CODE</span>, <span class="va">BU_USE</span><span class="op">)</span></span>
@@ -189,7 +225,7 @@ matches shown above.</p>
 <p>When no address falls inside the radius the function warns and
 returns <code>NULL</code>, so check for that rather than assuming a data
 frame comes back.</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">result</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">135</span>, <span class="fl">65</span><span class="op">)</span>, match_radius <span class="op">=</span> <span class="fl">100</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Warning in reverse_geocode(c(-135, 65), match_radius = 100, con = con): No</span></span>
 <span><span class="co">#&gt; address found within 100 m radius.</span></span>
@@ -203,12 +239,12 @@ frame comes back.</p>
 carrying the matched address point, in the database’s storage CRS.
 Reproject it with <code><a href="https://r-spatial.github.io/sf/reference/st_transform.html" class="external-link">sf::st_transform()</a></code> if you need something
 else.</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">matches</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span>, match_radius <span class="op">=</span> <span class="fl">150</span>,</span>
 <span>                           geometry <span class="op">=</span> <span class="cn">TRUE</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
 <span><span class="fu">sf</span><span class="fu">::</span><span class="fu"><a href="https://r-spatial.github.io/sf/reference/st_crs.html" class="external-link">st_crs</a></span><span class="op">(</span><span class="va">matches</span><span class="op">)</span><span class="op">$</span><span class="va">input</span></span>
 <span><span class="co">#&gt; [1] "EPSG:3347"</span></span></code></pre></div>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://ggplot2.tidyverse.org" class="external-link">ggplot2</a></span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">query</span> <span class="op">&lt;-</span> <span class="fu">sf</span><span class="fu">::</span><span class="fu"><a href="https://r-spatial.github.io/sf/reference/sfc.html" class="external-link">st_sfc</a></span><span class="op">(</span><span class="fu">sf</span><span class="fu">::</span><span class="fu"><a href="https://r-spatial.github.io/sf/reference/st.html" class="external-link">st_point</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span><span class="op">)</span>, crs <span class="op">=</span> <span class="fl">4326</span><span class="op">)</span> <span class="op">|&gt;</span></span>
@@ -231,7 +267,7 @@ else.</p>
 package falls back to the <strong>blockface</strong> point — the
 centroid of one side of a street between two intersections — and records
 which was used in <code>geom_source</code>.</p>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/tbl.html" class="external-link">tbl</a></span><span class="op">(</span><span class="va">con</span>, <span class="st">"Addresses"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/count.html" class="external-link">count</a></span><span class="op">(</span><span class="va">geom_source</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span></span>
@@ -252,7 +288,7 @@ both kinds of point, the median distance between them is 50 m, and the
 <p>So a <code>dist</code> of 30 m from a blockface match does not mean
 the address is 30 m away — it means the <em>middle of its block</em> is.
 Filter when only precise matches will do:</p>
-<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span>, match_radius <span class="op">=</span> <span class="fl">150</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">geom_source</span> <span class="op">==</span> <span class="st">"building"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">address</span>, <span class="va">dist</span><span class="op">)</span> <span class="op">|&gt;</span></span>
@@ -274,7 +310,7 @@ not give it one, which is fine once and wasteful in a loop. Open the
 connection yourself and pass it in — the function leaves a
 caller-supplied connection open, so one <code>con</code> serves the
 whole batch.</p>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">points</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">79.4</span>, <span class="fl">43.66</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">73.58</span>, <span class="fl">45.51</span><span class="op">)</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="va">points</span>, \<span class="op">(</span><span class="va">p</span><span class="op">)</span> <span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="va">p</span>, output <span class="op">=</span> <span class="st">"address"</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
@@ -290,7 +326,7 @@ whole batch.</p>
 <code><a href="../reference/available_nar_versions.html">available_nar_versions()</a></code> lists what StatCan offers;
 <code>nar_connection(version = ...)</code> pins a specific one, keyed by
 the <code>path</code> column (<code>"YYYY-MM"</code>).</p>
-<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/available_nar_versions.html">available_nar_versions</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">version</span>, <span class="va">path</span>, <span class="va">Date</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fl">4</span><span class="op">)</span></span>
@@ -309,7 +345,7 @@ cached database instead of failing.</p>
 <p>Each version is a separate file in <code>NAR_CACHE_PATH</code>, so
 keeping two releases around costs two databases’ worth of disk.
 <code>refresh = TRUE</code> rebuilds one from scratch.</p>
-<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu">DBI</span><span class="fu">::</span><span class="fu"><a href="https://dbi.r-dbi.org/reference/dbDisconnect.html" class="external-link">dbDisconnect</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
@@ -318,8 +354,7 @@ keeping two releases around costs two databases’ worth of disk.
 <p><code><a href="../articles/geocoding.html">vignette("geocoding")</a></code> covers the other direction —
 <code><a href="../reference/geocode.html">geocode()</a></code>, which turns an address string into a coordinate
 and reports how it was found and what that cost, along with the address
-parser behind it and the independent BC geocoder you can check a result
-against.</p>
+parser behind it and the BC geocoder you can check a result against.</p>
 <p><code><a href="../articles/querying-nar.html">vignette("querying-nar")</a></code> covers using the database
 directly — filtering the full address table with dplyr, joining to
 <code>Locations</code> for federal riding and economic region names, and

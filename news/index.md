@@ -8,7 +8,7 @@ package now does in its own right — **normalizing** free-text addresses
 into structured components, which is what most address work actually
 needs. There is also one external geocoder to check the results against.
 
-**Rebuild your database.** The import schema is now version 5. Existing
+**Rebuild your database.** The import schema is now version 6. Existing
 databases keep working for reverse geocoding, but address normalization
 and
 [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)’s
@@ -18,6 +18,40 @@ and
 
 nar_connection(refresh = TRUE)
 ```
+
+### Downloading only the provinces you need
+
+- [`nar_connection()`](https://mountainmath.github.io/cangeocode/reference/nar_connection.md)
+  gained a **`provinces`** argument. The StatCan release is one 1.7 GB
+  zip whose members are split by province, and the server honours HTTP
+  range requests, so the package can read the archive’s own index for a
+  few kilobytes and then fetch only the members a province needs.
+  `nar_connection(provinces = "PE")` is 10 MB and about 40 seconds for a
+  working Prince Edward Island geocoder; British Columbia is 192 MB,
+  Ontario 552 MB, the country 1,666 MB.
+
+- The addresses are the same NAR rows either way, so a partial database
+  geocodes its own provinces **exactly as well** as a national one does
+  — same `ADDR_GUID`, same coordinates. It simply holds nothing outside
+  them.
+
+- Coverage is recorded in the database and checked before anything is
+  downloaded. A national database satisfies every request; asking for a
+  province a partial database lacks **adds** just that province rather
+  than rebuilding; and `refresh = TRUE` rebuilds the coverage a database
+  already has rather than silently widening or narrowing it. New
+  [`nar_provinces()`](https://mountainmath.github.io/cangeocode/reference/nar_provinces.md)
+  reports what a connection holds.
+
+- In an interactive session, a first call that names no provinces now
+  asks, showing what each choice actually costs in megabytes.
+  Non-interactively it downloads the whole country, as before.
+
+- [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+  answers **`match_method = "not_covered"`** for an address that parsed
+  to a province the database does not hold. That is deliberately
+  distinct from `none`: the address may be perfectly good, and only a
+  partial import ever produces it.
 
 ### Forward geocoding
 
