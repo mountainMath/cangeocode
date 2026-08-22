@@ -1,6 +1,6 @@
 # Address normalization — what still fails, and what to do next
 
-Companion to `.claude/CLAUDE.md`, which documents *why the code is shaped the way it is*.
+Companion to `.claude/normalization.md`, which documents *why the code is shaped the way it is*.
 Lives in `inst/notes/`, so it installs with the package and
 `system.file("notes", package = "cangeocode")` finds it.
 This file documents *where it currently falls short*. Every number here is measured, not
@@ -168,7 +168,7 @@ that land on another real street name, where nothing in the string can arbitrate
 `298 ST. SIMON, BELLE RIVER` parses to `SIMON ST` — the period-bearing name `St. Simon` cannot meet
 its fold key. `nar_gazetteer_sql()` folds periods out of both sides on the municipality joins and
 the fuzzy street comparisons, but deliberately **not** on the exact-branch `Streets.NAME_FOLD`
-join, which would cost the `str_name_idx` index. See CLAUDE.md for the rule.
+join, which would cost the `str_name_idx` index. See `.claude/normalization.md` for the rule.
 
 **Fix, if it is ever worth it:** materialise a second period-folded column on `Streets` and index
 that, rather than folding at query time. Costs a schema version.

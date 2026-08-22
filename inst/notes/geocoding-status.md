@@ -6,7 +6,7 @@ currently reaches, how the accuracy figures in its documentation were measured, 
 pathways that were sized but not built.
 
 For *why the code is shaped the way it is*, see the `R/geocode.R` section of
-`.claude/CLAUDE.md`. For the parser's own failure modes — which cap everything here, since
+`.claude/geocoding.md`. For the parser's own failure modes — which cap everything here, since
 an address that does not parse cannot be resolved — see
 [`address-normalization-status.md`](address-normalization-status.md).
 
