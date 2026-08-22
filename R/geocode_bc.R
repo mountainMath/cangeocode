@@ -310,9 +310,16 @@ nar_geocode_points <- function(g) {
 #' overwrite the parsed columns, and a caller who asserted a municipality would
 #' otherwise watch it be ignored the moment a row fell through to the fallback.
 #' @param res A [normalize_address()] result
+#' @param suffix Whether to keep the civic-number suffix. Default `TRUE`, which
+#' is what the address actually is. [nrcan_geocode()] passes `FALSE` because
+#' NRCan's geolocator looks for the house number as a run of one to five digits
+#' bounded by word boundaries, and there is no word boundary inside `990A`, so
+#' it sees no house number at all and falls back to a street centroid that the
+#' tier then rejects. Dropping the suffix hides nothing from the floor, which
+#' compares `CIVIC_NO` alone.
 #' @return A character vector of address strings
 #' @keywords internal
-nar_address_string <- function(res) {
+nar_address_string <- function(res, suffix = TRUE) {
   col <- function(name) {
     v <- res[[name]]
     if (is.null(v)) rep(NA_character_, nrow(res)) else as.character(v)
@@ -320,7 +327,7 @@ nar_address_string <- function(res) {
   # The suffix belongs to the number with no space between them: 990A is one
   # civic, and "990 A" invites the service to read the letter as a unit.
   no <- col("CIVIC_NO")
-  sfx <- col("CIVIC_NO_SUFFIX")
+  sfx <- if (suffix) col("CIVIC_NO_SUFFIX") else rep(NA_character_, nrow(res))
   civic <- ifelse(is.na(no), NA_character_,
                   paste0(no, ifelse(is.na(sfx), "", sfx)))
   street <- nar_paste_parts(civic, col("STREET_NAME"), col("STREET_TYPE"),

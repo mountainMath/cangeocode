@@ -409,18 +409,28 @@ geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"), con = con)
 
 It has the same trap as the BC service, in a sharper form: **it always answers,
 and it gives you no score to disbelieve.** Asked for `1 Rue Notre-Dame Ouest,
-Montreal, QC` it returns a real, precisely interpolated position on a real Rue
-Notre-Dame Ouest — in Lorrainville, 500 km away — with nothing in the response
-marking it as a substitution.
+Montreal, QC` its top-ranked answer is a real, precisely interpolated position
+on a real Rue Notre-Dame Ouest — in Lorrainville, 500 km away — with nothing in
+the response marking it as a substitution.
 
 So the tier re-parses the address the service hands back and requires it to
 agree, component by component, with the one that was sent: same street name,
 same civic number, and no contradiction on type, direction, municipality or
-province. Roughly half of what is asked is rejected on that basis, and a
-rejected row keeps a `nrcan_reject` column naming the component that
-disagreed, so what was thrown away stays readable. Of the answers that survive,
-the median sits 33 m from NAR's own building point and the 90th percentile at
-115 m, which is what `uncertainty_m = 150` reports.
+province. It applies that test to **every** result in the response rather than
+only the top-ranked one, which costs nothing — the service returns up to 25 in a
+single reply — and matters more often than you would guess. The Montréal address
+above is in that same reply, ranked seventh, and it is the one the tier returns.
+Where two survive, `n_matches` says so.
+
+Roughly half of what is asked is still rejected, and a rejected row keeps a
+`nrcan_reject` column naming the component that disagreed, so what was thrown
+away stays readable. One value in that column is not about the address at all:
+the service drops roughly one request in twelve with an HTTP 500, so
+`nrcan_geocode()` re-sends them (`retries`, default 3) and reports the ones that
+never came back as `request failed` rather than as an address it had no answer
+for. Of the answers that survive, the median sits 33 m from
+NAR's own building point and the 90th percentile at 115 m, which is what
+`uncertainty_m = 150` reports.
 
 Two caveats worth having before you reach for it. As a fallback for NAR's own
 gaps it is worth much less than the BC tier — it places about 8% of what NAR

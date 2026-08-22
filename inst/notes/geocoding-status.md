@@ -216,6 +216,10 @@ No API key is needed for modest use; `api_key` is there for jobs that warrant re
 
 ## The NRCan geolocator binding
 
+This section is about what the tier is *worth*. What the service on the other end actually
+does — it is open source, and reading it corrected several things assumed here — is in
+[`nrcan-geolocator.md`](nrcan-geolocator.md).
+
 `nrcan_geocode()` and the `"nrcan"` tier `geocode(method = )` can name, over
 `https://geolocator.api.geo.ca/geolocation/en/locate?q=`. Keyless, national, and needing no
 local database, which is the whole reason to want it: it is the only tier that can answer
@@ -261,7 +265,7 @@ what buys those back.
 
 | reason | n |
 | --- | --- |
-| top result was not `Street`/`INTERPOLATED_POSITION` | 116 |
+| best result was not `Street`/`INTERPOLATED_POSITION` | 116 |
 | no usable answer at all | 40 |
 | municipality disagreed | 30 |
 | street name disagreed | 28 |
@@ -271,6 +275,53 @@ The largest bucket is the service declining to resolve the civic number — an
 `INTERPOLATED_CENTROID` says it found the street but not the number. Those are not wrong
 answers, they are refusals, and a **street-centroid tier would be the way to use them** (see
 below); today they are dropped.
+
+### Three changes since that measurement
+
+The 423-address numbers above were taken when the tier read only the result the service ranked
+first, when the query carried the civic-number suffix, and when a request the service dropped
+was simply lost. Reading the service's own source
+(see [`nrcan-geolocator.md`](nrcan-geolocator.md)) showed the first two were costing recall for
+nothing, and measuring the wire showed the third was. All three have shipped. The tables above
+are **not** re-measured; what each change is worth was measured separately. Every coverage
+figure in this note predates the retry and is therefore several points low.
+
+**The whole result list is now put through the floors, not just the top result.** The response
+carries up to 25 results, the floors are independent of rank, and the correct answer is often
+below a wrong one — `1 Rue Notre-Dame Ouest, Montreal, QC` is answered with Lorrainville at
+rank 0 and Montréal at rank 6, and `330 Spadina Rd, Toronto` with Spadina Avenue at rank 0 and
+Spadina Road at rank 6. In both, the floor accepts exactly one of the 25. Over a 250-address
+national sample, applying the same floors to the top result versus to the whole list moved
+placement from **53.6% to 54.8%** — three addresses, at 21 m, 22 m and 25 m — with p50, p90 and
+max unchanged. It costs no extra request and cannot widen the tail, since a scanned candidate
+had to clear the same floor as a top one. The two flagship cases are much better than the
+average because ambiguous street names are exactly what makes a memorable example.
+
+Because more than one candidate can now survive, the tier reports a real `n_matches` instead of
+a hardcoded `1L`; two survivors means the same street name in two municipalities that both pass
+whole-word containment. One address in the 250 had one.
+
+**The civic-number suffix is dropped from the query, and only from the query.** The service
+finds the house number with `\b(\d{1,5})\b`, which cannot match `990A`, so a suffixed civic
+never reached its interpolator at all and came back as a centroid this tier then rejected.
+Over 20 suffixed NAR building points sampled nationally: **0 of 20 placed with the suffix, 16
+of 20 without**, median 32 m, max 153 m. Nothing is hidden from the floor, which compares
+`CIVIC_NO` and never saw the suffix; `nar_address_string()`'s default is still to keep it,
+because that is what the address is, and the BC tier wants it. About 189k NAR building points
+carry a suffix, so this is roughly 1% of addresses going from never-placed to usually-placed
+rather than a change in the headline rate.
+
+**Dropped requests are retried, and a request the service lost is no longer reported as an
+address it had nothing for.** About one request in twelve comes back a clean HTTP 500 —
+24 of 300 measured, fast-failing at a 0.23 s median against 0.59 s for a real answer — and every
+one of the 24 succeeded when re-sent, 23 on the first retry. One query succeeded and then failed
+three times afterwards, which is what rules the failure out as a property of the query. End to
+end over those 300 addresses, `retries = 1` lost 14 requests and placed 154; `retries = 3` lost
+2 and placed **164**. That is about 8 points of coverage that earlier measurements in this note
+silently charged to the geolocator, and roughly 14% more wall clock to recover. Exhausted rows
+now say `request failed` in `nrcan_reject` rather than `no answer`, so the transport and the
+service are separable in the next measurement. The BC geocoder was measured clean over 150
+consecutive requests and was not given a retry.
 
 **The 6 survivors past 300 m are all legitimate long rural roads** where interpolation over a
 sparse civic range is genuinely uncertain — and where, NAR not being ground truth, some of the
@@ -289,10 +340,11 @@ own documentation says so.
 `New Brunswick`, changes the outcome for one address in 139 over the same sample, so the tier
 sends NAR's own abbreviations. The knob survives in the probe harness (`PROBE_EXPAND`) only
 to re-check that. It is not entirely cosmetic in one respect: some queries return HTTP 200
-with a body of `{"message": "Internal server error"}` instead of a results array, reproducible
-per query rather than transient, and which spelling triggers it varies —
-`100 Water St, Charlottetown, PE` fails where the spelled-out form works, and
-`1155 Robson Street, Vancouver, BC` fails the other way round.
+with a body of `{"message": "Internal server error"}` instead of a results array, and which
+spelling triggers it varies — `100 Water St, Charlottetown, PE` fails where the spelled-out
+form works, and `1155 Robson Street, Vancouver, BC` fails the other way round. That one is
+tied to the query, unlike the plain HTTP 500 above, which is not. Both are retried anyway;
+retrying a reproducible failure costs three requests and settles it.
 
 **As a fallback for NAR's tail it is worth much less than BC's geocoder, and this is the
 number to know before reaching for it.** On the 5,000 corporations addresses,

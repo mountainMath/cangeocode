@@ -2,31 +2,72 @@
 % Please edit documentation in R/geocode_nrcan.R
 \name{nar_nrcan_floors}
 \alias{nar_nrcan_floors}
-\title{Apply the match floors to a batch of geolocator answers}
+\title{Apply the match floors and choose one answer per address}
 \usage{
-nar_nrcan_floors(top, q)
+nar_nrcan_floors(
+  cand,
+  q,
+  idx = rep(1L, nrow(cand)),
+  failed = rep(FALSE, nrow(q))
+)
 }
 \arguments{
-\item{top}{The parsed top results, as [nar_nrcan_top()] returns them, rbound}
+\item{cand}{The candidates, as [nar_nrcan_candidates()] returns them, rbound
+across every address. Within one address they must stay in the order the
+service ranked them, since that is what "best" is read from.}
 
-\item{q}{Parsed components of the addresses that were sent}
+\item{q}{Parsed components of the addresses that were sent, one row each}
+
+\item{idx}{For each row of `cand`, the row of `q` it answers. The default
+says every candidate belongs to a single address, which is the shape a test
+or a one-address probe has.}
+
+\item{failed}{A logical vector over the rows of `q`, `TRUE` where the request
+never completed. Those rows report `request failed` rather than `no answer`:
+the service losing a request and the service having nothing to say are both
+zero candidates, but only one of them is about the address, and a coverage
+figure that folds them together understates what the tier can do.}
 }
 \value{
-`top` with `match_method`, `uncertainty_m` and `nrcan_reject` added
+A data frame with one row per row of `q`: `match_method`,
+`uncertainty_m`, `n_matches`, the `nrcan_*` columns of the chosen candidate,
+`nrcan_reject`, `lon` and `lat`
 }
 \description{
-The floors are cumulative and are applied to every row at once,
-because the expensive half -- parsing the returned titles -- is vectorized
-and would otherwise be paid per address.
+The floors are cumulative and are applied to every candidate of
+every address at once, because the expensive half -- parsing the returned
+titles -- is vectorized and would otherwise be paid per candidate.
 
-1. The top result must be a **`Street`** carrying **`INTERPOLATED_POSITION`**.
+1. A candidate must be a **`Street`** carrying **`INTERPOLATED_POSITION`**.
    `INTERPOLATED_CENTROID` on the same type means "found the street, not the
    civic number" and is measurably worthless (p50 499 m, p90 11 km);
    `Geoname` answers are the service degrading to a populated place and are
    catastrophic (p50 133 km).
-2. The returned title must agree with the query, component by component --
-   see [nar_nrcan_agreement()].
+2. Its title must agree with the query, component by component -- see
+   [nar_nrcan_agreement()].
 }
+\section{Why the whole list is scanned}{
+ The floor is what makes an answer
+trustworthy, and it does not consult the rank. A candidate at position 7 that
+passes is exactly as verified as one at position 1 that passes, so stopping
+at the first result throws away recall for nothing. On the two cases this
+package documents as its own examples of a confident wrong answer -- Rue
+Notre-Dame Ouest and Spadina Rd -- the floor accepts exactly one of the 25
+candidates and rejects every other, and in both cases the one it accepts is
+not the one ranked first.
+
+Because there can now be more than one survivor, the count of them is
+reported as `n_matches`: two candidates passing means the same street name in
+two municipalities that both satisfy containment, which is a real ambiguity
+and not a detail to hide. The highest-ranked survivor is the one returned.
+
+A rejected address reports the reason its **best** candidate failed, not its
+first: the highest-ranked interpolated position if there was one, and
+otherwise the class of the highest-ranked usable result. Reporting the top
+result's reason once the rest are being read would describe something that
+was not what got rejected.
+}
+
 \section{Why the title is parsed without the gazetteer}{
  [normalize_address()]
 is **not** given a connection here, and that is deliberate rather than an

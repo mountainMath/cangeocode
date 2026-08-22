@@ -128,6 +128,11 @@ record the design.
   — what `geocode()` resolves and what it does not: tier coverage, the interpolation
   accuracy tables, how far its points sit from a second source and why that is not a
   benchmark, what the online tiers add, and the pathways sized but not built (road network file, centroid tier).
+- **[`inst/notes/nrcan-geolocator.md`](../inst/notes/nrcan-geolocator.md)**
+  — what NRCan's geolocator does on the other end of the wire, read from its own source: why a
+  fuzzy match over one string answers a different question, what `INTERPOLATED_POSITION`
+  certifies, which of the floor's checks are vacuous, and the one-in-twelve requests the
+  service drops that a retry gets back. Read it before touching `R/geocode_nrcan.R`.
 - **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
   — where address normalization currently falls short: the measured failure modes, the things
   tried and rejected, and the ranked next steps. Read it before changing the parser or the

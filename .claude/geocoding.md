@@ -143,6 +143,12 @@ answer before anything has been downloaded. `nrcan_geocode()` is the client and
 it covers the country — but it is still the tier to name last, because it is the only one
 whose accuracy is a percentile on a long tail rather than a bound.
 
+**The service is open source, and reading it settled several things this file used to
+infer.** What `INTERPOLATED_POSITION` actually certifies, why the fuzzy match answers a
+different question, and which of the floor's component checks do real work are recorded in
+[`../inst/notes/nrcan-geolocator.md`](../inst/notes/nrcan-geolocator.md). Read it before
+changing `nar_nrcan_candidates()`, `nar_nrcan_agreement()` or `nar_nrcan_floors()`.
+
 **There is no reverse geocoding here, and not for want of looking.** `locate?lat=&lon=`
 returns `{"error": "Missing query parameter 'q'"}`, `reverse` and `reverse-geocode` are 404,
 and the retired `geogratis.gc.ca/services/geolocation` host redirects to this same `q`-only
@@ -154,14 +160,34 @@ mode: no score comes back to disbelieve. `1 Rue Notre-Dame Ouest, Montreal, QC` 
 nothing in the response saying so. So the accuracy question here is entirely a *filtering*
 question, and two floors do all the work:
 
-1. the top result must be `Street` / `INTERPOLATED_POSITION`. `INTERPOLATED_CENTROID` means
+1. a result must be `Street` / `INTERPOLATED_POSITION`. `INTERPOLATED_CENTROID` means
    "found the street, not the civic number", and a `Geoname` means the address degraded to a
    populated place — `Zzzzqqq nowhere at all` ranks a village first.
-2. the returned `title` must re-parse, **component by component**, to the address that was
-   sent (`nar_nrcan_agreement()`).
+2. its `title` must re-parse, **component by component**, to the address that was sent
+   (`nar_nrcan_agreement()`).
 
-Only the **top** result is read. The service ranks, and a scan for a better-agreeing result
-further down would be picking the answer to fit the question.
+**Both floors run over every result in the response, not just the top one, and the reason is
+that the floor is independent of rank.** This used to read `resp[[1]]` only, on the argument
+that scanning for a better-agreeing result further down would be picking the answer to fit the
+question. It is not, because the floor is not a similarity score being maximized — it is a
+pass/fail test that the answer re-parses to the address that was sent, and a candidate at rank
+7 that passes it is verified exactly as strictly as one at rank 0 that passes it. The service
+returns 25 results in one response and hoists only the *first* `INTERPOLATED_POSITION` to the
+top, so the rest are already paid for. `1 Rue Notre-Dame Ouest, Montreal, QC` and
+`330 Spadina Rd, Toronto` — the two examples this file uses for a confident wrong answer — both
+carry the right answer at rank 6, and in both the floor accepts exactly one of the 25.
+
+Two consequences. `n_matches` is now the count of candidates that passed rather than a
+hardcoded `1L`: more than one means the same street name in two municipalities that both
+satisfy containment, which is a real ambiguity. And `nrcan_reject` reports why the **best**
+candidate failed — the highest-ranked interpolated position, or failing that the class of the
+highest-ranked usable result — hence `best result is …` rather than `top result is …`.
+
+**The civic-number suffix is stripped from the query and only from the query.** The service
+locates the house number with `\b(\d{1,5})\b`, which has no word boundary to find inside
+`990A`, so a suffixed civic never reached its interpolator and always came back as a centroid.
+`nar_address_string(suffix = FALSE)` is the fix and it is NRCan-only; BC wants the suffix. It
+launders nothing, because the floor compares `CIVIC_NO`, which never carried the suffix.
 
 **Comparing the title as a whole string does not work**, and each failure is a separate
 mechanism: the municipality migrating into the street name (`28 Silver ST, CORNER BROOK` →
@@ -207,9 +233,22 @@ conservative of the two p90s measured (115 m over n=204, 152 m over n=88).
 Same `capacity`/`fill_time_s` throttling trap as BC, same `req_error(is_error = ~FALSE)` —
 **a failed lookup is data, not an exception**. One quirk is this service's own: some queries
 return HTTP 200 with a body of `{"message": "Internal server error"}` instead of the results
-array. It is reproducible per query rather than transient, and `nar_nrcan_top()` detects it
-structurally — a parsed body with names is an object, hence this; an unnamed one is the
-array. Reading it as a result would take `message` for a title.
+array. That one is tied to the query, and `nar_nrcan_candidates()` detects it structurally —
+a parsed body with names is an object, hence this; an unnamed one is the array. Reading it as
+a result would take `message` for a title.
+
+**The service also drops about one request in twelve with a plain HTTP 500, and that one is
+not about the query** — measured, one address succeeded and then failed three times after.
+`retries = 3` re-sends them via `req_retry(is_transient = nar_nrcan_transient)`, which is
+worth about 8 points of coverage. Three things about it are not guessable:
+`req_error(is_error = ~FALSE)` does **not** suppress `is_transient`, which is consulted
+independently; an empty array is deliberately *not* transient, because that is the service
+answering "nothing"; and `failure_threshold` is compared against attempts *within one request*,
+so the circuit breaker cannot see a batch and was skipped. A row whose retries ran out reports
+`request failed` rather than `no answer` — both are zero candidates, but only one of them is
+about the address, and folding them together understates the tier. That is what the `failed`
+argument to `nar_nrcan_floors()` carries, and why it beats every other rejection reason: a
+failed row has no candidates for the other rules to look at.
 
 **The known weakness is that the street-name rule is equality.** On addresses NAR could not
 place — the ones this tier exists for — half its street-name rejections are the service
@@ -220,7 +259,7 @@ in the status note.
 
 Tests run against `tests/testthat/fixtures/nrcan-*.json` captured from the live service, and
 four of the six fixtures are wrong answers a naive binding would accept.
-`data-raw/probe_geolocator.R` measures the tier by calling `nar_nrcan_top()` and
+`data-raw/probe_geolocator.R` measures the tier by calling `nar_nrcan_candidates()` and
 `nar_nrcan_floors()` themselves, so the harness measures the shipped code rather than a
 restatement of it. It scores against NAR's building points, which are a **reference and not
 ground truth** — NAR has its own bad records, so a large distance means the two disagree, not

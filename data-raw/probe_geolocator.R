@@ -7,14 +7,19 @@
 #
 # The service ALWAYS answers, so a response is not a match and the accuracy
 # question is really a filtering question. Two floors are measured cumulatively,
-# and they are the ones the shipped tier applies -- nar_nrcan_top() and
+# and they are the ones the shipped tier applies -- nar_nrcan_candidates() and
 # nar_nrcan_floors() are called directly, so this measures the code, not a
 # restatement of it:
 #
-#   1. the top result must be type `Street` with qualifier `INTERPOLATED_POSITION`
+#   1. a result must be type `Street` with qualifier `INTERPOLATED_POSITION`
 #      (`INTERPOLATED_CENTROID` means "found the street, not the civic number");
-#   2. the returned `title` must re-parse, component by component, to the address
-#      that was sent -- see nar_nrcan_agreement().
+#   2. its `title` must re-parse, component by component, to the address that
+#      was sent -- see nar_nrcan_agreement().
+#
+# Both floors are applied to EVERY result in the response, not just the one the
+# service ranked first, which is why the class table below is reported over the
+# best result rather than the top one. The response carries up to 25, so the
+# extra recall is free.
 #
 # Floor 2 replaces the substring-on-the-whole-title province and municipality
 # checks the first pass used, which are kept in the report for comparison only.
@@ -45,9 +50,10 @@
 # NAR where they differ, but plausibly sharing upstream data with it).
 #
 # Run with:  Rscript data-raw/probe_geolocator.R   (needs NAR_CACHE_PATH)
-#   PROBE_N       addresses to sample                  (default 150)
-#   PROBE_EXPAND  spell out street types and provinces (default FALSE)
-#   PROBE_OUT     where to save the result             (default probe-<spelling>.rds)
+#   PROBE_N        addresses to sample                  (default 150)
+#   PROBE_EXPAND   spell out street types and provinces (default FALSE)
+#   PROBE_RETRIES  attempts per address                 (default 3, 1 = none)
+#   PROBE_OUT      where to save the result             (default probe-<spelling>.rds)
 #
 # The sample is `REPEATABLE (42)`, so the two spellings are compared over the
 # same addresses and the runs are re-analysable without re-querying.
@@ -98,28 +104,49 @@ samp$query <- vapply(seq_len(nrow(samp)), function(i) with(samp[i, ], {
 # `capacity`, not `rate` -- req_throttle(rate = 5) builds a 300-token bucket and
 # lets the first 300 requests go at once. Same trap as R/geocode_bc.R.
 #
-# The body is read by the package's own nar_nrcan_top(), so what is measured
-# here is what ships -- including its treatment of the 500-inside-a-200.
-hit <- function(q) {
-  r <- tryCatch(
-    httr2::request(nar_nrcan_url()) |>
-      httr2::req_url_query(q = q) |>
-      httr2::req_timeout(25) |>
-      httr2::req_throttle(capacity = 5, fill_time_s = 1, realm = "geo.ca") |>
-      httr2::req_error(is_error = function(x) FALSE) |>
-      httr2::req_perform(),
-    error = function(e) NULL)
-  if (is.null(r) || httr2::resp_status(r) != 200) return(nar_nrcan_top(list()))
-  nar_nrcan_top(tryCatch(httr2::resp_body_json(r), error = function(e) list()))
+# The body is read by the package's own nar_nrcan_candidates(), so what is
+# measured here is what ships -- including its treatment of the
+# 500-inside-a-200.
+#
+# The retry is not optional for a measurement: the service drops about one
+# request in twelve with a transient HTTP 500 (24 of 300 in the run that found
+# it, all 24 recovering on a re-send), and without re-sending them the reported
+# coverage is several points low for reasons that have nothing to do with the
+# geolocator's accuracy. PROBE_RETRIES = 1 turns it off to re-measure that.
+retries <- as.integer(Sys.getenv("PROBE_RETRIES", "3"))
+failed <- rep(FALSE, nrow(samp))
+hit <- function(q, i) {
+  req <- httr2::request(nar_nrcan_url()) |>
+    httr2::req_url_query(q = q) |>
+    httr2::req_timeout(25) |>
+    httr2::req_throttle(capacity = 5, fill_time_s = 1, realm = "geo.ca") |>
+    httr2::req_error(is_error = function(x) FALSE)
+  if (retries > 1) {
+    req <- httr2::req_retry(req, max_tries = retries,
+                            is_transient = nar_nrcan_transient,
+                            retry_on_failure = TRUE)
+  }
+  r <- tryCatch(httr2::req_perform(req), error = function(e) NULL)
+  if (is.null(r) || httr2::resp_status(r) != 200) {
+    failed[[i]] <<- TRUE
+    return(nar_nrcan_candidates(list()))
+  }
+  b <- tryCatch(httr2::resp_body_json(r), error = function(e) list())
+  if (length(b) && !is.null(names(b))) failed[[i]] <<- TRUE
+  nar_nrcan_candidates(b)
 }
 
 message("Probing ", nrow(samp), " addresses, ",
         if (expand) "spelled out" else "abbreviated")
-top <- do.call(rbind, lapply(seq_len(nrow(samp)), function(i) {
+per <- lapply(seq_len(nrow(samp)), function(i) {
   if (i %% 25 == 0) message("  ", i, "/", nrow(samp))
-  hit(samp$query[i])
-}))
-message("usable answers: ", sum(!is.na(top$nrcan_title)), "/", nrow(samp))
+  hit(samp$query[i], i)
+})
+cand <- do.call(rbind, per)
+idx <- rep(seq_along(per), vapply(per, nrow, integer(1)))
+message("addresses answered: ", sum(vapply(per, nrow, integer(1)) > 0), "/",
+        nrow(samp), " (", nrow(cand), " candidates); requests lost after ",
+        retries, " tries: ", sum(failed))
 
 # The query side is NAR's own canonical components rather than a re-parse of
 # the string that was sent: that is the truth this is measured against, and
@@ -135,12 +162,14 @@ q_parts <- data.frame(
 
 # The shipped floors, so the recall and the p90 reported here are the ones the
 # tier actually enforces.
-floors <- nar_nrcan_floors(top, q_parts)
+floors <- nar_nrcan_floors(cand, q_parts, idx, failed)
 
-answered <- !is.na(top$lon) & !is.na(top$lat)
+# The point measured is the one the tier would return: the best-ranked
+# candidate that passed, or the best-ranked one that did not.
+answered <- !is.na(floors$lon) & !is.na(floors$lat)
 dist <- rep(NA_real_, nrow(samp))
 if (any(answered)) {
-  pt <- st_as_sf(data.frame(lon = top$lon[answered], lat = top$lat[answered]),
+  pt <- st_as_sf(data.frame(lon = floors$lon[answered], lat = floors$lat[answered]),
                  coords = c("lon", "lat"), crs = 4326) |> st_transform(nar_crs(con))
   truth <- st_as_sf(samp[answered, c("x", "y")], coords = c("x", "y"),
                     crs = nar_crs(con))
@@ -151,19 +180,24 @@ if (any(answered)) {
 # tested the municipality and province as substrings of the WHOLE title, which
 # is what let `28 Silver ST, CORNER BROOK` through as `28 Brook Street, Corner
 # Brook`. The shipped floor compares field by field instead.
+#
+# This runs over the BEST candidate rather than the top one, which is not what
+# the old tier did -- it read only the top result. Holding the candidate fixed
+# is deliberate: it isolates what the field-wise comparison buys from what
+# scanning the list buys, which are two separate changes.
 fold <- function(s) toupper(iconv(s, "UTF-8", "ASCII//TRANSLIT"))
 prov_name <- setNames(nar_province_table()$name, nar_province_table()$abvn)
-title <- top$nrcan_title
+title <- floors$nrcan_title
 old_prov <- !is.na(title) & mapply(function(t, p)
   grepl(fold(prov_name[[p]]), fold(t), fixed = TRUE), title, samp$MAIL_PROV_ABVN)
 old_mun <- !is.na(title) & mapply(function(t, m)
   grepl(fold(m), fold(t), fixed = TRUE), title, samp$MAIL_MUN_NAME)
 
 out <- data.frame(
-  query = samp$query, title = title, kind = top$nrcan_kind,
-  qualifier = top$nrcan_qualifier, dist = dist,
+  query = samp$query, title = title, kind = floors$nrcan_kind,
+  qualifier = floors$nrcan_qualifier, dist = dist,
   reject = floors$nrcan_reject, kept = floors$match_method == "nrcan",
-  old_prov = old_prov, old_mun = old_mun,
+  n_matches = floors$n_matches, old_prov = old_prov, old_mun = old_mun,
   queried = nrow(samp), row.names = NULL)
 saveRDS(out, out_path)
 
@@ -172,7 +206,7 @@ saveRDS(out, out_path)
 report <- function(out) {
   queried <- out$queried[1]
   ans <- out[!is.na(out$dist), ]
-  cat("\n== top result kind x qualifier ==\n")
+  cat("\n== best result kind x qualifier ==\n")
   print(table(ans$kind, ans$qualifier))
   cat("\n== distance to NAR's building point, by class (m) ==\n")
   print(ans |> group_by(kind, qualifier) |>
@@ -190,11 +224,12 @@ report <- function(out) {
   show("  + province/mun in title (old, flawed)", filter(street, old_prov, old_mun))
   kept <- filter(ans, kept)
   show("  + component agreement (shipped)", kept)
-  cat(sprintf("\nplaced: %d/%d = %.1f%% of queried\n",
-              nrow(kept), queried, 100 * nrow(kept) / queried))
+  cat(sprintf("\nplaced: %d/%d = %.1f%% of queried  (%d with >1 candidate passing)\n",
+              nrow(kept), queried, 100 * nrow(kept) / queried,
+              sum(kept$n_matches > 1)))
 
   cat("\n== why answers were rejected ==\n")
-  print(sort(table(sub(" .*", "", sub("^(street|civic|top result|no) ", "\\1_",
+  print(sort(table(sub(" .*", "", sub("^(street|civic|best result|no) ", "\\1_",
                                       out$reject[!is.na(out$reject)]))),
              decreasing = TRUE))
   cat("\n== what the shipped floor removed that the old one kept ==\n")
