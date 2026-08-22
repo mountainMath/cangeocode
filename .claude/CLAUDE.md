@@ -4,8 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`cangeocode` is an R package (MIT, R >= 4.1) for geocoding and reverse geocoding Canadian
-addresses. The current implementation is built entirely on Statistics Canada's **NAR**
+`cangeocode` is an R package (MIT, R >= 4.1) with **two objectives, both first-class**:
+geocoding Canadian addresses in both directions, and **normalizing** free-text addresses into
+structured components. Normalization is a step inside `geocode()` and also an end in itself —
+matching two address lists to each other needs the parse and never needs a coordinate — so it
+carries its own vignette, its own README section, its own pkgdown group and its own status
+note. Do not fold it back into the geocoding story.
+
+The current implementation is built entirely on Statistics Canada's **NAR**
 (National Address Repository) bulk CSV releases, imported into a local **DuckDB** database with
 the `spatial` extension. One online geocoder is wired up — the Province of British Columbia's
 Address Geocoder, as a BC-only fallback and validation source. Road network files are named in
@@ -80,7 +86,13 @@ boundary tests key off.
 
 ## Vignettes
 
-Both vignettes query the real ~5 GB database, which `R CMD build` cannot do, so they are
+The vignettes are one per objective plus support: `cangeocode` (getting started, reverse
+geocoding), `geocoding` (`geocode()`), `address-normalization` (`normalize_address()` as a task
+in its own right, including address matching), and `querying-nar` (the database directly).
+`_pkgdown.yml` groups them under those headings in the navbar, and the reference index puts
+Address normalization directly below Geocoding for the same reason.
+
+All vignettes query the real ~5 GB database, which `R CMD build` cannot do, so they are
 **pre-computed**: the sources are `vignettes/<name>.Rmd.orig`, `vignettes/precompute.R` knits them
 against a local NAR database, and the resulting `<name>.Rmd` — output already inlined, no live
 chunks — is what ships and what is committed.

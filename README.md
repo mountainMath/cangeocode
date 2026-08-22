@@ -5,8 +5,14 @@
 [![R-CMD-check](https://github.com/mountainMath/cangeocode/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/mountainMath/cangeocode/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 
-`cangeocode` geocodes and reverse geocodes Canadian addresses. It is built on
-Statistics Canada's [National Address Repository](https://www.statcan.gc.ca/en/lode/databases/nar)
+`cangeocode` does two things with Canadian addresses: it **geocodes** them, in
+both directions, and it **normalizes** them — turning free text into structured
+components. Normalization is a step inside geocoding, but it stands on its own:
+most of what people need addresses for is matching them to each other, not
+putting them on a map.
+
+Both are built on Statistics Canada's
+[National Address Repository](https://www.statcan.gc.ca/en/lode/databases/nar)
 (NAR), a national list of civic addresses with coordinates, which the package
 imports into a local [DuckDB](https://duckdb.org) database.
 
@@ -44,7 +50,10 @@ Full reference and articles: <https://mountainmath.github.io/cangeocode/>
 - [Getting started](https://mountainmath.github.io/cangeocode/articles/cangeocode.html)
   (`vignette("cangeocode")`) — setup, reverse geocoding, output types, precision
 - [Geocoding addresses](https://mountainmath.github.io/cangeocode/articles/geocoding.html)
-  (`vignette("geocoding")`) — parsing address strings, and what to trust
+  (`vignette("geocoding")`) — `geocode()`, the match methods, and what to trust
+- [Normalizing address strings](https://mountainmath.github.io/cangeocode/articles/address-normalization.html)
+  (`vignette("address-normalization")`) — parsing addresses into components,
+  and matching address lists to each other
 - [Querying the NAR database directly](https://mountainmath.github.io/cangeocode/articles/querying-nar.html)
   (`vignette("querying-nar")`) — using the database with dplyr and `sf`
 - [Changelog](https://mountainmath.github.io/cangeocode/news/index.html)
@@ -126,6 +135,42 @@ geocode(addresses, prov = "BC", within = sf::st_bbox(vancouver))
 
 `mun` resolves through NAR's municipality aliases, so `mun = "TORONTO"` still
 finds the addresses NAR files under `SCARBOROUGH`.
+
+## Address normalization
+
+`normalize_address()` turns free text into the fields an address is actually
+made of. It is what `geocode()` parses with, and it is useful on its own
+wherever addresses have to be compared rather than mapped.
+
+``` r
+normalize_address("Suite 800 - 666 Burrard Street, Vancouver, B.C. V6C 2X8",
+                  con = con)
+#>   APT_NO_LABEL CIVIC_NO STREET_NAME STREET_TYPE  MUN_NAME PROV_ABVN POSTAL_CODE
+#> 1          800      666     Burrard          ST VANCOUVER        BC      V6C2X8
+#>     pattern confidence parse_source
+#> 1 unit_civic          1    gazetteer
+```
+
+One row per input, in input order. Passing `con` additionally resolves the
+parse against NAR's street gazetteer, which corrects misspellings no rule
+could — `29 HPCKING AVE, SAULT STE. MARIE` comes back as `Hocking`, the one
+real street in that city close enough to be meant — and `parse_source` says
+which rows cleared it.
+
+**Canonical forms are province-conditioned.** NAR writes `AVE` in Ontario and
+`AV` in Quebec, `BLVD` against `BOUL`, `W` against `O`, so `prov` is not a hint
+but a choice of vocabulary. Pass it if your data has it.
+
+`address_pattern()` sorts a string into one of twelve structural shapes and
+needs no database at all. Two of them exist to say *this will never resolve*:
+`po_box` and `rural_route` are delivery instructions, and NAR contains neither.
+Separating those out first keeps them from sitting in the failure pile looking
+like parser bugs.
+
+Measured on 5,000 real filings nobody cleaned, the parser extracts a civic
+number and street name from 98.8% and resolves 86.0% to an address NAR actually
+holds. `vignette("address-normalization")` has the rest of the numbers and the
+known limits.
 
 ## British Columbia: an independent geocoder
 

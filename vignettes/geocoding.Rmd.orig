@@ -17,10 +17,11 @@ It parses each string with `normalize_address()`, resolves the result against
 NAR, and hands back one row per input in input order, saying for each one
 **how** it was found and **what that cost**.
 
-This vignette covers the whole path: the basic call, reading the two columns
-that qualify every result, choosing which methods to try, constraining the
-search, working with the parse directly, and checking an answer against an
-independent source.
+This vignette covers the whole path: the basic call, reading the columns that
+qualify every result, choosing which methods to try, constraining the search,
+and checking an answer against an independent source. The parsing step has a
+vignette of its own — `vignette("address-normalization")` — since normalizing
+addresses is useful whether or not a coordinate comes out at the end.
 
 ```{r connect, message = FALSE}
 library(cangeocode)
@@ -198,24 +199,11 @@ g |>
 ```
 
 `parse_source` says whether the row cleared NAR's street gazetteer or fell back
-to the rules alone; `confidence` carries the gazetteer's score where it
-applies. A `rules` row on messy input is the one to look at by hand.
-
-`pattern` is the structural bucket the string parsed as, also available on its
-own from `address_pattern()`, which needs no database. It is triage rather than
-a quality score — some buckets cannot resolve to a coordinate no matter how
-clean the input is.
-
-```{r pattern}
-address_pattern(c("PO Box 40, Iqaluit, NU",
-                  "RR 3, Site 4, Comp 5, Kelowna, BC",
-                  "9819 96A Street NW, Edmonton, AB",
-                  "845, rue de Vernon, Gatineau, QC"))
-```
-
-`po_box` and `rural_route` are delivery instructions rather than places, and
-**NAR contains neither**. Separating those from addresses that are merely wrong
-is worth doing before you go hunting for parser bugs.
+to the rules alone, `confidence` carries the gazetteer's score where it applies,
+and `pattern` is the structural shape the string parsed as. A `none` result is
+very often a parse worth reading rather than a missing address — note row 8
+above, where `po_box` says the input was never going to resolve, because NAR
+holds no post office boxes.
 
 You can also parse once and geocode repeatedly, which is useful when you want
 to correct a parse before resolving it, or to try the same addresses under
@@ -227,6 +215,12 @@ norm$STREET_NAME
 
 geocode(norm, con = con)$match_method
 ```
+
+Normalization is a task in its own right, and `vignette("address-normalization")`
+covers it properly: what the gazetteer fixes, why canonical forms depend on the
+province, using `address_pattern()` to separate addresses that are wrong from
+addresses that were never going to resolve, and matching two lists of addresses
+to each other without geocoding anything.
 
 ## Geometry
 

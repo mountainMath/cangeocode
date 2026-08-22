@@ -1,7 +1,9 @@
 # cangeocode 0.2.0
 
 The package went one direction only in 0.1.0: coordinates to addresses. This
-release adds the other direction, plus the address parser it needs and one
+release adds the other direction, and with it a second thing the package now
+does in its own right — **normalizing** free-text addresses into structured
+components, which is what most address work actually needs. There is also one
 external geocoder to check the results against.
 
 **Rebuild your database.** The import schema is now version 5. Existing
@@ -47,9 +49,25 @@ nar_connection(refresh = TRUE)
 
 ## Address normalization
 
+This is a step inside `geocode()` and also an end in its own right: matching
+two address lists to each other needs the parse and never needs a coordinate.
+
 * New `normalize_address()` parses address strings into the components NAR is
   keyed on, by rules first and then against a NAR gazetteer. New `Streets`,
   `MunAlias` and `PostalMun` tables are built at import time to support it.
+  Measured on 5,000 real filings nobody cleaned, it extracts a civic number and
+  street name from 98.8% and resolves 86.0% to an address NAR actually holds.
+
+* Supplying `con` resolves the parse against NAR's streets, which corrects
+  misspellings no rule could reach — `29 HPCKING AVE, SAULT STE. MARIE` comes
+  back as `Hocking` — and restores NAR's own spelling, accents and periods
+  included. `parse_source` reports which rows cleared the gazetteer and which
+  are the parser's unconfirmed reading.
+
+* Canonicalization is **conditioned on the province**, because there is no
+  single right abbreviation in Canada: NAR writes `AVE` in Ontario and `AV` in
+  Quebec, `W` against `O`. `prov` therefore chooses a vocabulary rather than
+  offering a hint.
 
 * New `address_pattern()` sorts a parse into one of twelve shapes. Two of them,
   `po_box` and `rural_route`, exist to say *this will never resolve*: NAR
@@ -90,7 +108,8 @@ nar_connection(refresh = TRUE)
   `system.file("notes", "geocoding-status.md", package = "cangeocode")` and
   `system.file("notes", "address-normalization-status.md", package = "cangeocode")`.
 
-* New `vignette("geocoding")`.
+* New `vignette("geocoding")` and `vignette("address-normalization")`, one for
+  each of the two things the package does.
 
 # cangeocode 0.1.0
 

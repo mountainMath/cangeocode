@@ -1,0 +1,234 @@
+---
+title: "Normalizing address strings"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Normalizing address strings}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.path = "")
+options(width = 100)
+```
+
+Addresses arrive as free text — typed into forms, copied out of registries,
+pasted between spreadsheets — and almost nothing useful can be done with them
+in that state. Two records for the same building do not compare equal, a count
+of distinct addresses is meaningless, and no join will find anything.
+
+`normalize_address()` turns those strings into fields: civic number, street
+name, street type, direction, municipality, province, postal code, and the unit
+lifted out separately. It is the first step of `geocode()`, but it is worth
+having on its own — **most of what people need addresses for is matching them
+to each other, not putting them on a map.**
+
+```{r connect, message = FALSE}
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+The connection is optional. Without one this is a self-contained parser built
+on the same closed vocabularies NAR uses; with one it additionally resolves the
+result against NAR's street gazetteer. The difference is large, and the next
+section is about it.
+
+## What comes out
+
+```{r basic}
+messy <- c("1234A-990 boul. du President-Kennedy Ouest, Montreal, QC",
+           "100 queen st w toronto on",
+           "29 HPCKING AVE, SAULT STE. MARIE, ON",
+           "12 1/2 Rue Notre-Dame E, Montreal, Quebec",
+           "Suite 800 - 666 Burrard Street, Vancouver, B.C. V6C 2X8",
+           "9819 96A Street NW, Edmonton, AB")
+
+norm <- normalize_address(messy, con = con)
+
+norm |>
+  select(APT_NO_LABEL, CIVIC_NO, CIVIC_NO_SUFFIX, STREET_NAME, STREET_TYPE,
+         STREET_DIR, MUN_NAME, PROV_ABVN, POSTAL_CODE) |>
+  as.data.frame()
+```
+
+One row per input, in input order, always — a string that parses to nothing
+still gets a row of `NA`s rather than disappearing, so the output can be bound
+straight back onto the data frame it came from.
+
+A few things in there are worth pointing at. The unit came off the front of
+`1234A-990` and off the middle of `Suite 800 - 666`, in both cases leaving the
+civic number behind rather than consuming it. `12 1/2` kept its half as a
+`CIVIC_NO_SUFFIX`, which is where NAR keeps it. Postal codes come back
+six-character and unspaced, `V6C2X8`, because that is how NAR stores them.
+
+## What the gazetteer adds
+
+Passing `con` resolves the parse against the streets NAR actually holds. That
+turns a plausible reading into a confirmed one, and it fixes things no rule
+could:
+
+```{r gazetteer}
+rules_only <- normalize_address(messy)
+
+data.frame(rules     = rules_only$STREET_NAME,
+           gazetteer = norm$STREET_NAME,
+           mun_rules = rules_only$MUN_NAME,
+           mun_gaz   = norm$MUN_NAME)
+```
+
+`HPCKING` is not a street. No vocabulary contains it and no rule can repair it,
+but there is exactly one street in Sault Ste. Marie within a small edit
+distance of it, and that is `Hocking`. The gazetteer also restores what
+normalization deliberately strips for matching: the period in `SAULT STE.
+MARIE`, the accent in `MONTRÉAL`, and NAR's own capitalization of the street
+name.
+
+Note the first row: `DU PRESIDENT-KENNEDY` did not resolve. NAR spells it
+`du Président-Kennedy`, the input dropped the accents, and the fuzzy match did
+not reach far enough. It is a correct parse that failed to confirm — which is
+what the next section is for.
+
+## Canonical, but canonical *where*
+
+There is no single right abbreviation for "avenue" in Canada. NAR writes `AVE`
+in Ontario and `AV` in Quebec, `BLVD` against `BOUL`, `W` against `O`. So
+canonicalization is conditioned on the province, and `prov` materially changes
+the answer:
+
+```{r prov}
+normalize_address(rep("100 Main Avenue West, Springfield", 2),
+                  prov = c("ON", "QC")) |>
+  select(STREET_NAME, STREET_TYPE, STREET_DIR, PROV_ABVN)
+```
+
+If your data has a province column, pass it. It is not merely a hint that gets
+overridden by the string — it decides which vocabulary the output is written
+in, and an address canonicalized against the wrong one will not join.
+
+## Knowing which rows to trust
+
+```{r trust}
+norm |>
+  mutate(input = substr(input, 1, 40)) |>
+  select(input, pattern, confidence, parse_source)
+```
+
+`parse_source` is the one to filter on. `gazetteer` means the street was found
+in NAR; `rules` means the parse is the parser's own reading and nothing has
+confirmed it. On the sample above that single column separates the five rows
+that are certainly right from the one that is merely probably right.
+
+`confidence` grades within that — a fuzzy gazetteer match scores below an exact
+one — and `pattern` is the structural shape the string parsed as.
+
+## Triage before cleaning
+
+`address_pattern()` sorts a string into one of twelve shapes and needs no
+database at all. It is triage, not a quality score: some of those shapes are
+things that will never resolve to a building no matter how clean the input is.
+
+```{r pattern}
+address_pattern(c("PO Box 40, Iqaluit, NU",
+                  "RR 3, Site 4, Comp 5, Kelowna, BC",
+                  "9819 96A Street NW, Edmonton, AB",
+                  "Bay St & King St W, Toronto, ON",
+                  "845, rue de Vernon, Gatineau, QC",
+                  "34221 Range Road 272, Red Deer County, AB"))
+```
+
+`po_box` and `rural_route` are delivery instructions rather than places, and
+**NAR contains neither**. Separating them out first is worth doing, because
+otherwise they sit in the failure pile looking like parser bugs and absorbing
+effort that belongs elsewhere. `intersection` is a real location but not a
+civic address, and NAR has no row for it either.
+
+The rest of the buckets describe genuinely different regional forms —
+`numbered_road` is the prairie grid (`Range Road 272`, filed by NAR with no
+street type at all), `grid` is Edmonton's `96A Street`, `french_street` puts the
+type in front of the name.
+
+## Matching two lists of addresses
+
+This is what normalization is mostly *for*. The same building, written five
+ways, has to collapse to one thing:
+
+```{r dedupe}
+variants <- c("1055 West Georgia Street, Vancouver, British Columbia",
+              "1055 W. Georgia St., Vancouver BC",
+              "Suite 1500 - 1055 W Georgia St, Vancouver, B.C. V6E 4N7",
+              "1055 w georgia st vancouver bc",
+              "1055 W Georgia, Vancouver, BC")
+
+keys <- normalize_address(variants, con = con) |>
+  mutate(key = paste(CIVIC_NO, STREET_NAME, STREET_TYPE, STREET_DIR,
+                     MUN_NAME, PROV_ABVN, sep = "|"))
+
+keys$key
+n_distinct(keys$key)
+```
+
+Five spellings, one key — including the last one, which never named a street
+type at all and had `ST` supplied by the gazetteer.
+
+Build the key from the columns your comparison actually cares about.
+`APT_NO_LABEL` is deliberately *not* in the key above, so all five rows are the
+same building; put it in when you are matching units rather than buildings.
+`POSTAL_CODE` is a good tiebreaker and a poor key — it is present on only about
+half of real input, and a missing value would split a group that should have
+joined.
+
+## What it gets wrong
+
+Two harnesses measure this, both in `data-raw/eval_normalize.R` in the source
+repository. The first renders 5,000 real NAR rows into noisy surface forms and
+parses them back, which gives per-field accuracy against known labels. The
+second parses 5,000 Corporations Canada registered offices, which nobody
+cleaned, and asks whether the result resolves to an address NAR actually
+holds.
+
+| | |
+| --- | --- |
+| every field the surface form carried, recovered exactly | 95.2% |
+| civic number and street name both recovered | 96.0% |
+| real filings: civic number and street name extracted | 98.8% |
+| real filings: joins an address NAR actually holds | 86.0% |
+
+Three known limits are worth knowing before you rely on this:
+
+**A municipality that was never in the string cannot be invented.** When the
+surface form drops it, it is recovered only 46.3% of the time, and that is a
+ceiling rather than a bug — `100 Main St, ON` is genuinely ambiguous across
+dozens of Ontario towns. Supply a municipality column if you have one.
+
+**Comma-less input has to guess where the street ends.** `100 queen st w
+toronto on` works because `ST` is a reliable boundary, but a municipality whose
+own name contains a street-type word — Port Hope, Grand Falls — can be
+mis-split. Passing `con` is what rescues most of these.
+
+**Typos cost.** Clean rendered addresses parse at 98.3%; the same addresses
+with keyboard-adjacency typos parse at 76.2%. The gazetteer recovers many, as
+it did for `HPCKING`, but only where the street name is close enough to exactly
+one real street in the right place.
+
+The full accounting — every failure mode ranked by how many addresses it
+affects, what was tried and rejected, and what to fix next — ships with the
+package:
+
+```{r note, eval = FALSE}
+file.show(system.file("notes", "address-normalization-status.md",
+                      package = "cangeocode"))
+```
+
+```{r disconnect}
+DBI::dbDisconnect(con)
+```
+
+## Where to go next
+
+`vignette("geocoding")` takes the components from here and resolves them to
+coordinates, which is the other half of what this package does. Everything
+above happens inside `geocode()` too — its output carries all of these columns
+alongside the position, so a surprising result can always be traced back to the
+parse that produced it.

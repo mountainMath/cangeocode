@@ -11,6 +11,15 @@ reference:
   contents:
   - geocode
 
+- title: Address normalization
+  desc: >
+    Parse free-text Canadian addresses into the components NAR is keyed on,
+    and sort them by the shape they parsed as. Useful on its own for matching
+    and deduplicating address lists, not only as a step towards a coordinate.
+  contents:
+  - normalize_address
+  - address_pattern
+
 - title: External geocoders
   desc: >
     The Province of British Columbia's Address Geocoder, as a fallback for BC
@@ -26,14 +35,6 @@ reference:
   contents:
   - reverse_geocode
 
-- title: Address normalization
-  desc: >
-    Parse free-text Canadian addresses into the components NAR is keyed on,
-    and sort them by the shape they parsed as.
-  contents:
-  - normalize_address
-  - address_pattern
-
 - title: The NAR database
   desc: >
     Download and open a National Address Repository release, and get query
@@ -42,3 +43,20 @@ reference:
   - nar_connection
   - available_nar_versions
   - collect_nar
+
+articles:
+- title: Geocoding
+  navbar: Geocoding
+  contents:
+  - cangeocode
+  - geocoding
+
+- title: Address normalization
+  navbar: Address normalization
+  contents:
+  - address-normalization
+
+- title: The database
+  navbar: The database
+  contents:
+  - querying-nar

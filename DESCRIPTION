@@ -1,6 +1,6 @@
 Package: cangeocode
 Type: Package
-Title: Geocode and Reverse Geocode Addresses in Canada
+Title: Geocode, Reverse Geocode and Normalize Addresses in Canada
 Version: 0.2.0
 Authors@R: c(
     person(
@@ -14,7 +14,10 @@ Authors@R: c(
       role = c("aut", "cre")
     )
   )
-Description: Implement a range of methods to help geocode and reverse geocode addresses in Canada. Makes use of the NAR, road network files, as well as online geocoders.
+Description: Implement a range of methods to help geocode and reverse geocode
+    addresses in Canada, and to normalize free-text Canadian addresses into
+    structured components as a task in its own right. Makes use of the NAR,
+    road network files, as well as online geocoders.
 URL: https://mountainmath.github.io/cangeocode/, https://github.com/mountainMath/cangeocode
 BugReports: https://github.com/mountainMath/cangeocode/issues
 License: MIT + file LICENSE
