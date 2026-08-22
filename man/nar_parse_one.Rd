@@ -4,7 +4,7 @@
 \alias{nar_parse_one}
 \title{Parse one normalized address string into its components}
 \usage{
-nar_parse_one(s, lang = "en", prov = NA_character_)
+nar_parse_one(s, lang = "en", prov = NA_character_, mun_fixed = NA_character_)
 }
 \arguments{
 \item{s}{A single normalized string, province and postal code already removed}
@@ -13,6 +13,14 @@ nar_parse_one(s, lang = "en", prov = NA_character_)
 
 \item{prov}{A two-letter province code, or `NA`. Only the numbered-road
 step consults it, and only for the entries that are province-specific.}
+
+\item{mun_fixed}{A municipality already taken off the string by
+[nar_mun_anchor_variants()], or `NA` to locate one here. When it is supplied
+every remaining token is the street: the comma split no longer nominates a
+municipality, and whatever trails the street type is dropped rather than
+becoming one. That is what makes a trailing comma inconsequential --
+`"6093 Iona Dr TH25"` and `"6093 Iona Dr TH25 ,"` are the same token stream
+once the comma is gone.}
 }
 \value{
 A one-row data frame of components

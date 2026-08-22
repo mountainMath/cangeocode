@@ -51,8 +51,11 @@ normalize_address <- function(x, prov = NULL, con = NULL, ...) {
 
   out <- nar_parse_rules(x, prov = prov)
 
-  if (!is.null(con)) out <- nar_resolve_gazetteer(out, con)
+  if (!is.null(con)) return(nar_resolve_gazetteer(out, con))
 
+  # The losing readings are only useful to the gazetteer; without one they are
+  # internal detail rather than part of the return value.
+  attr(out, "nar_candidates") <- NULL
   out
 }
 
@@ -161,12 +164,17 @@ nar_parse_rules <- function(x, prov = NULL) {
   lang <- nar_prov_language(province)
 
   # --- street / municipality --------------------------------------------
+  # Each string yields one or more readings rather than a parse; see
+  # R/normalize_variants.R for why, and what chooses between them.
   parts <- vector("list", n)
-  for (i in seq_len(n)) parts[[i]] <- nar_parse_one(txt[i], lang[i], province[i])
+  for (i in seq_len(n)) {
+    parts[[i]] <- nar_parse_variants(txt[i], lang[i], province[i])
+    parts[[i]]$.row <- i
+  }
   parts <- do.call(rbind, c(parts, list(stringsAsFactors = FALSE)))
 
-  res <- dplyr::tibble(
-    input            = x,
+  cand <- dplyr::tibble(
+    input            = x[parts$.row],
     APT_NO_LABEL     = parts$unit,
     CIVIC_NO         = suppressWarnings(as.numeric(parts$civic)),
     CIVIC_NO_SUFFIX  = parts$suffix,
@@ -174,12 +182,23 @@ nar_parse_rules <- function(x, prov = NULL) {
     STREET_TYPE      = parts$type,
     STREET_DIR       = parts$dir,
     MUN_NAME         = parts$mun,
-    PROV_ABVN        = province,
-    POSTAL_CODE      = postal
+    PROV_ABVN        = province[parts$.row],
+    POSTAL_CODE      = postal[parts$.row]
   )
-  res$pattern      <- nar_address_pattern(res, parts$traits, marks)
-  res$confidence   <- nar_rules_confidence(res)
-  res$parse_source <- "rules"
+  cand$pattern      <- nar_address_pattern(cand, parts$traits, marks[parts$.row])
+  cand$confidence   <- nar_rules_confidence(cand)
+  cand$parse_source <- "rules"
+  cand$.row         <- parts$.row
+  cand$.cand        <- parts$.cand
+  cand$.strategy    <- parts$strategy
+
+  res <- cand[nar_arbitrate_rules(cand), , drop = FALSE]
+  res <- res[, setdiff(names(res), c(".row", ".cand", ".strategy")), drop = FALSE]
+  # The losing readings ride along for nar_resolve_gazetteer(), which arbitrates
+  # the same set again against evidence the rules do not have. An attribute
+  # rather than an argument, so address_pattern() and every existing caller of
+  # this function keep working unchanged.
+  attr(res, "nar_candidates") <- cand
   res
 }
 
@@ -247,9 +266,17 @@ nar_tokens <- function(s) {
 #' @param lang `"en"` or `"fr"`, deciding the canonical forms
 #' @param prov A two-letter province code, or `NA`. Only the numbered-road
 #' step consults it, and only for the entries that are province-specific.
+#' @param mun_fixed A municipality already taken off the string by
+#' [nar_mun_anchor_variants()], or `NA` to locate one here. When it is supplied
+#' every remaining token is the street: the comma split no longer nominates a
+#' municipality, and whatever trails the street type is dropped rather than
+#' becoming one. That is what makes a trailing comma inconsequential --
+#' `"6093 Iona Dr TH25"` and `"6093 Iona Dr TH25 ,"` are the same token stream
+#' once the comma is gone.
 #' @return A one-row data frame of components
 #' @keywords internal
-nar_parse_one <- function(s, lang = "en", prov = NA_character_) {
+nar_parse_one <- function(s, lang = "en", prov = NA_character_,
+                          mun_fixed = NA_character_) {
   empty <- data.frame(unit = NA_character_, civic = NA_character_,
                       suffix = NA_character_, name = NA_character_,
                       type = NA_character_, dir = NA_character_,
@@ -268,8 +295,12 @@ nar_parse_one <- function(s, lang = "en", prov = NA_character_) {
   segs <- nar_split_commas(toks)
   seg_unit <- nar_take_unit_segments(segs, lang)
   segs <- seg_unit$segs
-  mun <- NA_character_
-  if (length(segs) >= 2) {
+  mun <- mun_fixed
+  if (!is.na(mun_fixed)) {
+    # The municipality is already decided, so no segment is competing to be it
+    # and the remaining commas carry no information.
+    toks <- unlist(segs, use.names = FALSE)
+  } else if (length(segs) >= 2) {
     mun <- paste(segs[[length(segs)]], collapse = " ")
     toks <- unlist(segs[-length(segs)], use.names = FALSE)
   } else {
@@ -339,6 +370,15 @@ nar_parse_one <- function(s, lang = "en", prov = NA_character_) {
 
   # Whatever trails the street in a comma-less string is the municipality.
   if (is.na(mun) && length(ty$after)) mun <- paste(ty$after, collapse = " ")
+
+  # With the municipality already settled -- by a comma, or by anchoring -- a
+  # lone unit-shaped token after the street type has nowhere else to belong:
+  # "100 Main St TH25, Vancouver" is a townhouse. It used to be dropped
+  # silently, which read as a clean parse of an address missing its unit.
+  else if (is.na(unit) && length(ty$after) == 1 &&
+           nar_is_undesignated_unit(ty$after)) {
+    unit <- ty$after
+  }
 
   name <- if (length(toks)) paste(toks, collapse = " ") else NA_character_
 
@@ -622,6 +662,26 @@ nar_is_unit_value <- function(x) {
   grepl("[0-9]", f) | grepl("^[A-Z]$", f)
 }
 
+#' Does this token announce itself as a unit with no designator in front of it?
+#'
+#' @description Narrower than [nar_is_unit_value()], and deliberately so: that
+#' test asks whether a value *offered* as a unit looks like one, with a
+#' designator already vouching for it. This one has no such warrant, so it has
+#' to carry the claim itself.
+#'
+#' A bare number does not. `Cascumpec - Rte 12` and `Chicoltin-Bella Coola
+#' Highway 20` are street names that end in one, and reading the number as a
+#' unit takes it off a name that needs it -- both were measured, in the Part A
+#' sample. A letter-and-digit token (`TH25`, `4B`, `PH2`) is not a street name's
+#' last word in any of the 374k NAR carries.
+#' @param x A single token, unfolded
+#' @return `TRUE` when the token can stand as a unit unaided
+#' @keywords internal
+nar_is_undesignated_unit <- function(x) {
+  f <- nar_fold(x)
+  grepl("^[0-9]+[A-Z]$", f) | grepl("^[A-Z]{1,3}[0-9]+[A-Z]?$", f)
+}
+
 #' Take a trailing unit designator off the end of a street
 #' @param toks A character vector of tokens
 #' @return A list with `unit` and `rest`
@@ -632,8 +692,12 @@ nar_take_trailing_unit <- function(toks) {
   if (!n) return(none)
   last <- toks[n]
 
-  if (grepl("^#.+", last)) {
-    return(list(unit = sub("^#", "", last), rest = utils::head(toks, -1)))
+  # "100 MAIN ST # 25". nar_norm_text() gives "#" a token of its own, so a
+  # trailing "#25" arrives here as the *pair* ("#", "25") and never as one
+  # token -- which is why testing `last` for a leading "#" matched nothing.
+  # Three tokens are required so a street survives the removal.
+  if (n >= 3 && toks[n - 1] == "#" && nar_is_unit_value(last)) {
+    return(list(unit = last, rest = utils::head(toks, -2)))
   }
   # The same STE guard nar_take_unit_segments() applies, for the same reason:
   # in a comma-less string the municipality is not a segment of its own, so

@@ -87,6 +87,67 @@ two fuzzy street comparisons. It deliberately does **not** do so on the exact-br
 `Streets.NAME_FOLD` join, which would cost the `str_name_idx` index — so street-name periods stay
 unhandled there by design.
 
+## `R/normalize_variants.R` — candidate parses and the arbitration between them
+
+A single left-to-right walk has to commit to a reading before it has any evidence that the
+reading exists, and some of those commitments cannot be undone downstream: once `TH25 VANCOUVER`
+is the municipality, nothing puts the unit back. So the parser produces *readings*, and something
+with evidence picks — the municipality inventory when parsing is rules-only, the street gazetteer
+when a connection is available.
+
+**The baseline reading is always candidate 1 and always wins a tie.** A candidate displaces it
+only on evidence, never on preference.
+
+**`nar_baseline_is_defective()` is the load-bearing part of the file, and it is a gate on
+*generating* alternatives rather than on choosing between them.** Offering a second reading
+unconditionally *costs* rows, which is the thing that had to be measured to be believed:
+`80 rue Albanel, QC` names no municipality, Albanel is a real one, and anchoring it leaves a
+street called `RUE`. Same for `de la Durantaye`, `de Nantes`, `l'Assomption`, `Trail` — place
+names doing duty as street names in strings that never named a place.
+
+**The gazetteer cannot arbitrate those back.** A match restricted to a real municipality
+outscores an unrestricted one *by construction*, so the worse parse wins on a score that was
+never meant to compare two different parses of the same string. Arbitration cannot repair a
+candidate that should not have been offered — which is why the fix belongs at generation.
+
+So exactly two conditions open the gate, and nothing else may be added without re-running the
+harness:
+
+- the proposed municipality **is not a place**. `TH25 VANCOUVER` is not, `100 MILE HOUSE` is, and
+  no rule about token shapes tells them apart — which is the whole reason the inventory exists.
+- the proposed street name **contains a `#`**, which `nar_norm_text()` guarantees introduces a
+  unit and which no street name can contain. That is the signature of a string nothing split.
+
+**A baseline proposing no municipality at all is not defective.** The string did not carry one,
+`NA` is the right answer, and recovering it is a gazetteer question — failure mode 1 in the
+status note, and a ceiling rather than a bug.
+
+`nar_mun_anchor_variants()` tries the longest trailing run first, and offers *every* length that
+names a place: `NORTH BAY` and `BAY` are both municipalities, so neither may be assumed. Two
+further guards: a run may not reach back past the last comma (a municipality never spans a comma
+the writer put in), and a candidate is dropped unless a street name survives the remainder, which
+is what stops `123 Kingston` from resolving to the city with no street in it.
+
+**The municipality inventory ships in `R/sysdata.rda` as `nar_lex_muns`** — 9,748 distinct
+`MunAlias` names with province and address count, rebuilt by `data-raw/observe_municipalities.R`
+through `data-raw/build_lexicons.R`. It is what lets arbitration work with no connection at all.
+Lookup is province-qualified first and then bare, deliberately: the province is itself parsed and
+may be the thing that is wrong.
+
+**Adding a candidate needs no gazetteer SQL change.** `nar_gazetteer_sql()` already ends in
+`QUALIFY row_number() OVER (PARTITION BY row_id ...)`, so k candidates are k probe rows and one
+extra max-score pick in R. What it does need is the final `STREET_TYPE` tie-break in that window:
+`Castleglen RD NE` and `Castleglen WAY NE` in Calgary have **identical** address counts, so the
+old ordering left the winner to DuckDB, and merely changing the shape of the probe table flipped
+it. A before/after harness run cannot tolerate a coin flip.
+
+> Measured effect on the eval's 5,000-row samples: **Part A exactly at parity** (0 rows gained,
+> 0 lost — the gate is what bought that), Part B **86.5% → 86.6%** joining a real NAR address,
+> postal-confirmed **81.6% → 81.7%**, Quebec **67.8% → 68.2%**, rules-only fallbacks 374 → 371.
+> The rules layer costs about 9% throughput for the defect check; both the single-candidate
+> paths in `nar_parse_variants()` and `nar_arbitrate_rules()` are pure short-circuits and were
+> verified output-identical.
+
 ## `R/normalize_gazetteer.R` — matching the parse against NAR
 
 `nar_gazetteer_sql()` builds one query with **`{probe}` / `{name_threshold}` placeholders

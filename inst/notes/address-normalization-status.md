@@ -60,8 +60,8 @@ against a number written down here.
 | | |
 | --- | --- |
 | street name and civic number extracted | 98.8% |
-| joins a real NAR address (civic + name + municipality + province) | 86.5% |
-| ... and the filer's postal code confirms it | 81.6% |
+| joins a real NAR address (civic + name + municipality + province) | 86.6% |
+| ... and the filer's postal code confirms it | 81.7% |
 
 ### How to read these
 
@@ -129,8 +129,9 @@ it the highest-severity pure parser bug on the list.
 
 **Fix:** a leading direction should be provisional, not committed — if the gazetteer finds no
 street under the stripped reading but does find one with the direction word back in the name, take
-the second reading. The two-reading arbitration is the same shape as the fix for mode 3, and the
-two should be built together.
+the second reading. The candidate framework this needs now exists (`R/normalize_variants.R`);
+what is left is a strategy that emits the restored-direction reading, and a gate saying when it is
+worth emitting. Same shape as the fix for mode 3, and the two should still be built together.
 
 ### 3. A name-final type word eaten as the type, when the real type is missing — ~586k addresses (3.4%) at risk
 
@@ -147,8 +148,11 @@ That confines the damage to the 13% of type-dropped forms the harness measures a
 `PARK` (72,457 addresses), `HILL` (49,672), `RIDGE` (38,150), `BAY` (31,656), `POINT` (29,419),
 `VIEW`, `HEIGHTS`, `GROVE`, `GLEN`, `BEACH`, `COVE`, `CENTRE`.
 
-**Fix:** same two-reading arbitration as mode 2 — when stripping a trailing type leaves a name the
-gazetteer cannot find, retry with the word restored and no type.
+**Fix:** same arbitration as mode 2 — when stripping a trailing type leaves a name the gazetteer
+cannot find, retry with the word restored and no type. **Read the gate finding in *Fixed* first:**
+a restored-name candidate that happens to exist somewhere will outscore the baseline on the
+gazetteer's own score, so the retry has to be gated on the baseline failing rather than offered
+alongside it.
 
 ### 4. Keyboard typos in the street name — 92.1% vs 98.6% clean
 
@@ -217,6 +221,59 @@ see this, because Part A renders its municipalities out of NAR into a comma-deli
 B's filings are mostly comma-delimited too. That is the same gap in the noise grammar the
 hyphenated-unit fix exposed, and it is the reason both of these were found by hand rather than by
 the eval.
+
+### The parser produces candidate readings, and evidence chooses between them
+
+`R/normalize_variants.R`, and the framework modes 2 and 3 below have been waiting for. One string
+now yields several readings; the municipality inventory arbitrates when parsing is rules-only, the
+street gazetteer when a connection is available, and the baseline reading is candidate 1 and wins
+every tie. The design is in [`.claude/normalization.md`](../../.claude/normalization.md).
+
+The first strategy built on it is **municipality anchoring**: match the trailing token run against
+an inventory of the 9,748 distinct `MunAlias` names, longest first, then parse the remainder with
+the municipality already decided.
+
+```
+100 Main St TH25, Vancouver  ->  unit TH25, MAIN ST, VANCOUVER   already worked
+100 Main St TH25 Vancouver   ->  unit TH25, MAIN ST, VANCOUVER   was: mun "TH25 VANCOUVER"
+100 Main #25 Vancouver       ->  unit 25,   MAIN,    VANCOUVER   was: no unit, no municipality
+```
+
+The comma was carrying the parse. Anchoring reaches the same remainder without it, which is the
+point: no local rule can separate `TH25 VANCOUVER` from `100 MILE HOUSE`, because the difference
+is not in the tokens — it is in whether the place exists. The inventory ships in `R/sysdata.rda`
+as `nar_lex_muns`, so this works with no connection at all.
+
+Two smaller fixes rode along, both found by the first: `nar_take_trailing_unit()` had an
+unreachable branch for a hash on its own token, so `# 25` fell through to the street name while
+`#25` resolved; and a lone leftover token is now taken as a unit only when it mixes digits and
+letters (`TH25`, `PH2`, `4B`), because the first version ate the numbers off `Rte 12` and
+`Highway 20`.
+
+**The finding worth keeping.** Generating an alternative reading unconditionally *costs* rows.
+`80 rue Albanel, QC` names no municipality, Albanel is a real one, and the anchored reading leaves
+a street called `RUE`; likewise `de la Durantaye`, `de Nantes`, `l'Assomption` and `Fesroches
+Trail`. **The gazetteer cannot arbitrate these back** — a match restricted to a real municipality
+outscores an unrestricted one by construction, so the worse parse wins on a score that was never
+meant to compare two parses of the same string. Arbitration cannot repair a candidate that should
+not have been offered, so the gate belongs at generation: an alternative is offered only when the
+baseline proposes a municipality that is *not a place*, or a street name containing a `#`. A
+baseline proposing no municipality is not defective — that is mode 1, a ceiling, and inventing an
+answer for it is strictly worse than `NA`.
+
+Anything built on this framework needs the same discipline. Modes 2 and 3 want to retry a *street*
+reading, and the same asymmetry applies to them.
+
+> Part A **exactly at parity** — 0 rows gained, 0 lost, which is what the gate bought; the
+> ungated version lost 4 street names on the rows above. Part B 86.5% → 86.6% joined, 81.6% →
+> 81.7% postal-confirmed, Quebec 67.8% → **68.2%**, rules-only fallbacks 374 → 371. The rules
+> layer costs ~9% throughput for the defect check.
+>
+> One Part A row flipped `Castleglen WAY` → `Castleglen RD`: Calgary has both, with **identical**
+> address counts, so the gazetteer's window function had no tie-break left and DuckDB's arbitrary
+> choice moved when the probe table's shape changed. `STREET_TYPE` is now the final key in that
+> `QUALIFY` clause. The row is a loss either way; what the change bought is that it is the *same*
+> loss on every run, which a before/after harness requires.
 
 ### The name gate stopped being a pure similarity threshold
 
@@ -409,7 +466,8 @@ The first four items of the previous list came out of *What a local LLM adds* an
 *Fixed, and worth keeping fixed* for what they bought. What is left is ordered the same way, by
 rows recovered per unit of effort.
 
-1. **Two-reading arbitration for the direction and type steps** (modes 2 and 3). One mechanism
+1. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
+   arbitration now exist; what is missing is the two strategies and their gates. One mechanism
    fixes both: when a stripped reading finds nothing in the gazetteer, retry with the token
    restored to the name. Affects ~686k addresses' worth of street forms; the direction half fires
    even on clean input. The name gate now recovers some of this incidentally — whole-word

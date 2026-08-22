@@ -71,11 +71,25 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
   }
 
   res$.row <- seq_len(nrow(res))
-  todo <- res[!is.na(res$STREET_NAME), , drop = FALSE]
-  if (!nrow(todo)) return(res[, setdiff(names(res), ".row"), drop = FALSE])
+  out_cols <- setdiff(names(res), ".row")
+
+  # Every reading nar_parse_rules() produced is probed, not just the one its
+  # own arbitration preferred -- this layer is the better evidence, and asking
+  # it to rule on a single reading throws away the question. The candidates
+  # arrive as an attribute; a caller that built `res` some other way is treated
+  # as one candidate per row, which is what this function always did.
+  cand <- attr(res, "nar_candidates")
+  if (is.null(cand)) {
+    cand <- res
+    cand$.cand <- 1L
+  }
+  cand$.probe <- seq_len(nrow(cand))
+
+  todo <- cand[!is.na(cand$STREET_NAME), , drop = FALSE]
+  if (!nrow(todo)) return(res[, out_cols, drop = FALSE])
 
   probe <- data.frame(
-    row_id    = todo$.row,
+    row_id    = todo$.probe,
     name_fold = nar_fold(todo$STREET_NAME),
     mun_fold  = nar_fold(ifelse(is.na(todo$MUN_NAME), "", todo$MUN_NAME)),
     prov      = ifelse(is.na(todo$PROV_ABVN), "", todo$PROV_ABVN),
@@ -96,9 +110,30 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
     ok <- best$score >= threshold
     best <- best[ok, , drop = FALSE]
   }
-  if (!nrow(best)) return(res[, setdiff(names(res), ".row"), drop = FALSE])
+  if (!nrow(best)) return(res[, out_cols, drop = FALSE])
 
-  i <- match(best$row_id, res$.row)
+  # One winner per input: the highest-scoring reading, and on a tie the
+  # earliest candidate -- which is the baseline parse. A reading only displaces
+  # it by resolving to a street this one does not.
+  w <- match(best$row_id, cand$.probe)
+  best$.row  <- cand$.row[w]
+  best$.cand <- cand$.cand[w]
+  o <- order(best$.row, -best$score, best$.cand)
+  keep <- o[!duplicated(best$.row[o])]
+  best <- best[keep, , drop = FALSE]
+  w <- w[keep]
+
+  i <- match(best$.row, res$.row)
+
+  # Adopt the winning reading's own parse before correcting it. The readings
+  # disagree about more than the street: the unit and the civic number move
+  # with the municipality, so applying the gazetteer's corrections on top of a
+  # different reading's columns would mix two parses into one row.
+  for (col in setdiff(nar_normalized_columns(), c("PROV_ABVN", "POSTAL_CODE"))) {
+    res[[col]][i] <- cand[[col]][w]
+  }
+  res$pattern[i] <- as.character(cand$pattern[w])
+
   res$STREET_NAME[i]  <- best$STREET_NAME
   res$STREET_TYPE[i]  <- nar_blank_to_na(best$STREET_TYPE)
   res$STREET_DIR[i]   <- nar_blank_to_na(best$STREET_DIR)
@@ -111,7 +146,9 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
   res$confidence[i]   <- round(best$score, 3)
   res$parse_source[i] <- "gazetteer"
 
-  res[, setdiff(names(res), ".row"), drop = FALSE]
+  res <- res[, out_cols, drop = FALSE]
+  attr(res, "nar_candidates") <- NULL
+  res
 }
 
 #' Empty strings back to NA
@@ -314,9 +351,15 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
     -- the one that was written, which is the point -- but where the evidence is
     -- otherwise equal, the street that also matches the name as written wins.
     -- Only then does the busier street take it.
+    -- STREET_TYPE last, and only to make the result reproducible: Calgary has
+    -- a Castleglen Rd NE and a Castleglen Way NE with 98 addresses each, so a
+    -- string that drops the type leaves the three real criteria tied and
+    -- DuckDB free to return either. Neither answer is more correct, but a
+    -- harness that measures a change cannot also be measuring which one came
+    -- back this time.
     QUALIFY row_number() OVER (PARTITION BY row_id
                                ORDER BY score DESC, mun_exact DESC,
-                                        N_ADDRESSES DESC) = 1"
+                                        N_ADDRESSES DESC, STREET_TYPE) = 1"
   sql <- gsub("{probe}", probe, sql, fixed = TRUE)
   gsub("{name_threshold}", format(name_threshold), sql, fixed = TRUE)
 }

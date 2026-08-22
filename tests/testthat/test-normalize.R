@@ -525,3 +525,69 @@ test_that("a period in a municipality name does not block the gazetteer", {
   expect_equal(out$STREET_NAME, "Doyle")
   expect_equal(out$MUN_NAME, "ST. JOHN'S")
 })
+
+test_that("a municipality is anchored from the end when no comma marks it", {
+  # The comma is doing all the work in "... TH25, Vancouver": drop it and the
+  # left-to-right walk takes the whole tail as the municipality, because
+  # nothing local distinguishes "TH25 VANCOUVER" from "100 MILE HOUSE". The
+  # inventory does, so all three of these have to reach the same reading.
+  r <- normalize_address(c("100 Main St TH25, Vancouver",
+                           "100 Main St TH25 Vancouver",
+                           "100 Main #25 Vancouver"))
+  expect_equal(r$MUN_NAME, rep("VANCOUVER", 3))
+  expect_equal(r$STREET_NAME, rep("MAIN", 3))
+  expect_equal(r$APT_NO_LABEL, c("TH25", "TH25", "25"))
+})
+
+test_that("a multi-word municipality outranks the shorter one inside it", {
+  # Anchoring tries the longest run first, and both lengths are real places --
+  # MILE HOUSE is not a municipality but HOUSE is not the point: the failure
+  # mode is taking a two- or three-word name apart, so the longest match that
+  # leaves a street behind has to win.
+  r <- normalize_address(c("100 Main St 100 Mile House BC",
+                           "1234 Main St Sault Ste Marie ON"))
+  expect_equal(r$MUN_NAME, c("100 MILE HOUSE", "SAULT STE MARIE"))
+  expect_equal(r$STREET_NAME, c("MAIN", "MAIN"))
+})
+
+test_that("anchoring never fires on a parse that is not broken", {
+  # The guard that matters. These strings name no municipality at all, and
+  # every one ends in a word that is a real place -- Albanel, Nantes and Trail
+  # are all municipalities. Offering an anchored reading here costs the street
+  # name, and the gazetteer cannot arbitrate it back because a match restricted
+  # to a real municipality outscores an unrestricted one by construction.
+  r <- normalize_address(c("80 rue Albanel, QC", "135 de Nantes, QC",
+                           "82 Fesroches Trail, ON"))
+  expect_equal(r$MUN_NAME, rep(NA_character_, 3))
+  expect_equal(r$STREET_NAME, c("ALBANEL", "DE NANTES", "FESROCHES"))
+  expect_equal(r$STREET_TYPE, c("RUE", NA, "TRAIL"))
+
+  # Nor may a bare civic number and a place name become an address in that
+  # place with no street in it.
+  r <- normalize_address("123 Kingston")
+  expect_equal(r$STREET_NAME, "KINGSTON")
+  expect_true(is.na(r$MUN_NAME))
+})
+
+test_that("a spaced hash still introduces a unit", {
+  # nar_take_trailing_unit() had a branch for a hash sitting on its own token
+  # that could not be reached, so "# 25" fell through to the street name while
+  # "#25" resolved. nar_norm_text() splits the two forms identically once a
+  # municipality follows, which is how the dead branch surfaced.
+  r <- normalize_address(c("100 Main St #25", "100 Main St # 25",
+                           "100 Main St # 25 Vancouver"))
+  expect_equal(r$APT_NO_LABEL, rep("25", 3))
+  expect_equal(r$STREET_NAME, rep("MAIN", 3))
+})
+
+test_that("a trailing unit is taken only when it cannot be part of a name", {
+  # With the municipality anchored off the end, a lone token can be left over
+  # where no designator introduces it. Taking any such token as a unit eats the
+  # numbers that belong to numbered rural roads -- "Route 12" and "Highway 20"
+  # both end in a bare number -- so only a digit-and-letter mix counts.
+  r <- normalize_address(c("100 Main St TH25 Vancouver", "100 Main St PH2 Vancouver",
+                           "11735 Cascumpec - Rte 12, Coleman",
+                           "997 Chilcotin-Bella Coola Highway 20, Williams Lake"))
+  expect_equal(r$APT_NO_LABEL, c("TH25", "PH2", NA, NA))
+  expect_equal(r$MUN_NAME, c("VANCOUVER", "VANCOUVER", "COLEMAN", "WILLIAMS LAKE"))
+})

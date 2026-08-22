@@ -166,6 +166,20 @@ nar_lex_numbered_roads <- rbind(
 # it is equally Sainte, and NAR files 36,711 addresses in Sault Ste. Marie.
 nar_lex_unit_ambiguous <- c("STE")
 
+# --- municipalities --------------------------------------------------------
+# The inventory of place names NAR actually files addresses under, regenerated
+# by data-raw/observe_municipalities.R. The parser uses it to arbitrate between
+# two readings of a comma-less string: "1234 Main St 100 Mile House BC" and
+# "1234 Main St TH25 Vancouver" are structurally identical, and nothing but a
+# list of real places says that the first municipality is three tokens long and
+# the second is one.
+#
+# Keys are folded the way nar_norm_text() folds input -- periods out, commas to
+# spaces -- or the names NAR keeps a period in (ST. JOHN'S, SAULT STE. MARIE)
+# can never meet a key built from a parsed token run. `n` is the address count,
+# carried so a two-reading tie can break towards the commoner place.
+nar_lex_muns <- utf8("data-raw/nar_municipalities_observed.csv")
+
 # --- folded match keys -----------------------------------------------------
 # Matching is accent-insensitive, but output is not: NAR stores MONTÉE and
 # ALLÉE with their accents, so the parser matches on `surface_fold` and emits
@@ -182,12 +196,26 @@ nar_lex_unit_words <- unique(fold(nar_lex_unit_words))
 nar_lex_unit_bare  <- unique(fold(nar_lex_unit_bare))
 nar_lex_numbered_roads$surface_fold <- fold(nar_lex_numbered_roads$surface)
 
+# Municipality keys go through the input-side normalization as well as the
+# fold, so a key built from tokens can match them verbatim.
+mun_key <- function(x) {
+  x <- gsub("[.]", "", fold(x))
+  x <- gsub(",", " ", x, fixed = TRUE)
+  trimws(gsub("[[:space:]]+", " ", x))
+}
+nar_lex_muns$surface_fold <- mun_key(nar_lex_muns$surface)
+nar_lex_muns$ntok <- lengths(strsplit(nar_lex_muns$surface_fold, " ", fixed = TRUE))
+nar_lex_muns <- nar_lex_muns[nzchar(nar_lex_muns$surface_fold), , drop = FALSE]
+nar_lex_muns <- nar_lex_muns[order(-nar_lex_muns$n), c("surface_fold", "prov", "n", "ntok")]
+row.names(nar_lex_muns) <- NULL
+
 save(nar_lex_types, nar_lex_dirs, nar_lex_prov, nar_prov_lang,
      nar_lex_unit_words, nar_lex_unit_bare, nar_lex_unit_ambiguous,
-     nar_lex_numbered_roads,
+     nar_lex_numbered_roads, nar_lex_muns,
      file = "R/sysdata.rda", version = 3, compress = "xz")
 
 cat("Wrote R/sysdata.rda:",
     nrow(nar_lex_types), "type surfaces,",
     nrow(nar_lex_dirs), "direction surfaces,",
-    nrow(nar_lex_prov), "province surfaces\n")
+    nrow(nar_lex_prov), "province surfaces,",
+    nrow(nar_lex_muns), "municipality names\n")
