@@ -271,27 +271,33 @@ holds.
 
 | | |
 | --- | --- |
-| every field the surface form carried, recovered exactly | 95.2% |
-| civic number and street name both recovered | 96.0% |
+| every field the surface form carried, recovered exactly | 97.3% |
+| civic number and street name both recovered | 98.0% |
 | real filings: civic number and street name extracted | 98.8% |
-| real filings: joins an address NAR actually holds | 86.0% |
+| real filings: joins an address NAR actually holds | 86.5% |
 
 Three known limits are worth knowing before you rely on this:
 
-**A municipality that was never in the string cannot be invented.** When the
-surface form drops it, it is recovered only 46.3% of the time, and that is a
-ceiling rather than a bug — `100 Main St, ON` is genuinely ambiguous across
-dozens of Ontario towns. Supply a municipality column if you have one.
+**A municipality that was never in the string is supplied only when NAR settles
+it.** If exactly one municipality in the country has a street of that name,
+`normalize_address()` fills it in — that is determined, not guessed, and it
+happens 63.3% of the time. Where several municipalities have such a street,
+`MUN_NAME` stays `NA` rather than naming the largest: `100 Main St, ON` is
+genuinely ambiguous across dozens of Ontario towns, and a wrong municipality
+joins two different buildings while a missing one joins nothing. Supply a
+municipality column if you have one.
 
 **Comma-less input has to guess where the street ends.** `100 queen st w
 toronto on` works because `ST` is a reliable boundary, but a municipality whose
 own name contains a street-type word — Port Hope, Grand Falls — can be
 mis-split. Passing `con` is what rescues most of these.
 
-**Typos cost.** Clean rendered addresses parse at 98.3%; the same addresses
-with keyboard-adjacency typos parse at 76.2%. The gazetteer recovers many, as
-it did for `HPCKING`, but only where the street name is close enough to exactly
-one real street in the right place.
+**Typos cost, though less than they did.** Clean rendered addresses parse at
+98.6%; the same addresses with keyboard-adjacency typos parse at 92.1%. The
+gazetteer recovers most, as it did for `HPCKING`, since a name one keystroke
+from a real street is treated as that street. What is left is mostly a typo
+that lands on *another* real street name, where nothing in the string can
+arbitrate.
 
 The full accounting — every failure mode ranked by how many addresses it
 affects, what was tried and rejected, and what to fix next — ships with the

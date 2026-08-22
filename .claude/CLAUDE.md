@@ -391,6 +391,49 @@ two fuzzy street comparisons. It deliberately does **not** do so on the exact-br
 `Streets.NAME_FOLD` join, which would cost the `str_name_idx` index — so street-name periods stay
 unhandled there by design.
 
+### `R/normalize_gazetteer.R` — matching the parse against NAR
+
+`nar_gazetteer_sql()` builds one query with **`{probe}` / `{name_threshold}` placeholders
+substituted by `gsub(fixed = TRUE)`, not `sprintf`**. The template is past `sprintf`'s 8192-byte
+format limit — the inline comments alone push it there — and as a bonus a literal `%` in a `LIKE`
+pattern needs no doubling.
+
+**`name_sim` is not a similarity.** It is `greatest()` over Jaro-Winkler and two flat 0.90 awards
+for kinds of evidence Jaro-Winkler structurally cannot express. Keeping them at exactly the
+default `name_threshold`, rather than giving each a branch of its own, is what makes
+`name_threshold` still mean one thing: raising it above 0.90 turns both extra rules off, which is
+what asking for stricter should do.
+
+- **One Damerau-Levenshtein edit, at `length(name_fold) >= 3`.** Jaro-Winkler pays a prefix bonus,
+  so it scores the same one-key slip 0.89 in `NARTIN`/`MARTIN` and 0.83 in `QALL`/`WALL` — 77 of
+  the correct answers the 0.90 gate discarded were *already ranked first*. **The length floor is
+  load-bearing**: at two characters one edit is the whole word, and `5W` against `5E` is a
+  different street, not a typo.
+- **Whole-word containment**, matched as `' ' || name || ' ' LIKE '% ' || probe || ' %'`. This
+  catches the words a parse rule ate — `5` for `NO. 5`, `772` for `ROUTE 772`, `PARK` for
+  `PARK LAWN` — which similarity ranks nowhere near the top (679th, for the first). It cannot
+  displace a street actually called `PARK`, which scores an exact 1.0 and wins.
+
+**Both prefilters are required, and both were measured.** Edit distance is asked only of
+candidates already at `jw_sim >= 0.70` (one edit cannot go below that: worst case is a substituted
+first character of a three-letter word, 0.778), and containment only of candidates *longer* than
+the probe (a shorter one can only contain it by equalling it, already scored 1.0). Without the
+pair the query is **3.5x slower for byte-identical answers**. `jw_sim` is a lateral column alias
+reused by the guard, which is why the final union needs `SELECT * EXCLUDE (jw_sim) FROM scored` —
+the `exact` branch has no such column and a `UNION` lines the branches up by position.
+
+**The `exact` branch answers with a municipality only when NAR determines it** —
+`CASE WHEN count(DISTINCT MAIL_MUN_NAME) = 1 THEN any_value(...) END`. One municipality carrying
+the only street of that name has *determined* it; withholding that is its own wrong answer. Two or
+more and it stays `NULL`, because the busiest city with a street of this name is a guess, not a
+resolution. The province follows the same rule, after the caller's `prov` if given, so a string
+that named neither can still resolve to both. `test-normalize.R` pins both halves against a
+fixture carrying one street in two cities and another in one.
+
+> Measured effect of the three together on the eval's 5,000-row Part A sample: **215 rows gained,
+> 0 lost**. Attribution and the harness-level deltas are in
+> [`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md).
+
 ### `R/address_format.R` — putting the components back together
 
 `normalize_address()` takes an address apart; `address_key()` and `format_address()` put it back,

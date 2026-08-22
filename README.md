@@ -185,7 +185,7 @@ to each other. `format_address()` is the readable counterpart, for writing a
 cleaned column back out.
 
 Measured on 5,000 real filings nobody cleaned, the parser extracts a civic
-number and street name from 98.8% and resolves 86.0% to an address NAR actually
+number and street name from 98.8% and resolves 86.5% to an address NAR actually
 holds. `vignette("address-normalization")` has the rest of the numbers and the
 known limits.
 

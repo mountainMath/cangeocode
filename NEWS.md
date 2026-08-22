@@ -56,13 +56,22 @@ two address lists to each other needs the parse and never needs a coordinate.
   keyed on, by rules first and then against a NAR gazetteer. New `Streets`,
   `MunAlias` and `PostalMun` tables are built at import time to support it.
   Measured on 5,000 real filings nobody cleaned, it extracts a civic number and
-  street name from 98.8% and resolves 86.0% to an address NAR actually holds.
+  street name from 98.8% and resolves 86.5% to an address NAR actually holds.
 
 * Supplying `con` resolves the parse against NAR's streets, which corrects
   misspellings no rule could reach — `29 HPCKING AVE, SAULT STE. MARIE` comes
   back as `Hocking` — and restores NAR's own spelling, accents and periods
   included. `parse_source` reports which rows cleared the gazetteer and which
   are the parser's unconfirmed reading.
+
+* The gazetteer **answers with a municipality when NAR determines one** — that
+  is, when exactly one municipality in the country carries a street of that
+  name. Where two or more do, `MUN_NAME` stays `NA` rather than naming the
+  largest, because that would be a guess and a wrong municipality joins two
+  different buildings. Together with a name match that now recognises a
+  single-keystroke typo and a word the parser swallowed (`772` for
+  `Route 772`), this recovers 215 more fields per 5,000 rendered NAR addresses
+  and loses none.
 
 * Canonicalization is **conditioned on the province**, because there is no
   single right abbreviation in Canada: NAR writes `AVE` in Ontario and `AV` in
