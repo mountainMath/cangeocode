@@ -6,7 +6,7 @@ Lives in `inst/notes/`, so it installs with the package and
 This file documents *where it currently falls short*. Every number here is measured, not
 estimated; each section says which measurement produced it so it can be re-run and disputed.
 
-**As of:** 2026-08-21, commit `7be2a09`, NAR release `2026-06` (17,362,476 addresses).
+**As of:** 2026-08-21, commit `8694726`, NAR release `2026-06` (17,362,476 addresses).
 Layers 1 (rules) and 2 (NAR gazetteer) are implemented. Layer 3 (LLM fallback) is not — see
 *Deferred* at the end.
 
@@ -49,9 +49,9 @@ against a number written down here.
 
 | | |
 | --- | --- |
-| street name and civic number extracted | 98.6% |
-| joins a real NAR address (civic + name + municipality + province) | 85.6% |
-| ... and the filer's postal code confirms it | 80.8% |
+| street name and civic number extracted | 98.8% |
+| joins a real NAR address (civic + name + municipality + province) | 86.0% |
+| ... and the filer's postal code confirms it | 81.1% |
 
 ### How to read these
 
@@ -67,6 +67,11 @@ against a number written down here.
   `1123 Leslie Street, Toronto`.
 - **Part A's `MUN_NAME` 46.3% is the single biggest number on the page**, and it is mostly not a
   parser problem. See *Failure mode 1*.
+- **Part A and Part B do not always move together, and that is the harness working.** The
+  `SUITE 800-666` fix below lifted Part B's join rate by 0.4 points and left every Part A figure
+  byte-identical, because the noise grammar never renders a designator in front of a hyphenated
+  unit-civic pair. Part A measures the mess we imagined; Part B measures whether we imagined the
+  right mess. A Part B gain with no Part A movement is a gap in the grammar, not a fluke.
 
 ## Failure modes, ranked
 
@@ -162,6 +167,23 @@ has no civic number to join on and confirms at 0.0% in Part B by construction. T
 working as intended — they separate "this address is wrong" from "this address was never going to
 be in the gazetteer". Their Part B confirmation rates are quoted with sample sizes in single or
 double digits and should not be read as trends.
+
+## Fixed, and worth keeping fixed
+
+**A unit designator in front of a hyphenated unit-civic pair.** `SUITE 800-666 BURRARD ST` is the
+standard Canadian office form. `800-666` on its own split correctly, but the spelled-out
+designator took the whole hyphenated token as the unit value and returned **no civic number at
+all** — so the designator made the parse worse than omitting it, and a row with no civic number
+does not join anything downstream. `nar_take_leading_unit()` now routes the designator's value
+through the same `nar_split_unit_civic()` the `#` branch always used.
+
+**A hyphen left standing as its own token.** `nar_norm_text()` joins `302 - 1055` because a bare
+number follows it, and declines on `1688 - 152nd` because `152ND` is not one. The lone `-` then
+survived tokenization and became the first word of the street name (`- 152ND`). `nar_tokens()`
+drops it; hyphens *inside* a token, which is most of Quebec, are untouched.
+
+Together: Part B 85.6% → 86.0% joined, 98.6% → 98.8% civic-and-name extracted. Both are
+regression-tested in `test-normalize.R`.
 
 ## Measured and deliberately not done
 

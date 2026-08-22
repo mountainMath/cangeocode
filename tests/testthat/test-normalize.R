@@ -15,6 +15,47 @@ test_that("normalize_address splits the unit off the civic number", {
   expect_equal(r$STREET_DIR, rep("W", 5))
 })
 
+test_that("a designator in front of a hyphenated unit-civic still splits it", {
+  # "SUITE 800-666 BURRARD ST" is the standard Canadian office form, and the
+  # designator used to make the parse *worse* than leaving it out: the bare
+  # "800-666" split correctly while the spelled-out version took the whole
+  # hyphenated token as the unit and returned no civic number at all. A civic
+  # number lost here cannot be recovered downstream -- the row simply stops
+  # joining.
+  r <- normalize_address(c("800-666 Burrard St, Vancouver, BC",
+                           "Suite 800-666 Burrard St, Vancouver, BC",
+                           "Suite 800 - 666 Burrard St, Vancouver, BC",
+                           "Unit 800-666 Burrard St, Vancouver, BC",
+                           "#800-666 Burrard St, Vancouver, BC"))
+  expect_equal(r$APT_NO_LABEL, rep("800", 5))
+  expect_equal(r$CIVIC_NO, rep(666, 5))
+  expect_equal(r$STREET_NAME, rep("BURRARD", 5))
+})
+
+test_that("a designator whose value is a word is untouched by that split", {
+  # nar_split_unit_civic() returns the token unchanged when it does not split,
+  # so the APT BSMT / APT TRLR forms have to survive the new route through it.
+  r <- normalize_address(c("APT BSMT 1055 W Georgia St, Vancouver, BC",
+                           "Apt 302, 1055 W Georgia St, Vancouver, BC"))
+  expect_equal(r$APT_NO_LABEL, c("BSMT", "302"))
+  expect_equal(r$CIVIC_NO, c(1055, 1055))
+})
+
+test_that("a hyphen left standing alone is a separator, not part of the name", {
+  # nar_norm_text() joins "302 - 1055" because a bare number follows, but
+  # declines on "1688 - 152nd" because "152ND" is not one. The hyphen then
+  # survived as its own token and became the first word of the street name.
+  r <- normalize_address(c("1688 - 152nd Street, Surrey, BC",
+                           "100 Main St - Apt 5, Toronto, ON"))
+  expect_equal(r$STREET_NAME, c("152ND", "MAIN"))
+  expect_equal(r$CIVIC_NO, c(1688, 100))
+  expect_equal(r$APT_NO_LABEL, c(NA, "5"))
+
+  # Hyphens inside a token are untouched -- that is most of Quebec.
+  expect_equal(normalize_address("12 St-Jean, Quebec, QC")$STREET_NAME,
+               "ST-JEAN")
+})
+
 test_that("street type and direction canonicalize by province language", {
   # The same word normalizes differently either side of the Ottawa river:
   # NAR writes AVE/BLVD/W in Ontario and AV/BOUL/O in Quebec.

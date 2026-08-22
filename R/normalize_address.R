@@ -228,7 +228,13 @@ nar_match_trailing_prov <- function(s) {
 nar_tokens <- function(s) {
   if (is.na(s) || !nzchar(s)) return(character(0))
   toks <- strsplit(s, " ", fixed = TRUE)[[1]]
-  toks[nzchar(toks)]
+  toks <- toks[nzchar(toks)]
+  # A hyphen still standing on its own at this point is a separator that the
+  # unit-civic collapse in nar_norm_text() declined to join, because what
+  # followed it was not a bare number: "1688 - 152nd Street". It carries no
+  # information, and left in place it becomes the first word of the street
+  # name. Hyphens *inside* a token ("ST-JEAN", "302-1055") are untouched.
+  toks[toks != "-"]
 }
 
 #' Parse one normalized address string into its components
@@ -459,10 +465,18 @@ nar_take_leading_unit <- function(toks, lang = "en") {
 
   # "APT 302 1055 ...", "UNIT 4B 100 ...". Requires something to follow the
   # unit value, or the whole string is just a unit and no street.
+  #
+  # The value itself may be hyphenated -- "SUITE 800-666 BURRARD ST" is the
+  # standard Canadian office form -- so it goes through the same split as the
+  # "#" branch above. Taking toks[2] whole made the designator *worse* than no
+  # designator at all: bare "800-666 BURRARD ST" split correctly while the
+  # spelled-out version yielded a unit of "800-666" and no civic number, which
+  # is the one thing that cannot be recovered downstream.
   if (nar_fold(first) %in% nar_lex_unit_words && length(toks) >= 3 &&
       (!nar_fold(first) %in% nar_lex_unit_ambiguous ||
        grepl("[0-9]|^[A-Z]$", nar_fold(toks[2])))) {
-    return(list(unit = toks[2], civic = NA_character_, rest = toks[-(1:2)]))
+    sp <- nar_split_unit_civic(toks[2])
+    return(list(unit = sp$unit, civic = sp$civic, rest = toks[-(1:2)]))
   }
 
   # "BSMT 1055 ..." -- a bare label standing in for a unit number.
