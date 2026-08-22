@@ -155,10 +155,23 @@ local_mini_gazetteer <- function(env = parent.frame()) {
       '10' AS PROV_CODE, 'St. John''s' AS CSD_ENG_NAME,
       '10:CY:St. John''s' AS MUN_KEY, 'DOYLE' AS NAME_FOLD,
       'DOYLE' AS MAIL_NAME_FOLD, 120 AS N_ADDRESSES,
-      1 AS MIN_CIVIC_NO, 400 AS MAX_CIVIC_NO")
+      1 AS MIN_CIVIC_NO, 400 AS MAX_CIVIC_NO
+    UNION ALL SELECT
+      -- A second Doyle St, in a second city. Nothing in the string can choose
+      -- between them, which is what the exact branch has to decline on.
+      'Doyle', 'ST', '', 'DOYLE', 'ST', '',
+      'MOUNT PEARL', 'NL', '10', 'Mount Pearl', '10:CY:Mount Pearl',
+      'DOYLE', 'DOYLE', 40, 1, 90
+    UNION ALL SELECT
+      -- Kenmount Rd is in one city only, so it is determined rather than
+      -- guessed, and the exact branch may answer with it.
+      'Kenmount', 'RD', '', 'KENMOUNT', 'RD', '',
+      'MOUNT PEARL', 'NL', '10', 'Mount Pearl', '10:CY:Mount Pearl',
+      'KENMOUNT', 'KENMOUNT', 60, 1, 900")
   DBI::dbExecute(con, "CREATE TABLE MunAlias AS SELECT
       'ST. JOHN''S' AS NAME_FOLD, 'NL' AS PROV_ABVN,
-      '10:CY:St. John''s' AS MUN_KEY, 120 AS N_ADDRESSES")
+      '10:CY:St. John''s' AS MUN_KEY, 120 AS N_ADDRESSES
+    UNION ALL SELECT 'MOUNT PEARL', 'NL', '10:CY:Mount Pearl', 40")
   DBI::dbExecute(con, "CREATE TABLE PostalMun AS SELECT
       'A1E' AS FSA, 'ST. JOHN''S' AS MAIL_MUN_NAME, 120 AS N_ADDRESSES")
   con

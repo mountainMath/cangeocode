@@ -144,7 +144,9 @@ nar_blank_to_na <- function(x) ifelse(is.na(x) | !nzchar(x), NA_character_, x)
 #' @return A single SQL string
 #' @keywords internal
 nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
-  sprintf("
+  # Placeholders rather than sprintf: the template is past sprintf's 8192-byte
+  # format limit, and this way a literal % in a LIKE pattern needs no doubling.
+  sql <- "
     WITH probe AS (
       SELECT p.*,
              -- A municipality named in the string wins; otherwise the postal
@@ -155,7 +157,7 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                          FROM PostalMun pm
                         WHERE pm.FSA = p.fsa AND p.fsa <> ''
                         ORDER BY pm.N_ADDRESSES DESC LIMIT 1)) AS mun_use
-        FROM %1$s p
+        FROM {probe} p
     ),
     scored AS (
       SELECT p.row_id,
@@ -163,12 +165,54 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
              s.OFFICIAL_STREET_TYPE AS STREET_TYPE,
              s.OFFICIAL_STREET_DIR  AS STREET_DIR,
              s.MAIL_MUN_NAME, s.MAIL_PROV_ABVN, s.N_ADDRESSES,
+             -- Two kinds of evidence Jaro-Winkler cannot express, each worth
+             -- a flat 0.90 rather than given a branch of its own, so
+             -- name_threshold keeps meaning one thing -- and so raising it above
+             -- 0.90 turns both off, which is what asking for stricter means.
+             --
+             -- A *single edit* is one keystroke, and that is what the residual
+             -- is made of: 69 of the 77 correct answers the 0.90 gate was
+             -- throwing away sat exactly one Damerau-Levenshtein step from the
+             -- input. Jaro-Winkler cannot see this because it pays a prefix
+             -- bonus, so the same one-key slip scores 0.89 in `NARTIN`/`MARTIN`
+             -- and 0.83 in `QALL`/`WALL`. The length floor is load-bearing and
+             -- not a tidiness rule: at two characters one edit is the whole
+             -- word, and `5W` against `5E` is a different street, not a typo.
+             --
+             -- *Whole-word containment* is the other. It catches the words a
+             -- parse rule ate -- `5` for `NO. 5`, `772` for `ROUTE 772`, `PARK`
+             -- for `PARK LAWN` -- which similarity ranks nowhere near the top
+             -- (679th, in the first of those). It cannot displace a street
+             -- actually called `PARK`: that scores an exact 1.0 and wins.
              greatest(
                jaro_winkler_similarity(p.name_fold, replace(s.NAME_FOLD, '.', '')),
-               jaro_winkler_similarity(p.name_fold, replace(s.MAIL_NAME_FOLD, '.', ''))) AS name_sim,
-             0.72 * greatest(
-                      jaro_winkler_similarity(p.name_fold, replace(s.NAME_FOLD, '.', '')),
-                      jaro_winkler_similarity(p.name_fold, replace(s.MAIL_NAME_FOLD, '.', '')))
+               jaro_winkler_similarity(p.name_fold, replace(s.MAIL_NAME_FOLD, '.', ''))
+             ) AS jw_sim,
+             greatest(
+               jw_sim,
+               -- The 0.70 floor is a cheap prefilter, not a second threshold:
+               -- one edit cannot drag Jaro-Winkler below it. The worst case is
+               -- a substituted first character of a three-letter word, which
+               -- scores 0.778 -- and edit distance is far dearer than the
+               -- similarity already computed, so it is only worth asking about
+               -- candidates that are already close. Without the guard this
+               -- query runs 3.5x slower for the same answers.
+               CASE WHEN jw_sim >= 0.70 AND length(p.name_fold) >= 3 AND least(
+                      damerau_levenshtein(p.name_fold, replace(s.NAME_FOLD, '.', '')),
+                      damerau_levenshtein(p.name_fold, replace(s.MAIL_NAME_FOLD, '.', ''))) <= 1
+                    THEN 0.90 ELSE 0 END,
+               -- Same idea, and the same reason: a candidate no longer than
+               -- the probe can only contain it by being equal to it, which the
+               -- similarity above already scores 1.0.
+               CASE WHEN p.name_fold <> ''
+                     AND greatest(length(s.NAME_FOLD), length(s.MAIL_NAME_FOLD))
+                           > length(p.name_fold)
+                     AND (' ' || replace(s.NAME_FOLD, '.', '') || ' '
+                            LIKE '% ' || p.name_fold || ' %'
+                       OR ' ' || replace(s.MAIL_NAME_FOLD, '.', '') || ' '
+                            LIKE '% ' || p.name_fold || ' %')
+                    THEN 0.90 ELSE 0 END) AS name_sim,
+             0.72 * name_sim
              + 0.10 * CASE WHEN p.type = '' THEN 1
                            WHEN p.type IN (s.OFFICIAL_STREET_TYPE, s.MAIL_STREET_TYPE) THEN 1
                            ELSE 0 END
@@ -223,10 +267,18 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                   THEN max(nullif(s.OFFICIAL_STREET_TYPE, '')) ELSE '' END AS STREET_TYPE,
              CASE WHEN count(DISTINCT nullif(s.OFFICIAL_STREET_DIR, '')) = 1
                   THEN max(nullif(s.OFFICIAL_STREET_DIR, '')) ELSE '' END AS STREET_DIR,
-             -- Never invented. The string named no municipality, and the busiest
-             -- city with a street of this name is a guess, not a resolution.
-             NULL AS MAIL_MUN_NAME,
-             nullif(any_value(p.prov), '') AS MAIL_PROV_ABVN,
+             -- Unanimity or nothing, as above. One municipality carrying the
+             -- only street of that name has *determined* it -- there is nothing
+             -- left to guess, and withholding it would be a different kind of
+             -- wrong answer. Two or more and it stays NULL: the busiest city
+             -- with a street of this name is a guess, not a resolution.
+             CASE WHEN count(DISTINCT s.MAIL_MUN_NAME) = 1
+                  THEN any_value(s.MAIL_MUN_NAME) END AS MAIL_MUN_NAME,
+             -- The province the caller supplied wins; failing that, the one the
+             -- candidates agree on, which a determined municipality always has.
+             coalesce(nullif(any_value(p.prov), ''),
+                      CASE WHEN count(DISTINCT s.MAIL_PROV_ABVN) = 1
+                           THEN any_value(s.MAIL_PROV_ABVN) END) AS MAIL_PROV_ABVN,
              sum(s.N_ADDRESSES) AS N_ADDRESSES,
              1.0 AS name_sim,
              -- Discounted for the locality this match never had: 0.92 with a
@@ -252,7 +304,9 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
        GROUP BY p.row_id
     )
     SELECT * FROM (
-      SELECT * FROM scored WHERE name_sim >= %2$f
+      -- jw_sim is scaffolding for the guard above, not an output column, and
+      -- the UNION lines the two branches up by position.
+      SELECT * EXCLUDE (jw_sim) FROM scored WHERE name_sim >= {name_threshold}
       UNION ALL
       SELECT * FROM exact
     )
@@ -262,6 +316,7 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
     -- Only then does the busier street take it.
     QUALIFY row_number() OVER (PARTITION BY row_id
                                ORDER BY score DESC, mun_exact DESC,
-                                        N_ADDRESSES DESC) = 1",
-    probe, name_threshold)
+                                        N_ADDRESSES DESC) = 1"
+  sql <- gsub("{probe}", probe, sql, fixed = TRUE)
+  gsub("{name_threshold}", format(name_threshold), sql, fixed = TRUE)
 }

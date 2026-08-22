@@ -253,9 +253,30 @@ test_that("a street with neither postal code nor municipality still resolves", {
   expect_equal(bare$STREET_DIR, "W")
   # Scored below a match that had a locality to confirm it against.
   expect_lt(bare$confidence, 1)
-  # ... and the locality it never had is left absent rather than guessed at.
-  expect_true(is.na(bare$MUN_NAME))
-  expect_true(is.na(bare$PROV_ABVN))
+  # The locality is not guessed -- but only one municipality in the fixture has
+  # a King Edward Ave, so there is nothing left to guess. Determined, not
+  # inferred; the ambiguous case is the next test.
+  expect_equal(bare$MUN_NAME, "VANCOUVER")
+  expect_equal(bare$PROV_ABVN, "BC")
+})
+
+test_that("an ambiguous municipality is left absent rather than guessed at", {
+  skip_if_no_duckdb_spatial()
+  con <- local_mini_gazetteer()
+
+  # Doyle St is in two cities in this gazetteer and Kenmount Rd in one. Neither
+  # string names a locality, so both take the exact branch -- and it answers
+  # only where the answer is forced.
+  two <- nar_resolve_gazetteer(nar_parse_rules("207 Doyle Street"), con)
+  expect_equal(two$STREET_NAME, "Doyle")
+  expect_true(is.na(two$MUN_NAME))
+
+  one <- nar_resolve_gazetteer(nar_parse_rules("207 Kenmount Road"), con)
+  expect_equal(one$STREET_NAME, "Kenmount")
+  expect_equal(one$MUN_NAME, "MOUNT PEARL")
+  # The province comes with it: a determined municipality always has one, even
+  # though the string never said so.
+  expect_equal(one$PROV_ABVN, "NL")
 })
 
 test_that("without a locality the match must be exact, not merely close", {
