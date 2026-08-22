@@ -179,11 +179,14 @@ permanent-table hop:
 and `reverse_geocode()` — they duplicate `geom` and would silently go stale if the geometry were
 reprojected.
 
-`nar_schema_version()` is 3. Version 2 added the `x`/`y` columns and fixed the lon/lat datum;
-version 3 added the blockface fallback and `geom_source`. Older databases still work — version 1
+`nar_schema_version()` is **5**. Version 2 added the `x`/`y` columns and fixed the lon/lat
+datum; version 3 added the blockface fallback and `geom_source`; version 4 added the `Streets`
+gazetteer; version 5 added `MunAlias` and `PostalMun`. Older databases still work — version 1
 without the prefilter and with `Locations` geometry off by ~1.1 m, version 2 without a
-`geom_source` column and with no geometry on the 1.14M blockface-only addresses. Only a
-`refresh = TRUE` rebuild picks these up.
+`geom_source` column and with no geometry on the 1.14M blockface-only addresses, versions 3 and
+below with `normalize_address()` falling back to rules only and `geocode(mun = )` erroring
+outright. Only a `refresh = TRUE` rebuild picks these up. The gate is `nar_has_streets()`,
+which tests for the tables rather than reading the version number.
 
 Both spatial tables get an RTREE index on `geom` and a btree on `LOC_GUID`. Distances are in
 **metres** because the storage CRS is projected, which is why `match_radius` needs no conversion.

@@ -43,8 +43,11 @@ Full reference and articles: <https://mountainmath.github.io/cangeocode/>
 
 - [Getting started](https://mountainmath.github.io/cangeocode/articles/cangeocode.html)
   (`vignette("cangeocode")`) — setup, reverse geocoding, output types, precision
+- [Geocoding addresses](https://mountainmath.github.io/cangeocode/articles/geocoding.html)
+  (`vignette("geocoding")`) — parsing address strings, and what to trust
 - [Querying the NAR database directly](https://mountainmath.github.io/cangeocode/articles/querying-nar.html)
   (`vignette("querying-nar")`) — using the database with dplyr and `sf`
+- [Changelog](https://mountainmath.github.io/cangeocode/news/index.html)
 
 Two longer notes ship with the package and say what does *not* work yet, with
 the measurements behind each claim:
