@@ -6,7 +6,7 @@ Lives in `inst/notes/`, so it installs with the package and
 This file documents *where it currently falls short*. Every number here is measured, not
 estimated; each section says which measurement produced it so it can be re-run and disputed.
 
-**As of:** 2026-08-23, commit `946ebed`, NAR release `2026-06` (17,362,476 addresses).
+**As of:** 2026-08-23, commit `4180d4f`, NAR release `2026-06` (17,362,476 addresses).
 Layers 1 (rules) and 2 (NAR gazetteer) are implemented. Layer 3 (LLM fallback) is not — see
 *Deferred* at the end.
 
