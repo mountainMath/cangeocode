@@ -150,9 +150,20 @@ the alternative and former names, expanded in `Odonymes_renvois.csv`.
 
 That is a labelled decomposition of every street name in Quebec, in the exact
 shape `normalize_address()` is trying to produce, together with the register's
-own alternative spellings. The Québec join rate in Part B of the normalization
-eval is 68.2% while NAR carries building points on 99.8% of its Quebec rows —
-the geometry is there and the parse is what fails to reach it. Loading the
-decomposition and the renvois into the gazetteer is worth more than either the
-`qc` tier or the missing 225,275 addresses, and is the next thing to do here.
-See [`address-normalization-status.md`](address-normalization-status.md).
+own alternative spellings.
+
+**It is worth less than it was when this was written, and the reason is worth
+recording.** The diagnosis that ranked it — a Québec Part B join rate of 68.2%
+against building points on 99.8% of NAR's Quebec rows — was right that the
+geometry is there and the parse is what failed to reach it, and wrong about why.
+Cross-referencing 912 Québec failures against RQA split them: 33.7% a parse
+failure on an address both registers hold, **26.4% an address whose parse RQA
+confirms and NAR simply does not carry**, 24.8% in neither register, 9.0% a
+spelling NAR disagrees with. Half the shortfall was never the parser's. Of the
+half that was, the dominant classes were `ST-`/`STE-` left unexpanded, a dropped
+leading particule, and hyphen-versus-space — all three of which the gazetteer's
+match fold now handles for free, taking Québec to **75.5%**. What the
+decomposition can still buy is the part folding cannot reach: former and
+alternative names via the renvois, and génériques that belong to the name rather
+than the type. Re-measure the split before loading it. See
+[`address-normalization-status.md`](address-normalization-status.md).

@@ -526,6 +526,63 @@ test_that("a period in a municipality name does not block the gazetteer", {
   expect_equal(out$MUN_NAME, "ST. JOHN'S")
 })
 
+test_that("the match fold is the same transform in R and in SQL", {
+  skip_if_no_duckdb_spatial()
+  # Two implementations of one rule, and the fuzzy branch is only correct while
+  # they agree: the probe is folded in R and the gazetteer in DuckDB, so a
+  # divergence would silently stop the two sides from ever meeting.
+  x <- c("ST-JACQUES", "Sainte-Foy", "de l'Orme", "du Bord-du-Lac--Lakeshore",
+         "St. John's", "MAIN", "17e", "Cote-Ste-Catherine", "", "A-B")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  DBI::dbWriteTable(con, "x", data.frame(v = nar_fold(x)), temporary = TRUE)
+  sql <- DBI::dbGetQuery(con, paste("SELECT", nar_match_fold_sql("v"), "AS f FROM x"))$f
+  expect_equal(sql, nar_match_fold(x))
+})
+
+test_that("the match fold spells Saint out and treats a hyphen as a space", {
+  expect_equal(nar_match_fold("ST-JACQUES"), "SAINT JACQUES")
+  expect_equal(nar_match_fold("Cote-Ste-Catherine"), "COTE SAINTE CATHERINE")
+  expect_equal(nar_match_fold("de l'Orme"), "DE L ORME")
+  # The doubled hyphen NAR really does file -- du Bord-du-Lac--Lakeshore -- must
+  # not leave a doubled space behind, or whole-word containment stops matching.
+  expect_equal(nar_match_fold("Bord-du-Lac--Lakeshore"), "BORD DU LAC LAKESHORE")
+  # A bare ST that is not an abbreviation is expanded too. That is deliberate
+  # and safe: the gazetteer side goes through the same transform, so a street
+  # genuinely called ST still matches itself.
+  expect_equal(nar_match_fold("ST"), "SAINT")
+})
+
+test_that("an abbreviated Saint and a dropped particule still find the street", {
+  skip_if_no_duckdb_spatial()
+  # Three failures at once, all of them Quebec's ordinary spelling: the writer
+  # abbreviates Saint in the municipality, drops the particule from the street,
+  # and writes with spaces where NAR files hyphens. Before the match fold this
+  # resolved to nothing -- the municipality never matched, so the candidate set
+  # it restricts was empty.
+  con <- local_mini_gazetteer()
+  res <- nar_parse_rules("1000 boul Cure Labelle, St-Jerome, QC")
+  out <- nar_resolve_gazetteer(res, con)
+  expect_equal(out$parse_source, "gazetteer")
+  expect_equal(out$STREET_NAME, "du Cure-Labelle")
+  expect_equal(out$MUN_NAME, "SAINT-JEROME")
+})
+
+test_that("folding the gazetteer is done once and reused", {
+  skip_if_no_duckdb_spatial()
+  con <- local_mini_gazetteer()
+  expect_false("StreetFold" %in% DBI::dbListTables(con))
+  nar_street_fold(con)
+  expect_true("StreetFold" %in% DBI::dbListTables(con))
+  n <- DBI::dbGetQuery(con, "SELECT count(*) AS n FROM StreetFold")$n
+  # Idempotent: a second call must not rebuild or duplicate it.
+  nar_street_fold(con)
+  expect_equal(DBI::dbGetQuery(con, "SELECT count(*) AS n FROM StreetFold")$n, n)
+  expect_equal(DBI::dbGetQuery(con,
+    "SELECT S_FOLD FROM StreetFold WHERE S_FOLD LIKE 'DU CURE%'")$S_FOLD,
+    "DU CURE LABELLE")
+})
+
 test_that("a municipality is anchored from the end when no comma marks it", {
   # The comma is doing all the work in "... TH25, Vancouver": drop it and the
   # left-to-right walk takes the whole tail as the municipality, because

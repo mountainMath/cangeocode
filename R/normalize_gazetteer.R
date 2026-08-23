@@ -91,7 +91,9 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
   probe <- data.frame(
     row_id    = todo$.probe,
     name_fold = nar_fold(todo$STREET_NAME),
+    match_fold = nar_match_fold(todo$STREET_NAME),
     mun_fold  = nar_fold(ifelse(is.na(todo$MUN_NAME), "", todo$MUN_NAME)),
+    mun_match = nar_match_fold(ifelse(is.na(todo$MUN_NAME), "", todo$MUN_NAME)),
     prov      = ifelse(is.na(todo$PROV_ABVN), "", todo$PROV_ABVN),
     fsa       = ifelse(is.na(todo$POSTAL_CODE), "", substr(todo$POSTAL_CODE, 1, 3)),
     civic     = todo$CIVIC_NO,
@@ -104,6 +106,7 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
   DBI::dbWriteTable(con, tmp, probe, temporary = TRUE)
   on.exit(try(DBI::dbRemoveTable(con, tmp), silent = TRUE), add = TRUE)
 
+  nar_street_fold(con)
   best <- DBI::dbGetQuery(con, nar_gazetteer_sql(tmp, name_threshold))
 
   if (nrow(best)) {
@@ -151,6 +154,94 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
   res
 }
 
+#' Fold a street name to the form the fuzzy branch compares on
+#'
+#' @description [nar_fold()] settles case and accents, which is enough for an
+#' equality join. The fuzzy branch needs more, because two of Quebec's spelling
+#' conventions put a correct parse and NAR's own spelling of the same street on
+#' opposite sides of the name gate:
+#'
+#' * **The hyphen is not a distinguishing character.** NAR writes
+#'   `du Square-Victoria`, `du Curé-Labelle`, `Alexis-Nihon`; people write the
+#'   words with spaces, and usually without the leading particule. Whole-word
+#'   containment is exactly the rule that should catch `VICTORIA` inside
+#'   `du Square-Victoria` -- and it does not, because with the hyphen in place
+#'   `SQUARE-VICTORIA` is one word. Folding it to a space is what lets the rule
+#'   fire. This is not a Quebec-only change: `du Bord-du-Lac--Lakeshore` and
+#'   `Grande Côte` are the same problem, and English Canada's hyphenated names
+#'   gain the same way.
+#' * **`ST` and `STE` are abbreviations of `SAINT` and `SAINTE`**, and NAR
+#'   spells them out. `ST-JACQUES` against `Saint-Jacques` is six edits on a
+#'   thirteen-character string -- nowhere near the gate, and nowhere near the
+#'   top of a similarity ranking either. Expanding both sides is the only thing
+#'   that makes them meet, and applying it to both sides is what keeps it safe:
+#'   a name that really does contain a bare `ST` still matches itself.
+#'
+#' The apostrophe goes the same way as the hyphen, for the same reason:
+#' `de l'Orme` and `DE L ORME` are one street.
+#'
+#' Applied to the *probe* it produces `match_fold`, which is deliberately a
+#' second column rather than a replacement for `name_fold` -- the exact branch
+#' joins on `name_fold` through an index, and this expression would defeat it.
+#' @param x A character vector
+#' @return A character vector folded for comparison
+#' @keywords internal
+nar_match_fold <- function(x) {
+  x <- gsub("[.]", "", nar_fold(x))
+  x <- gsub("[-']", " ", x)
+  x <- paste0(" ", trimws(gsub("[[:space:]]+", " ", x)), " ")
+  x <- gsub(" STE ", " SAINTE ", x, fixed = TRUE)
+  x <- gsub(" ST ", " SAINT ", x, fixed = TRUE)
+  trimws(x)
+}
+
+#' [nar_match_fold()] as a SQL expression over one column
+#'
+#' @description The same transform DuckDB-side, so the gazetteer's own spelling
+#' is folded the way the probe was. It has to stay in step with
+#' [nar_match_fold()] character for character, which `test-normalize.R` asserts
+#' over a fixture of the shapes it exists for.
+#' @param col A SQL column reference
+#' @return A SQL expression string
+#' @keywords internal
+nar_match_fold_sql <- function(col) {
+  # Padded with spaces so the word replacements need no anchors, and trimmed
+  # again on the way out.
+  quo <- "''''"
+  inner <- paste0("regexp_replace(replace(replace(replace(", col,
+                  ", '.', ''), '-', ' '), ", quo, ", ' '), '\\s+', ' ', 'g')")
+  paste0("trim(replace(replace(' ' || trim(", inner,
+         ") || ' ', ' STE ', ' SAINTE '), ' ST ', ' SAINT '))")
+}
+
+#' Fold every gazetteer name once per connection
+#'
+#' @description [nar_match_fold_sql()] is six string operations, and the fuzzy
+#' branch evaluates it against every candidate street of every probe row. That
+#' is the same 511,848 names folded over and over: measured on the Part A
+#' sample it cost 45% of the normalizer's throughput, 399 rows a second down to
+#' 217. Folding the whole gazetteer once instead takes 68 ms.
+#'
+#' So it is done once per connection and kept, the same way the spatial macros
+#' are -- a TEMP table, invisible to other sessions, dropped when the connection
+#' closes. `Streets` is written once at import and never updated, so `rowid` is
+#' a stable key to join it back on.
+#'
+#' The alternative was a stored column and a schema bump, which would make every
+#' database built before it slower rather than merely different. This costs
+#' nothing at import and needs no re-import.
+#' @param con An open NAR connection
+#' @return Invisibly `TRUE` when the table is present
+#' @keywords internal
+nar_street_fold <- function(con) {
+  if ("StreetFold" %in% DBI::dbListTables(con)) return(invisible(TRUE))
+  DBI::dbExecute(con, paste0(
+    "CREATE TEMP TABLE StreetFold AS SELECT rowid AS SID, ",
+    nar_match_fold_sql("NAME_FOLD"), " AS S_FOLD, ",
+    nar_match_fold_sql("MAIL_NAME_FOLD"), " AS S_MAIL_FOLD FROM Streets"))
+  invisible(TRUE)
+}
+
 #' Empty strings back to NA
 #'
 #' @description NAR stores an absent street type or direction as `''` rather
@@ -189,8 +280,8 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
              -- A municipality named in the string wins; otherwise the postal
              -- code supplies one, taking the busiest municipality in the FSA.
              -- Both may be absent, which the exact branch below picks up.
-             coalesce(nullif(p.mun_fold, ''),
-                      (SELECT replace(strip_accents(upper(pm.MAIL_MUN_NAME)), '.', '')
+             coalesce(nullif(p.mun_match, ''),
+                      (SELECT {fold_pm}
                          FROM PostalMun pm
                         WHERE pm.FSA = p.fsa AND p.fsa <> ''
                         ORDER BY pm.N_ADDRESSES DESC LIMIT 1)) AS mun_use
@@ -202,6 +293,12 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
              s.OFFICIAL_STREET_TYPE AS STREET_TYPE,
              s.OFFICIAL_STREET_DIR  AS STREET_DIR,
              s.MAIL_MUN_NAME, s.MAIL_PROV_ABVN, s.N_ADDRESSES,
+             -- NAR's own spelling, folded the way the probe was --
+             -- see nar_match_fold(). Read off StreetFold rather than
+             -- computed here: the same names would otherwise be folded
+             -- once per probe row that reaches them.
+             f.S_FOLD AS s_fold,
+             f.S_MAIL_FOLD AS s_mail_fold,
              -- Two kinds of evidence Jaro-Winkler cannot express, each worth
              -- a flat 0.90 rather than given a branch of its own, so
              -- name_threshold keeps meaning one thing -- and so raising it above
@@ -222,8 +319,8 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
              -- (679th, in the first of those). It cannot displace a street
              -- actually called `PARK`: that scores an exact 1.0 and wins.
              greatest(
-               jaro_winkler_similarity(p.name_fold, replace(s.NAME_FOLD, '.', '')),
-               jaro_winkler_similarity(p.name_fold, replace(s.MAIL_NAME_FOLD, '.', ''))
+               jaro_winkler_similarity(p.match_fold, s_fold),
+               jaro_winkler_similarity(p.match_fold, s_mail_fold)
              ) AS jw_sim,
              greatest(
                jw_sim,
@@ -234,20 +331,30 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                -- similarity already computed, so it is only worth asking about
                -- candidates that are already close. Without the guard this
                -- query runs 3.5x slower for the same answers.
-               CASE WHEN jw_sim >= 0.70 AND length(p.name_fold) >= 3 AND least(
-                      damerau_levenshtein(p.name_fold, replace(s.NAME_FOLD, '.', '')),
-                      damerau_levenshtein(p.name_fold, replace(s.MAIL_NAME_FOLD, '.', ''))) <= 1
+               -- A length gate before the edit distance, and free: one
+               -- Damerau-Levenshtein step cannot bridge a length difference
+               -- greater than one, so any pair that fails this would have been
+               -- rejected anyway. It matters because folding the hyphen out
+               -- moved many more pairs past the 0.70 similarity prefilter --
+               -- `COTE-DES-NEIGES` and `COTE DES NEIGES` are near-identical
+               -- strings -- and the distance itself is the dear part.
+               CASE WHEN jw_sim >= 0.70 AND length(p.match_fold) >= 3
+                     AND least(abs(length(p.match_fold) - length(s_fold)),
+                               abs(length(p.match_fold) - length(s_mail_fold))) <= 1
+                     AND least(
+                      damerau_levenshtein(p.match_fold, s_fold),
+                      damerau_levenshtein(p.match_fold, s_mail_fold)) <= 1
                     THEN 0.90 ELSE 0 END,
                -- Same idea, and the same reason: a candidate no longer than
                -- the probe can only contain it by being equal to it, which the
                -- similarity above already scores 1.0.
-               CASE WHEN p.name_fold <> ''
-                     AND greatest(length(s.NAME_FOLD), length(s.MAIL_NAME_FOLD))
-                           > length(p.name_fold)
-                     AND (' ' || replace(s.NAME_FOLD, '.', '') || ' '
-                            LIKE '% ' || p.name_fold || ' %'
-                       OR ' ' || replace(s.MAIL_NAME_FOLD, '.', '') || ' '
-                            LIKE '% ' || p.name_fold || ' %')
+               CASE WHEN p.match_fold <> ''
+                     AND greatest(length(s_fold), length(s_mail_fold))
+                           > length(p.match_fold)
+                     AND (' ' || s_fold || ' '
+                            LIKE '% ' || p.match_fold || ' %'
+                       OR ' ' || s_mail_fold || ' '
+                            LIKE '% ' || p.match_fold || ' %')
                     THEN 0.90 ELSE 0 END) AS name_sim,
              0.72 * name_sim
              + 0.10 * CASE WHEN p.type = '' THEN 1
@@ -265,23 +372,30 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                            WHEN p.civic BETWEEN s.MIN_CIVIC_NO AND s.MAX_CIVIC_NO THEN 1
                            ELSE 0 END
                AS score
-             , replace(strip_accents(upper(s.MAIL_MUN_NAME)), '.', '')
-                 = p.mun_use AS mun_exact
+             , {fold_smun} = p.mun_use AS mun_exact
         FROM probe p
         -- Through the alias set rather than straight at MAIL_MUN_NAME: the name
         -- someone writes and the name NAR files under are often different names
         -- for overlapping places, in both directions.
         JOIN MunAlias m
-          -- Periods come off both sides. NAR files ST. JOHN'S, SAULT STE.
-          -- MARIE and ST. ALBERT with them, 1,027,129 addresses' worth, while
-          -- nar_norm_text() strips them from input as mere abbreviation marks.
-          -- Without this the two never meet and those cities resolve to
-          -- nothing. MunAlias is 18,313 rows, so scanning it costs nothing --
-          -- do not move this onto Streets, where it would cost the index.
-          ON replace(m.NAME_FOLD, '.', '') = p.mun_use
+          -- Both sides go through nar_match_fold(). Periods are the
+          -- original reason -- NAR files ST. JOHN'S, SAULT STE. MARIE and
+          -- ST. ALBERT with them, 1,027,129 addresses' worth, while
+          -- nar_norm_text() strips them from input as mere abbreviation marks,
+          -- so without this those cities resolve to nothing. Saint is the same
+          -- problem one step further on: NAR files SAINT-LAURENT and
+          -- SAINTE-FOY, people write ST-LAURENT and STE-FOY, and a
+          -- municipality that fails to resolve takes the street with it,
+          -- because the candidate set is what the municipality restricts.
+          -- MunAlias is 18,313 rows, so folding it on every call costs
+          -- nothing -- do not move this onto Streets, where it would cost the
+          -- index, and where StreetFold already does the job.
+          ON {fold_mun} = p.mun_use
          AND (p.prov = '' OR m.PROV_ABVN = p.prov)
         JOIN Streets s
           ON s.MUN_KEY = m.MUN_KEY
+        JOIN StreetFold f
+          ON f.SID = s.rowid
          AND (p.prov = '' OR s.MAIL_PROV_ABVN = p.prov)
        WHERE p.mun_use IS NOT NULL
     ),
@@ -343,7 +457,8 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
     SELECT * FROM (
       -- jw_sim is scaffolding for the guard above, not an output column, and
       -- the UNION lines the two branches up by position.
-      SELECT * EXCLUDE (jw_sim) FROM scored WHERE name_sim >= {name_threshold}
+      SELECT * EXCLUDE (jw_sim, s_fold, s_mail_fold) FROM scored
+       WHERE name_sim >= {name_threshold}
       UNION ALL
       SELECT * FROM exact
     )
@@ -361,5 +476,12 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                                ORDER BY score DESC, mun_exact DESC,
                                         N_ADDRESSES DESC, STREET_TYPE) = 1"
   sql <- gsub("{probe}", probe, sql, fixed = TRUE)
+  sql <- gsub("{fold_mun}", nar_match_fold_sql("m.NAME_FOLD"), sql, fixed = TRUE)
+  sql <- gsub("{fold_pm}",
+              nar_match_fold_sql("strip_accents(upper(pm.MAIL_MUN_NAME))"),
+              sql, fixed = TRUE)
+  sql <- gsub("{fold_smun}",
+              nar_match_fold_sql("strip_accents(upper(s.MAIL_MUN_NAME))"),
+              sql, fixed = TRUE)
   gsub("{name_threshold}", format(name_threshold), sql, fixed = TRUE)
 }

@@ -176,8 +176,52 @@ candidates already at `jw_sim >= 0.70` (one edit cannot go below that: worst cas
 first character of a three-letter word, 0.778), and containment only of candidates *longer* than
 the probe (a shorter one can only contain it by equalling it, already scored 1.0). Without the
 pair the query is **3.5x slower for byte-identical answers**. `jw_sim` is a lateral column alias
-reused by the guard, which is why the final union needs `SELECT * EXCLUDE (jw_sim) FROM scored` —
+reused by the guard, which is why the final union needs `SELECT * EXCLUDE (jw_sim, s_fold, s_mail_fold) FROM scored` —
 the `exact` branch has no such column and a `UNION` lines the branches up by position.
+
+**Both sides are compared on a *match fold*, not on `NAME_FOLD`.** `nar_match_fold()` takes
+`nar_fold()`'s case-and-accent folding two steps further: periods and apostrophes vanish, hyphens
+become spaces, and a standalone `ST`/`STE` is spelled out to `SAINT`/`SAINTE`. It is applied to
+the probe and to the gazetteer, and it is why the fuzzy branch can see Quebec at all.
+
+- **The hyphen is not punctuation here, it is a word boundary.** NAR writes `du Square-Victoria`
+  and `Côte-des-Neiges`; people write `VICTORIA` and `COTE DES NEIGES`. Unfolded, the whole-word
+  containment rule above cannot fire on either — `SQUARE-VICTORIA` is *one* word — and the edit
+  distance sees `COTE-DES-NEIGES` and `COTE DES NEIGES` as different strings for two characters
+  it should not be counting.
+- **`ST` is the same problem the period is, one step further on.** `ST-JACQUES` against
+  `Saint-Jacques` is six edits on thirteen characters. No similarity threshold and no single-edit
+  rule reaches that, and it is the ordinary way Quebec street and municipality names are written.
+- **The apostrophe goes to a space, not to nothing**, so `de l'Orme` folds to `DE L ORME` and
+  containment can find `ORME` inside it.
+
+`nar_match_fold_sql()` is the DuckDB twin and **must stay in step with the R function character for
+character** — the probe is folded in R and the gazetteer in SQL, and a rule that exists on only one
+side silently stops matching rather than erroring. `test-normalize.R` pins the two against each
+other over the shapes that distinguish them.
+
+The gazetteer side is folded **once per connection** into the `StreetFold` TEMP table by
+`nar_street_fold()`, keyed on `rowid`, not per candidate per probe row. The alternative — a stored
+column and a schema bump — would make every database built before it slower rather than merely
+different; this costs nothing at import and needs no re-import.
+
+**Folding forced a length gate in front of the edit distance, and the gate made the whole thing
+faster than it was unfolded.** Removing the hyphen moves far more pairs past the `jw_sim >= 0.70`
+prefilter, because `COTE-DES-NEIGES` and `COTE DES NEIGES` *are* near-identical strings — the first
+version of this change cost 45% of the normalizer's throughput. One Damerau-Levenshtein step cannot
+bridge a length difference greater than one, so an integer comparison rejects those pairs before
+the distance runs, and rejects nothing the distance would have accepted. Query time 11.8s → 1.7s,
+and 15% faster end to end than before the fold existed.
+
+**The municipality is folded on the same path, and that half is where most of the gain is.**
+`MunAlias` and the `PostalMun` fallback both compare through `nar_match_fold_sql()`, so `ST-LAURENT`
+resolves. It matters more than the street half because a municipality that fails to resolve takes
+the street with it: the municipality is what restricts the candidate set, so an unresolved one
+leaves the street with nothing to be matched against, however it is spelled.
+
+The `exact` branch is deliberately **not** folded. It is an indexed equality on `NAME_FOLD` and
+exists to be fast when there is no locality to restrict by; folding it would mean either an index
+it cannot use or the stored column just rejected.
 
 **The `exact` branch answers with a municipality only when NAR determines it** —
 `CASE WHEN count(DISTINCT MAIL_MUN_NAME) = 1 THEN any_value(...) END`. One municipality carrying

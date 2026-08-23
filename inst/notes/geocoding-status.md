@@ -445,9 +445,12 @@ classes RQA interpolated. See [`quebec-addresses.md`](quebec-addresses.md).
 corporations file the NAR pathway placed 81.0%; with `method = c("nar", "nar_interpolate",
 "qc")` that goes to **83.3%** — 12.3% of what NAR left unplaced, all of it at civic level
 (`qc_address`), none at street level. That is well short of BC's near-half recovery, which
-fits: Quebec's residual is dominated by the *parser*, not by NAR coverage. NAR's Quebec records
-carry building points on 99.8% of rows, and the Part B join rate for Québec is 68.2% against
-86.6% nationally — see the normalization note. **Fixing the Quebec parse is worth several times
+fits: Quebec's residual is dominated by the *parser*, not by NAR coverage. Those two
+percentages were measured before the gazetteer's match fold, which took Québec's Part B join
+rate from 68.2% to 75.5% — the NAR pathway's share is now higher and this tier's marginal
+recovery correspondingly smaller. Re-run it before quoting the 12.3%. NAR's Quebec records
+carry building points on 99.8% of rows, and the Part B join rate for Québec is 75.5% against
+88.3% nationally — see the normalization note. **Fixing the Quebec parse is worth several times
 what this tier is**, and the tier does not substitute for it.
 
 **Four response-shape traps**, each captured as a fixture rather than described, in

@@ -167,11 +167,20 @@ local_mini_gazetteer <- function(env = parent.frame()) {
       -- guessed, and the exact branch may answer with it.
       'Kenmount', 'RD', '', 'KENMOUNT', 'RD', '',
       'MOUNT PEARL', 'NL', '10', 'Mount Pearl', '10:CY:Mount Pearl',
-      'KENMOUNT', 'KENMOUNT', 60, 1, 900")
+      'KENMOUNT', 'KENMOUNT', 60, 1, 900
+    UNION ALL SELECT
+      -- A Quebec street carrying both of the conventions nar_match_fold()
+      -- exists for: a leading particule nobody writes, and hyphens where the
+      -- input has spaces. Its municipality carries the third, Saint spelled
+      -- out where the input abbreviates it.
+      'du Cure-Labelle', 'BOUL', '', 'DU CURE-LABELLE', 'BOUL', '',
+      'SAINT-JEROME', 'QC', '24', 'Saint-Jerome', '24:V:Saint-Jerome',
+      'DU CURE-LABELLE', 'DU CURE-LABELLE', 900, 1, 2000")
   DBI::dbExecute(con, "CREATE TABLE MunAlias AS SELECT
       'ST. JOHN''S' AS NAME_FOLD, 'NL' AS PROV_ABVN,
       '10:CY:St. John''s' AS MUN_KEY, 120 AS N_ADDRESSES
-    UNION ALL SELECT 'MOUNT PEARL', 'NL', '10:CY:Mount Pearl', 40")
+    UNION ALL SELECT 'MOUNT PEARL', 'NL', '10:CY:Mount Pearl', 40
+    UNION ALL SELECT 'SAINT-JEROME', 'QC', '24:V:Saint-Jerome', 900")
   DBI::dbExecute(con, "CREATE TABLE PostalMun AS SELECT
       'A1E' AS FSA, 'ST. JOHN''S' AS MAIL_MUN_NAME, 120 AS N_ADDRESSES")
   con

@@ -49,19 +49,19 @@ against a number written down here.
 | field | exact | | recovered when the surface form dropped it |
 | --- | --- | --- | --- |
 | `CIVIC_NO` | 99.9% | `STREET_TYPE` | 88.2% |
-| `STREET_NAME` | 98.0% | `STREET_DIR` | 96.8% |
+| `STREET_NAME` | 97.9% | `STREET_DIR` | 96.8% |
 | `STREET_TYPE` | 97.5% | `MUN_NAME` | **63.3%** |
 | `STREET_DIR` | 99.3% | `PROV_ABVN` | 95.3% |
 | `MUN_NAME` | 94.4% | `POSTAL_CODE` | 0.3% |
-| **ALL** | **97.3%** | **CORE** (civic + name) | **98.0%** |
+| **ALL** | **97.2%** | **CORE** (civic + name) | **97.9%** |
 
 **Part B** — 5,000 Corporations Canada registered offices, i.e. addresses nobody cleaned:
 
 | | |
 | --- | --- |
 | street name and civic number extracted | 98.8% |
-| joins a real NAR address (civic + name + municipality + province) | 86.6% |
-| ... and the filer's postal code confirms it | 81.7% |
+| joins a real NAR address (civic + name + municipality + province) | 88.3% |
+| ... and the filer's postal code confirms it | 83.3% |
 
 ### How to read these
 
@@ -154,7 +154,7 @@ a restored-name candidate that happens to exist somewhere will outscore the base
 gazetteer's own score, so the retry has to be gated on the baseline failing rather than offered
 alongside it.
 
-### 4. Keyboard typos in the street name — 92.1% vs 98.6% clean
+### 4. Keyboard typos in the street name — 91.9% vs 98.6% clean
 
 Was 76.2% against 98.3%. The gap closed when the name gate stopped being a pure similarity
 threshold: `Yinge` → `Yonge` and `NAPLE RD` → `Maple` both used to survive as typed, because
@@ -221,6 +221,58 @@ see this, because Part A renders its municipalities out of NAR into a comma-deli
 B's filings are mostly comma-delimited too. That is the same gap in the noise grammar the
 hyphenated-unit fix exposed, and it is the reason both of these were found by hand rather than by
 the eval.
+
+### The gazetteer compares on a folded name, and Quebec stops failing at the door
+
+The largest single gain the parser has had, and it is three characters wide. The fuzzy branch used
+to compare NAR's spelling to the input having settled only case, accents and periods.
+[`nar_match_fold()`](../../.claude/normalization.md) also folds the hyphen and the apostrophe to a
+space and spells `ST`/`STE` out to `SAINT`/`SAINTE`, on **both** sides — probe and gazetteer — and
+the same fold now runs on the municipality names in `MunAlias` and `PostalMun`.
+
+Three failures were riding on this, all of them Quebec's ordinary spelling rather than anything
+noisy:
+
+* **The particule nobody writes.** NAR files `du Curé-Labelle`, `du Square-Victoria`,
+  `du Président-Kennedy`, `de Senneville`. People write `CURE LABELLE`, `VICTORIA`, `KENNEDY`,
+  `SENNEVILLE`. Whole-word containment is the rule that should catch exactly this — and it could
+  not fire, because with the hyphen in place `SQUARE-VICTORIA` is a single word and the probe is
+  not inside it.
+* **Saint abbreviated.** `ST-JACQUES` against `Saint-Jacques` is six edits on thirteen characters:
+  past the name gate, past the single-edit rule, and nowhere near the top of a similarity ranking.
+* **Saint abbreviated in the *municipality*,** which was the more expensive half. `ST-LAURENT`
+  never resolved through `MunAlias`, and the municipality is what restricts the candidate set —
+  so the street had no candidates to be matched against at all, whatever its own spelling.
+
+Measured on the standing 5,000-address harness:
+
+| | before | after |
+| --- | ---: | ---: |
+| Part B, joins a real NAR address | 86.6% | **88.3%** |
+| Part B, confirmed by the postal code | 81.7% | **83.3%** |
+| Part B, **Québec** | 68.2% | **75.5%** |
+| Part B, `french_street` pattern | 80.8% | **83.7%** |
+| Part B, Ontario | 86.5% | 86.7% |
+| Part A, STREET_NAME | 98.0% | 97.9% |
+| throughput | 399/s | **460/s** |
+
+Québec gains **7.3 points**, and about three quarters of that is the municipality half rather than
+the street half. Nothing regresses except one row of Part A, and it is worth naming because it is
+the shape of the risk: `19 sr arnaud st, guelph, on` is a rendered typo for `St Arnaud`, a real
+Guelph street where `St` genuinely is Saint. Unfolded, `SR ARNAUD` sat one edit from `ST ARNAUD`
+and matched; folded, the gazetteer side became `SAINT ARNAUD` and a typo inside the abbreviation
+can no longer reach it. One row in 4,982, against 69 Québec rows gained.
+
+The throughput went **up**, which was not the intent. Folding is cheap but the edit distance is
+not, and folding the hyphen out moved far more pairs past the 0.70 similarity prefilter that
+guards it — `COTE-DES-NEIGES` and `COTE DES NEIGES` are near-identical strings. That first cost
+45% of the normalizer's speed, and the fix is a length gate: one Damerau-Levenshtein step cannot
+bridge a length difference greater than one, so pairs that fail an integer comparison never reach
+the distance. It rejects nothing the distance would have accepted, and it made the query 6.9x
+faster than the folded version and 15% faster than the code before any of this.
+
+`StreetFold` exists for the same reason at one remove: the fold is computed once per connection
+over all 511,848 gazetteer names rather than once per candidate per probe row.
 
 ### The parser produces candidate readings, and evidence chooses between them
 
@@ -466,29 +518,32 @@ The first four items of the previous list came out of *What a local LLM adds* an
 *Fixed, and worth keeping fixed* for what they bought. What is left is ordered the same way, by
 rows recovered per unit of effort.
 
-1. **Load the Québec odonyme decomposition into the gazetteer.** The Répertoire québécois des
-   adresses publishes every street name in the province already decomposed into générique,
-   particule, spécifique and point cardinal — 115,352 odonymes, a particule on 27.8% of rows,
-   four recomposed surface forms each — plus 551,160 cross-references to alternative and former
-   names in `Odonymes_renvois.csv`. That is a labelled version of exactly what the parser is
-   trying to infer, for the province where it does worst: the Part B Québec join rate is 68.2%
-   while NAR carries a building point on 99.8% of its Quebec rows, so the geometry is already
-   there and the parse is what fails to reach it. Sized but not yet measured — the ceiling is the
-   gap between those two figures, and how much of it the gazetteer actually closes is the thing to
-   measure first. Licence is CC-BY, attribution-compatible with NAR's OGL. See
-   [`quebec-addresses.md`](quebec-addresses.md).
-2. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
+1. **Re-diagnose what is left of Québec.** The match fold above took Québec's Part B join rate
+   from 68.2% to 75.5%, so the diagnosis that ranked this item is stale. What that diagnosis
+   *also* found, and what still stands, is that half of Québec's remaining shortfall is not the
+   parser's at all: of 912 failures on a 4,000-address Québec sample, 26.4% were addresses whose
+   parse the Répertoire québécois des adresses confirms and which NAR simply does not carry, and
+   a further 24.8% were not in either register. Re-run the split in
+   [`quebec-addresses.md`](quebec-addresses.md) before spending anything more here.
+2. **The Québec odonyme decomposition, if the re-diagnosis still wants it.** RQA publishes every
+   street name in the province already split into générique, particule, spécifique and point
+   cardinal — 115,352 odonymes, a particule on 27.8% of rows — plus 551,160 cross-references to
+   alternative and former names in `Odonymes_renvois.csv`. The match fold captured the cheap part
+   of what that data was going to buy (containment now sees through the particule and the hyphen),
+   so what is left is the part folding cannot do: former names, and génériques that are part of
+   the name rather than the type. Licence is CC-BY, attribution-compatible with NAR's OGL.
+3. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
    arbitration now exist; what is missing is the two strategies and their gates. One mechanism
    fixes both: when a stripped reading finds nothing in the gazetteer, retry with the token
    restored to the name. Affects ~686k addresses' worth of street forms; the direction half fires
    even on clean input. The name gate now recovers some of this incidentally — whole-word
    containment catches a type the parser ate whenever the gazetteer has the fuller name — so
    re-measure the remaining size before building it.
-3. **Reject a province name as a municipality** (mode 6). An afternoon.
-4. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
+4. **Reject a province name as a municipality** (mode 6). An afternoon.
+5. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
    determined case is now answered; this is the 157 rows with 2 or more candidates. Either
    document `NA` as the honest answer or return candidates. A design decision, not a bug fix.
-5. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
+6. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
 
 ## Deferred
 
