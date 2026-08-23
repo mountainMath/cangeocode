@@ -237,6 +237,46 @@ B's filings are mostly comma-delimited too. That is the same gap in the noise gr
 hyphenated-unit fix exposed, and it is the reason both of these were found by hand rather than by
 the eval.
 
+### A comma-free string, segmented on the municipality inventory
+
+The other thing the deepparse benchmark found, and the last one it was still winning. ODHF's
+custodians write the whole address as one unpunctuated run — `8512 164th st surrey bc v4n 1e5`,
+2,241 rows of it — and nothing in the string marks where the street stops. The parser inferred
+the boundary from the street type and got it wrong in three distinct ways, all of them invisible
+to a corpus that uses commas:
+
+* the place name's first word was taken for the street's direction. `3908 loraine ave north
+  vancouver` leaves `VANCOUVER`, which is a real municipality, so nothing downstream saw a
+  problem.
+* the place name's last word was taken for the street type. `RIDGE`, `ISLAND`, `BAY` and `BEACH`
+  are all NAR street types, so `maple ridge`, `bowen island`, `brentwood bay` and `qualicum
+  beach` each ate their own first word into the street name and left no municipality at all.
+  `4830 scott ave terrace` is the degenerate case: the whole place name is a street type.
+* the street named no type, so there was no boundary to find. `27830 swensson abbotsford`,
+  `1818 kingsway vancouver`.
+
+The fix is one more condition on `nar_baseline_is_defective()`: offer the anchored readings when
+a **longer trailing run than the baseline claimed also names a municipality**. That is evidence
+from the inventory rather than a rule about token shapes, which matters, because the shapes are
+identical to the ones that must not move — `100 MILE HOUSE` and `MILE HOUSE`, `NORTH BAY` and
+`BAY`. Two new guards keep it honest: a residue that is nothing but particules or a bare street
+type is not a street name (`nar_is_street_name()`), and a run that *is* a street type is only
+free to be the municipality when the street still names one of its own, which is the whole
+difference between `4830 scott ave terrace` and `82 Fesroches Trail`.
+
+`odhf_full` goes **57.5% → 62.3%** postal-confirmed, past deepparse-as-segmenter's 61.3%;
+municipalities missing from its failures fall 214 → 55. **Part A and Part B are both exactly
+unchanged** — 97.9% CORE, 94.4% MUN, 98.9% / 88.4% / 83.3% — and structurally so rather than by
+luck: the run scan reaches back at most one token short of the last comma segment, so a
+comma-delimited municipality is longer than anything it can propose and the condition cannot
+fire. The generated `llm` corpus trades 0.2 CORE points for 2.1 municipality points.
+
+What it does **not** do is undo a direction without a connection. `NORTH VANCOUVER` and
+`VANCOUVER` are both real, both readings score the same, and the baseline wins ties by rule, so
+rules-only keeps `VANCOUVER` and only the gazetteer moves it. See
+[`normalization.md`](../../.claude/normalization.md) for why a longest-match tie-break would be
+the wrong repair.
+
 ### A prose prefix in front of the address, cut before anything else reads the string
 
 Found by the deepparse benchmark, not by this harness, and it is the largest effect measured on
@@ -554,42 +594,37 @@ Two things this explicitly does **not** settle:
 ## Next steps, in the order the measurements justify
 
 The first four items of the previous list came out of *What a local LLM adds* and are done — see
-*Fixed, and worth keeping fixed* for what they bought. The prefix-strip item that headed this
-list has shipped too; what is left is ordered the same way, by rows recovered per unit of effort.
+*Fixed, and worth keeping fixed* for what they bought. So have the two the deepparse benchmark
+added, the prefix strip and comma-free segmentation, and with them nothing in that benchmark
+still beats the parser on a corpus it was never tuned on. What is left is ordered the same way,
+by rows recovered per unit of effort.
 
-1. **Segment comma-free text.** `odhf_full` is 2,241 rows of whole address with no comma
-   anywhere in it (`8512 164th st surrey bc v4n 1e5`), and it is the one place in
-   [`deepparse.md`](deepparse.md)'s four corpora where a neural segmenter still beats us after
-   the prose strip: 61.3% postal-confirmed against **57.5%**. Part A's noise grammar cannot
-   generate the class, which is why it went unseen; ODHF is now the corpus that does. The target
-   is small and specific enough that the next thing to try is a rule — the parser already has to
-   find the municipality and province in an unpunctuated tail — and a model only if a rule fails.
-2. **Re-diagnose what is left of Québec.** The match fold above took Québec's Part B join rate
+1. **Re-diagnose what is left of Québec.** The match fold above took Québec's Part B join rate
    from 68.2% to 75.5%, so the diagnosis that ranked this item is stale. What that diagnosis
    *also* found, and what still stands, is that half of Québec's remaining shortfall is not the
    parser's at all: of 912 failures on a 4,000-address Québec sample, 26.4% were addresses whose
    parse the Répertoire québécois des adresses confirms and which NAR simply does not carry, and
    a further 24.8% were not in either register. Re-run the split in
    [`quebec-addresses.md`](quebec-addresses.md) before spending anything more here.
-3. **The Québec odonyme decomposition, if the re-diagnosis still wants it.** RQA publishes every
+2. **The Québec odonyme decomposition, if the re-diagnosis still wants it.** RQA publishes every
    street name in the province already split into générique, particule, spécifique and point
    cardinal — 115,352 odonymes, a particule on 27.8% of rows — plus 551,160 cross-references to
    alternative and former names in `Odonymes_renvois.csv`. The match fold captured the cheap part
    of what that data was going to buy (containment now sees through the particule and the hyphen),
    so what is left is the part folding cannot do: former names, and génériques that are part of
    the name rather than the type. Licence is CC-BY, attribution-compatible with NAR's OGL.
-4. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
+3. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
    arbitration now exist; what is missing is the two strategies and their gates. One mechanism
    fixes both: when a stripped reading finds nothing in the gazetteer, retry with the token
    restored to the name. Affects ~686k addresses' worth of street forms; the direction half fires
    even on clean input. The name gate now recovers some of this incidentally — whole-word
    containment catches a type the parser ate whenever the gazetteer has the fuller name — so
    re-measure the remaining size before building it.
-5. **Reject a province name as a municipality** (mode 6). An afternoon.
-6. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
+4. **Reject a province name as a municipality** (mode 6). An afternoon.
+5. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
    determined case is now answered; this is the 157 rows with 2 or more candidates. Either
    document `NA` as the honest answer or return candidates. A design decision, not a bug fix.
-7. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
+6. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
 
 ## Deferred
 
@@ -604,14 +639,17 @@ The **fine-tune** is a separate claim, and it has now been tested at one remove.
 address tagger — trained on Canadian data, not a general foundation model — on four corpora,
 two of which this parser was never tuned against. It loses to the gazetteer on both tuned
 corpora and on six of eight generated classes, because it carries no register and a fine-tune
-would have to acquire one. It won on exactly one thing, segmentation, and a six-line rule won
-that by more. **Neither a fine-tune nor a from-scratch model is warranted on the evidence.**
+would have to acquire one. It won on exactly one thing, segmentation, and rules won that by
+more. **Neither a fine-tune nor a from-scratch model is warranted on the evidence.**
 
-That harness has since been re-run with `nar_strip_lead_prose()` in place, which was the
-condition set for reopening the case. It does not reopen: `cangeocode` now leads `dp -> norm`
-on the generated corpus under both models, and the only place a tagger still wins is
-`odhf_full`, by 3.8 points on 2,241 rows of comma-free text — *Next step 1*, and a target for a
-rule long before a model. Re-run it again if that step fails to close the gap.
+That harness has been re-run twice since, once for each rule the benchmark produced, which was
+the condition set for reopening the case. It does not reopen. After `nar_strip_lead_prose()`,
+`cangeocode` led `dp -> norm` on the generated corpus under both models and the tagger's only
+remaining win was `odhf_full`, by 3.8 points on 2,241 rows of comma-free text. After the
+comma-free segmentation above, that reverses too: **62.3% against 61.3%**. What the tagger still
+leads on is `odhf_street` — 78.6% against 75.9% — which is not a segmentation result at all,
+since those rows have their municipality appended behind a comma. It is a different question,
+and one to diagnose before it is a reason to run this harness again.
 
 Also noted in the plan and still outstanding, unrelated to normalization: `reverse_geocode()`
 builds its `address` string from `MAIL_*` columns, and `MAIL_STREET_NAME` is empty for 957,307

@@ -295,14 +295,28 @@ nar_strip_lead_prose <- function(s) {
   cut <- utils::tail(c(0L, which(drop == ",")), 1L)
   seg <- if (cut < length(drop)) nar_fold(drop[seq(cut + 1L, length(drop))]) else
     character(0)
-  particule <- c("DU", "DE", "DES", "D", "LA", "LE", "LES", "L", "AU", "AUX",
-                 "A", "EN")
   k <- length(seg)
-  while (k >= 1L && (seg[k] %in% particule || grepl("^[DL]'", seg[k]))) k <- k - 1L
+  while (k >= 1L && nar_is_particule(seg[k])) k <- k - 1L
   if (k >= 1L && (nar_is_street_type(seg[k]) || seg[k] %in% nar_road_tail_words()))
     return(s)
 
   paste(toks[seq(at, length(toks))], collapse = " ")
+}
+
+#' Is this folded token a French particule or article?
+#'
+#' @description The words that join a street type to its specific -- `RUE DE LA
+#' PAIX`. They are load-bearing in two places that both have to decide where a
+#' name ends: the leading-prose strip peels them off before testing what governs
+#' a number, and municipality anchoring rejects a reading whose street name is
+#' nothing but these, which is what `135 de Nantes` leaves behind once Nantes is
+#' taken for the municipality it also is.
+#' @param x A folded token
+#' @return `TRUE` for a particule
+#' @keywords internal
+nar_is_particule <- function(x) {
+  x %in% c("DU", "DE", "DES", "D", "LA", "LE", "LES", "L", "AU", "AUX",
+           "A", "EN") | grepl("^[DL]'", x)
 }
 
 #' The last word of every numbered-road surface form

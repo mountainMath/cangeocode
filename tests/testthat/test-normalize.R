@@ -607,6 +607,54 @@ test_that("a multi-word municipality outranks the shorter one inside it", {
   expect_equal(r$STREET_NAME, c("MAIN", "MAIN"))
 })
 
+test_that("a comma-free string is segmented on the municipality inventory", {
+  # The whole address in one unpunctuated run, which is how ODHF's custodians
+  # write it. Nothing marks where the street stops, and every one of these
+  # places ends in a word the parser wants for something else: RIDGE, ISLAND,
+  # BAY and BEACH are all NAR street types, TERRACE is a street type standing
+  # alone as the whole name, and ABBOTSFORD trails a street that names no type
+  # at all so there is no boundary to find. The inventory is the only thing
+  # that knows.
+  r <- normalize_address(c("22269 callaghan ave maple ridge bc",
+                           "811 grafton rd bowen island bc",
+                           "1166 marin park dr brentwood bay bc",
+                           "124 fourth ave e qualicum beach bc",
+                           "135 crofton rd salt spring island bc",
+                           "4830 scott ave terrace bc",
+                           "27830 swensson abbotsford bc",
+                           "1818 kingsway vancouver bc"))
+  expect_equal(r$MUN_NAME,
+               c("MAPLE RIDGE", "BOWEN ISLAND", "BRENTWOOD BAY",
+                 "QUALICUM BEACH", "SALT SPRING ISLAND", "TERRACE",
+                 "ABBOTSFORD", "VANCOUVER"))
+  expect_equal(r$STREET_NAME,
+               c("CALLAGHAN", "GRAFTON", "MARIN PARK", "FOURTH", "CROFTON",
+                 "SCOTT", "SWENSSON", "KINGSWAY"))
+  expect_equal(as.character(r$PROV_ABVN), rep("BC", 8))
+})
+
+test_that("a place name that is a street type needs the street to spare one", {
+  # TRAIL is a municipality in Ontario and a street type everywhere. The only
+  # thing separating "82 Fesroches Trail" from "4830 scott ave terrace" is that
+  # the second still names a type once the place is taken off the end and the
+  # first does not, so the first keeps its type and names no municipality.
+  r <- normalize_address(c("82 Fesroches Trail, ON", "4830 scott ave terrace bc"))
+  expect_equal(r$STREET_NAME, c("FESROCHES", "SCOTT"))
+  expect_equal(as.character(r$STREET_TYPE), c("TRAIL", "AVE"))
+  expect_equal(r$MUN_NAME, c(NA, "TERRACE"))
+})
+
+test_that("rules alone will not take a direction back off a municipality", {
+  # "3908 loraine ave north vancouver" reads NORTH as the street's direction
+  # and leaves VANCOUVER, which is a real municipality -- so is NORTH
+  # VANCOUVER, and the inventory cannot say which. The baseline wins the tie by
+  # rule, and only the gazetteer, which knows Loraine Avenue is in one of them
+  # and not the other, moves it.
+  r <- normalize_address("3908 loraine ave north vancouver bc")
+  expect_equal(r$MUN_NAME, "VANCOUVER")
+  expect_equal(as.character(r$STREET_DIR), "N")
+})
+
 test_that("anchoring never fires on a parse that is not broken", {
   # The guard that matters. These strings name no municipality at all, and
   # every one ends in a word that is a real place -- Albanel, Nantes and Trail
@@ -624,6 +672,17 @@ test_that("anchoring never fires on a parse that is not broken", {
   r <- normalize_address("123 Kingston")
   expect_equal(r$STREET_NAME, "KINGSTON")
   expect_true(is.na(r$MUN_NAME))
+
+  # The residue test is what holds these back now that the gate opens on a
+  # trailing run naming a place. Particules are not a street name, and neither
+  # is a street type standing on its own -- both after the particules come off,
+  # so RUE DE LA fails the same way RUE does.
+  expect_false(nar_is_street_name(NA_character_))
+  expect_false(nar_is_street_name("DE LA"))
+  expect_false(nar_is_street_name("RUE"))
+  expect_false(nar_is_street_name("RUE DE LA"))
+  expect_true(nar_is_street_name("DE NANTES"))
+  expect_true(nar_is_street_name("KINGSWAY"))
 })
 
 test_that("a spaced hash still introduces a unit", {

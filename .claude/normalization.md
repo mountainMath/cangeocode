@@ -152,23 +152,70 @@ outscores an unrestricted one *by construction*, so the worse parse wins on a sc
 never meant to compare two different parses of the same string. Arbitration cannot repair a
 candidate that should not have been offered — which is why the fix belongs at generation.
 
-So exactly two conditions open the gate, and nothing else may be added without re-running the
+So exactly three conditions open the gate, and nothing else may be added without re-running the
 harness:
 
 - the proposed municipality **is not a place**. `TH25 VANCOUVER` is not, `100 MILE HOUSE` is, and
   no rule about token shapes tells them apart — which is the whole reason the inventory exists.
 - the proposed street name **contains a `#`**, which `nar_norm_text()` guarantees introduces a
   unit and which no street name can contain. That is the signature of a string nothing split.
+- **a longer trailing run than the one it claimed is also a place.** This is the comma-free case,
+  and the only one of the three that can fire on a baseline with nothing visibly wrong with it.
 
-**A baseline proposing no municipality at all is not defective.** The string did not carry one,
-`NA` is the right answer, and recovering it is a gazetteer question — failure mode 1 in the
-status note, and a ceiling rather than a bug.
+**The third condition is what segments an undelimited string, and its whole content is that the
+inventory saw something the walk did not.** `3908 loraine ave north vancouver` reads `NORTH` as
+the street's direction and leaves `VANCOUVER`, a real municipality, so neither of the other two
+tests sees anything — but `NORTH VANCOUVER` is a real municipality too, and that is the entire
+evidence for offering the other reading. It also covers the baselines that proposed *no*
+municipality because a street type inside the place name ate the boundary: `maple ridge`, `bowen
+island`, `brentwood bay` and `qualicum beach` all end in a NAR street type, `4830 scott ave
+terrace` ends in one that is the whole name, and `27830 swensson abbotsford` trails a street that
+names no type at all so there is no boundary to find.
+
+**A baseline proposing no municipality where the string holds no run that names one is still not
+defective.** The string did not carry a place, `NA` is the right answer, and recovering it is a
+gazetteer question — failure mode 1 in the status note, and a ceiling rather than a bug.
+
+**The scan cannot fire on a comma-delimited municipality, and that is structural rather than a
+guard.** `nar_mun_anchor_runs()` reaches back at most to one token short of the last comma
+segment, so what a comma already gave the baseline is longer than anything the scan is allowed to
+propose. The third condition is therefore confined to strings the writer never delimited, which
+is what makes it safe to open at all — Part A and Part B are comma-delimited end to end and both
+came back byte-identical.
 
 `nar_mun_anchor_variants()` tries the longest trailing run first, and offers *every* length that
-names a place: `NORTH BAY` and `BAY` are both municipalities, so neither may be assumed. Two
-further guards: a run may not reach back past the last comma (a municipality never spans a comma
-the writer put in), and a candidate is dropped unless a street name survives the remainder, which
-is what stops `123 Kingston` from resolving to the city with no street in it.
+names a place: `NORTH BAY` and `BAY` are both municipalities, so neither may be assumed. Four
+guards, and the last two are what let the gate open this wide:
+
+- a run may not reach back past the last comma (a municipality never spans a comma the writer
+  put in);
+- a candidate is dropped unless a street name survives the remainder, which is what stops
+  `123 Kingston` from resolving to the city with no street in it;
+- **a residue that is not a street name counts as no street name** (`nar_is_street_name()`).
+  Every place name that also does duty as a street name fails *here* rather than at the gate:
+  `135 de Nantes` anchors Nantes and leaves `DE`, `22 avenue de la Durantaye` leaves `DE LA`,
+  `80 rue Albanel` leaves `RUE`. Particules are not a name, and neither is a street type standing
+  alone — both tested after the particules come off, so `RUE DE LA` fails as surely as `RUE`.
+- **a run that is a street type has to be one the street can spare.** `TRAIL` is a municipality in
+  Ontario and a street type everywhere. `82 Fesroches Trail` is the second and `4830 scott ave
+  terrace` is the first, and the only thing separating them is whether a type survives in the
+  remainder. Without this guard the gate's third condition turns every street ending in a type
+  that is also a place into an address with no type and a municipality it never named.
+
+**Rules alone will not undo a direction.** `3908 loraine ave north vancouver` yields two readings
+that both name a real municipality, both score the same completeness, and the baseline wins ties
+by rule — so without a connection the answer stays `VANCOUVER`. Only the gazetteer, which knows
+Loraine Avenue is in one of them and not the other, moves it. That is the arbitration order
+working as designed and not a shortfall in the gate; do not add a tie-break that prefers the
+longer name, because `100 MILE HOUSE` and `MILE HOUSE` are the same shape with the opposite
+answer.
+
+**A known hole this exposed but does not cause.** With the municipality already fixed,
+`nar_parse_one()` silently drops whatever trails the street type — `802 11 rue Victoria, La Baie`
+picks `RUE`, strands `VICTORIA` and loses it. Reverting the type pick when it strands a token was
+tried and **rejected**: anchoring deliberately bites into the last comma segment, so the tokens
+it strands are as often municipality debris (`330 Spadina Road, City Of Toronto` leaves
+`CITY OF`) as street words, and the revert cost more than it bought on every corpus.
 
 **The municipality inventory ships in `R/sysdata.rda` as `nar_lex_muns`** — 9,748 distinct
 `MunAlias` names with province and address count, rebuilt by `data-raw/observe_municipalities.R`
@@ -183,12 +230,20 @@ extra max-score pick in R. What it does need is the final `STREET_TYPE` tie-brea
 old ordering left the winner to DuckDB, and merely changing the shape of the probe table flipped
 it. A before/after harness run cannot tolerate a coin flip.
 
-> Measured effect on the eval's 5,000-row samples: **Part A exactly at parity** (0 rows gained,
-> 0 lost — the gate is what bought that), Part B **86.5% → 86.6%** joining a real NAR address,
-> postal-confirmed **81.6% → 81.7%**, Quebec **67.8% → 68.2%**, rules-only fallbacks 374 → 371.
-> The rules layer costs about 9% throughput for the defect check; both the single-candidate
-> paths in `nar_parse_variants()` and `nar_arbitrate_rules()` are pure short-circuits and were
-> verified output-identical.
+> Measured effect of candidate readings, when they went in: **Part A exactly at parity**
+> (0 rows gained, 0 lost — the gate is what bought that), Part B **86.5% → 86.6%** joining a real
+> NAR address, postal-confirmed **81.6% → 81.7%**, Quebec **67.8% → 68.2%**, rules-only fallbacks
+> 374 → 371. The rules layer costs about 9% throughput for the defect check; both the
+> single-candidate paths in `nar_parse_variants()` and `nar_arbitrate_rules()` are pure
+> short-circuits and were verified output-identical.
+>
+> Measured effect of the third gate condition, on the same samples: **Part A and Part B both
+> exactly unchanged** — CORE 97.9%, MUN 94.4%, and 98.9% / 88.4% / 83.3% to the decimal, because
+> neither corpus contains an undelimited string. `odhf_full`, which is 2,241 of them, went
+> **57.5% → 62.3%** postal-confirmed, passing deepparse-as-segmenter's 61.3%; municipalities
+> missing from its failures fell 214 → 55. The generated `llm` corpus gained 2.1 points of
+> municipality (73.0% → 75.1%) for 0.2 of CORE (93.2% → 93.0%) — two rows whose baseline was
+> already junk that the containment street test was crediting anyway.
 
 ## `R/normalize_gazetteer.R` — matching the parse against NAR
 

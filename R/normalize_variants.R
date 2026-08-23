@@ -28,14 +28,15 @@
 nar_parse_variants <- function(s, lang = "en", prov = NA_character_) {
   base <- nar_parse_one(s, lang, prov)
   base$strategy <- "baseline"
+  toks <- nar_tokens(s)
 
   # The overwhelmingly common case is one reading, and the collapse machinery
   # below costs more than the parse itself -- leave before paying for it.
-  if (!nar_baseline_is_defective(base, prov)) {
+  if (!nar_baseline_is_defective(base, toks, prov)) {
     base$.cand <- 1L
     return(base)
   }
-  anchored <- nar_mun_anchor_variants(s, lang, prov)
+  anchored <- nar_mun_anchor_variants(toks, lang, prov)
   if (!length(anchored)) {
     base$.cand <- 1L
     return(base)
@@ -76,17 +77,69 @@ nar_parse_variants <- function(s, lang = "en", prov = NA_character_) {
 #'   [nar_norm_text()] guarantees introduces a unit and which no street name
 #'   can therefore contain. That is the signature of a string nothing split.
 #'
-#' A baseline that proposes *no* municipality is not defective. The string
-#' simply did not carry one, `NA` is the right answer, and the status note
-#' treats recovering it as a gazetteer question rather than a parsing one.
+#' * **a longer trailing run than the one it claimed is also a place.** This
+#'   is the comma-free case and the only one of the three that can fire on a
+#'   baseline with nothing visibly wrong with it. `3908 loraine ave north
+#'   vancouver` reads `NORTH` as the street's direction and leaves `VANCOUVER`,
+#'   which is a real municipality, so neither of the tests above sees anything;
+#'   `NORTH VANCOUVER` is a real municipality too, and that is the entire
+#'   evidence for offering the other reading. It also covers the baselines that
+#'   proposed *no* municipality because a street type inside the place name ate
+#'   the boundary -- `maple ridge`, `bowen island`, `brentwood bay`, `qualicum
+#'   beach` all end in a NAR street type, and `4830 scott ave terrace` ends in
+#'   one that is the whole name.
+#'
+#' A baseline that proposes no municipality where the string holds no run that
+#' names one is still not defective. The string simply did not carry a place,
+#' `NA` is the right answer, and the status note treats recovering it as a
+#' gazetteer question rather than a parsing one.
+#'
+#' The run scan is bounded by the same reach anchoring uses, which is one token
+#' short of the last comma segment, so a comma-delimited municipality can never
+#' trigger it: what the comma already gave the baseline is longer than anything
+#' the scan is allowed to propose. That is what confines this third test to
+#' strings the writer never delimited.
 #' @param base A one-row parse from [nar_parse_one()]
+#' @param toks The token vector the parse was built from
 #' @param prov A two-letter province code, or `NA`
 #' @return `TRUE` when an alternative reading is worth generating
 #' @keywords internal
-nar_baseline_is_defective <- function(base, prov = NA_character_) {
+nar_baseline_is_defective <- function(base, toks = character(0),
+                                      prov = NA_character_) {
   if (!is.na(base$mun) &&
       !nar_is_municipality(nar_mun_key(base$mun), prov)) return(TRUE)
-  !is.na(base$name) && grepl("(^|[[:space:]])#([[:space:]]|$)", base$name)
+  if (!is.na(base$name) &&
+      grepl("(^|[[:space:]])#([[:space:]]|$)", base$name)) return(TRUE)
+  claimed <- if (is.na(base$mun)) 0L else length(nar_tokens(base$mun))
+  length(nar_mun_anchor_runs(toks, prov, min_k = claimed + 1L)) > 0L
+}
+
+#' Trailing token runs that name a municipality
+#'
+#' @description Shared by the gate and by [nar_mun_anchor_variants()] so the two
+#' agree on what "the municipality could reach back this far" means, and so the
+#' gate pays for the inventory lookups only down to the length it cares about.
+#'
+#' The reach stops one token short of the last comma segment. A municipality
+#' never spans a comma the writer put in, and taking the whole of the last
+#' segment would only rediscover the split the comma already made.
+#' @param toks A token vector, comma tokens included
+#' @param prov A two-letter province code, or `NA`
+#' @param min_k The shortest run worth testing
+#' @return An integer vector of run lengths, longest first
+#' @keywords internal
+nar_mun_anchor_runs <- function(toks, prov = NA_character_, min_k = 1L) {
+  m <- length(toks)
+  if (m < 2 || min_k < 1L) return(integer(0))
+  last_comma <- if (any(toks == ",")) max(which(toks == ",")) else 0L
+  # Six tokens covers the inventory: the longest names NAR carries are
+  # "Stanley Bridge, Hope River, Bayview, Cavendish and North Rustico" and the
+  # parenthesised BC regional districts, and both are past any plausible input.
+  max_k <- min(6L, m - last_comma - 1L)
+  if (max_k < min_k) return(integer(0))
+  k <- max_k:min_k
+  k[vapply(k, function(i) nar_is_municipality(
+    nar_mun_key(paste(toks[(m - i + 1L):m], collapse = " ")), prov), logical(1))]
 }
 
 #' Readings that take the municipality off the end before parsing the street
@@ -102,33 +155,35 @@ nar_baseline_is_defective <- function(base, prov = NA_character_) {
 #' `"... TH25 Vancouver"` fails for want of it; anchoring reaches the same
 #' remainder from both, and the comma stops carrying the parse.
 #'
-#' Two guards keep this from inventing splits. A run is only considered if it
-#' lies inside the last comma segment -- a municipality never spans a comma the
-#' writer put in -- and a candidate is dropped unless a street name survives in
-#' the remainder, which is what stops `"123 Kingston"` from resolving to the
-#' city of Kingston with no street at all.
+#' Four guards keep this from inventing splits, and the last two are what let
+#' the gate open as wide as it now does.
+#'
+#' * A run is only considered if it lies inside the last comma segment -- see
+#'   [nar_mun_anchor_runs()].
+#' * A candidate is dropped unless a street name survives in the remainder,
+#'   which is what stops `"123 Kingston"` from resolving to the city of Kingston
+#'   with no street at all.
+#' * **A residue that is not a street name counts as no street name.** Every
+#'   place name that also does duty as a street name fails here rather than at
+#'   the gate: `135 de Nantes` anchors Nantes and leaves `DE`, `22 avenue de la
+#'   Durantaye` leaves `DE LA`, `80 rue Albanel` leaves `RUE`. Particules are
+#'   not a name, and neither is a street type standing alone.
+#' * **A run that is a street type has to be one the street can spare.** `TRAIL`
+#'   is a municipality in Ontario and a street type everywhere, and `82
+#'   Fesroches Trail` is the second; `4830 scott ave terrace` is the first, and
+#'   the only thing that separates them is that the street in it still names a
+#'   type of its own once `TERRACE` is taken away. Same for `maple ridge`,
+#'   `bowen island`, `brentwood bay` and `qualicum beach`, all of which end in a
+#'   NAR street type.
+#' @param toks A token vector, as [nar_tokens()] produces
 #' @inheritParams nar_parse_one
 #' @return A list of one-row data frames, possibly empty
 #' @keywords internal
-nar_mun_anchor_variants <- function(s, lang = "en", prov = NA_character_) {
-  toks <- nar_tokens(s)
+nar_mun_anchor_variants <- function(toks, lang = "en", prov = NA_character_) {
   m <- length(toks)
-  if (m < 2) return(list())
-
-  # A municipality never spans a comma, so the run may reach back only as far
-  # as the start of the last segment.
-  last_comma <- if (any(toks == ",")) max(which(toks == ",")) else 0L
-  # Six tokens covers the inventory: the longest names NAR carries are
-  # "Stanley Bridge, Hope River, Bayview, Cavendish and North Rustico" and the
-  # parenthesised BC regional districts, and both are past any plausible input.
-  max_k <- min(6L, m - last_comma - 1L)
-  if (max_k < 1L) return(list())
-
   out <- list()
-  for (k in max_k:1L) {
+  for (k in nar_mun_anchor_runs(toks, prov)) {
     run <- toks[(m - k + 1L):m]
-    key <- nar_mun_key(paste(run, collapse = " "))
-    if (!nar_is_municipality(key, prov)) next
 
     rest <- utils::head(toks, m - k)
     # The comma that separated the municipality goes with it -- this is the
@@ -141,6 +196,10 @@ nar_mun_anchor_variants <- function(s, lang = "en", prov = NA_character_) {
                           mun_fixed = paste(run, collapse = " "))
     # No street left means the run was the address rather than a place in it.
     if (is.na(cand$name)) next
+    if (!nar_is_street_name(cand$name, lang)) next
+    # A street type can only become the municipality if the street keeps one.
+    if (is.na(cand$type) &&
+        nar_is_street_type(nar_fold(run[length(run)]), lang)) next
 
     cand$strategy <- paste0("mun_anchor_", k)
     out[[length(out) + 1L]] <- cand
@@ -185,4 +244,27 @@ nar_municipality_vec <- function(mun, prov) {
   prov <- rep_len(prov, length(key))
   vapply(seq_along(key), function(i) nar_municipality_n(key[i], prov[i]),
          numeric(1))
+}
+
+#' Could this token run be a street name at all?
+#'
+#' @description The residue test for [nar_mun_anchor_variants()], and the reason
+#' a place name that is also a street name does not have to be listed anywhere.
+#' Anchoring a municipality off the end of `135 de Nantes` leaves `DE`, off `22
+#' avenue de la Durantaye` leaves `DE LA`, off `80 rue Albanel` leaves `RUE` --
+#' three different failures that are all the same failure, and all of them
+#' visible in what is left rather than in what was taken.
+#'
+#' Particules do not name a street on their own, and a street type standing
+#' alone does not either. Both tests are on the residue after the particules
+#' come off, so `RUE DE LA` fails as surely as `RUE` does.
+#' @param name A street name as parsed, or `NA`
+#' @param lang `"en"` or `"fr"`
+#' @return `FALSE` when the name is nothing a street could be called
+#' @keywords internal
+nar_is_street_name <- function(name, lang = "en") {
+  if (is.na(name)) return(FALSE)
+  f <- nar_fold(nar_tokens(name))
+  f <- f[!nar_is_particule(f)]
+  length(f) > 1L || (length(f) == 1L && !nar_is_street_type(f, lang))
 }
