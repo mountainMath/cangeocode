@@ -26,7 +26,12 @@ columns `APT_NO_LABEL`, `CIVIC_NO`, `CIVIC_NO_SUFFIX`, `STREET_NAME`,
 `STREET_TYPE`, `STREET_DIR`, `MUN_NAME`, `PROV_ABVN` and `POSTAL_CODE`,
 alongside the original `input`, the structural `pattern` it parsed as (see
 [address_pattern()] for the buckets), a `confidence` in `[0, 1]` and a
-`parse_source` of `"rules"` or `"gazetteer"`.
+`parse_source` naming which layer settled the row: `"rules"` for the
+lexicon-only parse, `"gazetteer"` for a match against NAR's streets, and
+`"rqa"` for one against Quebec's own register -- available only once
+[rqa_import()] has been run, and meaning the street was canonicalized
+against a register NAR does not carry it in, so a join against `Addresses`
+will still not find it.
 }
 \description{
 Parses free-text Canadian addresses into the structured

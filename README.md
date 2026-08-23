@@ -221,9 +221,12 @@ to each other. `format_address()` is the readable counterpart, for writing a
 cleaned column back out.
 
 Measured on 5,000 real filings nobody cleaned, the parser extracts a civic
-number and street name from 98.8% and resolves 86.5% to an address NAR actually
-holds. `vignette("address-normalization")` has the rest of the numbers and the
-known limits.
+number and street name from 98.9% and resolves 88.8% to an address NAR actually
+holds. In Quebec, running `rqa_import()` adds a second gazetteer pass over the
+rows NAR could not settle, and gives the answer a second register to be
+confirmed against: 77.5% of Quebec filings resolve to a NAR address, 83.0% to
+one in NAR or Quebec's own register. `vignette("address-normalization")` has
+the rest of the numbers and the known limits.
 
 ## Canada-wide: the NRCan geolocator
 

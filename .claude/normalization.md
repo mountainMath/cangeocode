@@ -297,6 +297,17 @@ character** — the probe is folded in R and the gazetteer in SQL, and a rule th
 side silently stops matching rather than erroring. `test-normalize.R` pins the two against each
 other over the shapes that distinguish them.
 
+**The dash class is the one place the two halves can drift apart without any test noticing, and it
+did.** R's half never sees an en or em dash, because stringi's `Latin-ASCII` transliteration inside
+`nar_fold()` has already turned it into a hyphen; DuckDB's `strip_accents()` leaves both exactly
+where they were. Nothing surfaced this while NAR was the only gazetteer — NAR carries **zero** en
+dashes, having transliterated them to `--` in 2,134 addresses. Quebec's register does not: 11
+street names over 2,472 addresses keep the en dash, `du Bord-du-Lac–Lakeshore` among them, so the
+two registers' spellings of the same street folded apart and never met. The SQL half therefore
+replaces `[-–—]`, not `-`. The parity test cannot catch this on its own, because it folds its
+inputs in R first, which is the step that hides the character; the test beside it folds SQL-side
+from the raw name, the way `rqa_build_tables()` does.
+
 The gazetteer side is folded **once per connection** into the `StreetFold` TEMP table by
 `nar_street_fold()`, keyed on `rowid`, not per candidate per probe row. The alternative — a stored
 column and a schema bump — would make every database built before it slower rather than merely
@@ -331,6 +342,50 @@ fixture carrying one street in two cities and another in one.
 > Measured effect of the three together on the eval's 5,000-row Part A sample: **215 rows gained,
 > 0 lost**. Attribution and the harness-level deltas are in
 > [`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md).
+
+### The second pass, over Quebec's own register
+
+`nar_resolve_gazetteer()` runs `nar_gazetteer_pass()` twice: once against NAR, and — only where
+[`rqa_import()`](rqa.md) has been run — once against `RqaStreets`. The shared machinery is the
+probe build, the temp-table write, the `score >= threshold` filter, the one-winner-per-`.row`
+selection and the write-back; only the eligible rows, the query and the `parse_source` label
+differ.
+
+**The second pass sees only what the first left**, and only Quebec. That is the same rule as
+`geocode()`'s tiers — priority is running order — and it is what makes importing RQA unable to
+change an answer that already worked. It can only fill in one that did not. The `.row`-level
+`parse_source != "gazetteer"` test is what carries this; `parse_source` starts at `"rules"` and is
+never `NA`, so the comparison is safe.
+
+**A match comes back as `parse_source = "rqa"`, not `"gazetteer"`.** It is a real confirmation
+against an authoritative register, but the caller has to be able to tell the difference: a row
+carrying it will still fail a join against `Addresses`, because NAR does not hold that address.
+Encoding that in a fudged `confidence` instead would have destroyed the one thing `confidence`
+means — the weights are identical across the two passes precisely so it keeps meaning it.
+
+`nar_rqa_gazetteer_sql()` differs from `nar_gazetteer_sql()` in three ways, each forced:
+
+- **No `exact` branch.** RQA covers one province. An unrestricted name match here would assert
+  Quebec about a string that never said so, so a row with no municipality and no FSA simply drops
+  out of the `muns` CTE.
+- **One name family**, compared on `MATCH_FOLD` and never on `NAME_FOLD` — RQA keeps the particule
+  in a column of its own where NAR keeps it inside the street name, so the plain folds of the same
+  street are not the same string.
+- **The municipality resolves through NAR's `MunAlias`, restricted to `PROV_ABVN = 'QC'`, and out
+  through `split_part(MUN_KEY, ':', 3)`.** `MUN_KEY` is `prov:type:CSD name`, and that CSD name is
+  exactly what RQA files under, so `ANJOU`, `LASALLE`, `SAINT-LAURENT` and `VERDUN` all reach
+  `Montréal` without RQA needing an alias table — or its `BOROUGH` column — of its own. The two
+  routes to a municipality are a `UNION`, not an `OR`, for the reason recorded in
+  [`geocoding.md`](geocoding.md).
+
+**What it is worth, measured.** On the 3,000-address sample of what NAR is missing and RQA holds,
+the second pass answers **8.9%** of rows, all of them exactly right. On Corporations Canada — real
+typed filings — it answers **4 of 942 Quebec rows**. Both numbers are correct and the gap between
+them is the finding: the Quebec filings NAR cannot settle are overwhelmingly *mistyped*
+(`Bouceherville`, `ST.CATHERINE ST.WEST`, `1603 - 3410, rue Peel`), not *uncovered*, and a second
+register cannot read a misspelling. Do not quote the 5.5-point Quebec gain in the eval as this
+pass's doing: that is a **confirmation-set** effect, delivered by `RqaAddresses` merely existing
+for the harness to judge against, and most of the parses it newly confirms were NAR's all along.
 
 ## `R/address_format.R` — putting the components back together
 

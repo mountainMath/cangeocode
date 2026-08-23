@@ -116,6 +116,30 @@ depends on what its predecessors left unplaced, so a missing import would otherw
 one batch of addresses and not the next. The tier keeps its own guard as a backstop for
 `nar_geocode_match()` being called directly.
 
+## The normalization pass
+
+`nar_resolve_gazetteer()` offers `RqaStreets` the rows NAR could not settle, in Quebec only, and
+labels a match `parse_source = "rqa"`. The design and what it is worth are in
+[`normalization.md`](normalization.md) — read that before touching
+`nar_rqa_gazetteer_sql()`. Three things belong here:
+
+**It reuses NAR's `MunAlias` rather than an alias table of its own**, joining out through
+`split_part(MUN_KEY, ':', 3)` — the CSD name, which is exactly what RQA files under. This is why
+the `BOROUGH` column the import carries is unnecessary for normalization even though the tier
+needs it: `MunAlias` already maps `ANJOU`, `LASALLE`, `SAINT-LAURENT` and `VERDUN` onto
+`24:V:Montréal`.
+
+**The register's spelling is returned as-is, except the municipality.** NAR's own
+`OFFICIAL_STREET_NAME` is title case with the accents kept — because its Quebec rows came from
+this register in the first place — so RQA's spelling already *is* the convention. `MAIL_MUN_NAME`
+is the one NAR upper-cases, so the query does too. An `upper()` on the street name here was wrong
+and shipped for exactly as long as it took to look at `Streets`.
+
+**The measured gain is small and the harness number is not it.** The pass answers 8.9% of the
+addresses NAR is missing, and 4 of 942 real Quebec filings. The eval's 5.5-point Quebec
+improvement is a *confirmation-set* effect from `RqaAddresses` existing, not a parser gain — the
+two are reported as separate lines in `data-raw/eval_normalize.R` for that reason.
+
 ## Licence
 
 **CC-BY 4.0, where everything else here is an open government licence.** That is compatible in
@@ -132,3 +156,8 @@ TRUE)` adds the one Quebec address both fixtures share, which is what makes `IN_
 at all. Each register row carries one thing the import has to get right — a leading particule,
 a cardinal to canonicalize, a borough the municipality name does not name, a retired row
 `etat` must drop — so a failure names its own cause.
+
+The normalization tests key off the same five rows: Rue Courtemanche in Montréal-Est is the one
+address NAR does not carry, so it is what the second pass has to answer; Rue Peel is in both, so
+it is what proves NAR still wins — and the two registers spell its municipality differently, which
+is what makes the winner visible in the output.

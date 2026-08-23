@@ -252,6 +252,61 @@ inspection that tabulates the token following the civic number can, and
 (`BOU.`, `BV`) plus a different bug: `nar_norm_text()` strips every period at input, so
 `BOUL.DES GRANDES PRAIRIES` becomes `BOULDES ...` and the type is glued to the word after it.
 
+### Québec's own register, as a second gazetteer pass
+
+`rqa_import()` loads the *Répertoire québécois des adresses* into the same DuckDB file as its own
+tables, and `nar_resolve_gazetteer()` now runs a second pass against them — Québec only, over the
+rows the NAR pass could not settle, labelled `parse_source = "rqa"`. It is what the item at the
+top of the previous *Next steps* list asked for. It is also the clearest case in this note of a
+projection that did not survive being built, and the reason is worth more than the feature.
+
+**What was projected:** a Québec ceiling of 81.8% → 88.3%, "six points, and nothing else on this
+list is worth six points."
+
+**What was measured**, on the same 5,000-filing Part B sample (942 Québec rows):
+
+| | |
+| --- | --- |
+| Québec confirmed against NAR | 77.5% |
+| Québec confirmed against NAR **or** RQA | 83.0% |
+| ... rows only RQA confirms | 5.5% |
+| rows the `rqa` gazetteer pass answered | **4** |
+
+Those are two different effects and the projection conflated them.
+
+- **The 5.5 points are a confirmation-set effect.** They arrived the moment `RqaAddresses`
+  existed for the harness to judge against, and most of the parses they newly confirm were the
+  NAR pass's all along. Nothing about the parser changed to earn them. `data-raw/eval_normalize.R`
+  now reports the two registers on separate lines for exactly this reason: judging Québec against
+  NAR alone scores ~475,000 real addresses as parse failures, but folding the second judge into
+  the headline number would make a better judge and a better parser indistinguishable.
+- **The parser gain is 4 rows in 942.** The pass works — on a 3,000-address sample drawn from
+  what NAR is missing and RQA holds, it answers **8.9%** of rows and every one of them exactly.
+  The Québec filings NAR cannot settle are simply not those addresses. They are *mistyped*:
+  `Bouceherville`, `ST.CATHERINE ST.WEST`, `1052 N.P. LAPIERRE`, `1603 - 3410, rue Peel`,
+  `13 place Jason Roxboro`. A second register cannot read a misspelling.
+
+**The lesson for the rest of this list.** The 41.3% coverage share in
+[`quebec-addresses.md`](quebec-addresses.md) was measured over *NAR's* residual — addresses that
+fail to join. It was read as if it were the parser's residual. Those two sets overlap far less
+than the note assumed, because the gazetteer's fuzzy branch already answers most coverage-class
+rows with a near neighbour, correctly, and what it leaves behind is dominated by input the
+parser cannot read at all. Before promoting any item here on a coverage argument, check whether
+the rows it names are ones the parser currently *fails*, not merely ones NAR currently *lacks*.
+
+Keeping it is still right: it costs nothing outside Québec, it cannot displace an answer the NAR
+pass gave, and it is correct on the population it exists for. It is filed here rather than under
+*Measured and deliberately not done* on those grounds, not on the strength of the number.
+
+**One real bug came out of building it.** `nar_match_fold_sql()` replaced `-` where its R twin
+replaced `-` *and* the en and em dash, because stringi's `Latin-ASCII` transliteration inside
+`nar_fold()` had already converted them on the R side and DuckDB's `strip_accents()` had not.
+NAR carries zero en dashes — it transliterates them to `--` in 2,134 addresses — so nothing
+surfaced this while NAR was the only gazetteer. RQA keeps the en dash in 11 street names over
+2,472 addresses, `du Bord-du-Lac–Lakeshore` among them, and the two registers' spellings of the
+same street folded apart and never met. The existing parity test could not catch it: it folds its
+inputs in R first, which is the step that hides the character.
+
 ### A comma-free string, segmented on the municipality inventory
 
 The other thing the deepparse benchmark found, and the last one it was still winning. ODHF's
@@ -612,48 +667,41 @@ The first four items of the previous list came out of *What a local LLM adds* an
 *Fixed, and worth keeping fixed* for what they bought. So have the two the deepparse benchmark
 added, the prefix strip and comma-free segmentation, and with them nothing in that benchmark
 still beats the parser on a corpus it was never tuned on. So has the Québec re-diagnosis that
-led the last list; what it found is now item 1 in its place. What is left is ordered the same way,
-by rows recovered per unit of effort.
+led the last list, **and so is the Québec import that re-diagnosis put at the top of it** — built,
+measured, and worth 4 rows in 942 rather than the six points projected. What that cost and what it
+taught is under *Québec's own register, as a second gazetteer pass*; the short version is that a
+coverage share measured over NAR's residual is not a coverage share of the parser's residual, and
+every remaining item should be checked against that before it is promoted.
 
-1. **Load the Québec addresses NAR does not carry.** The re-diagnosis that used to sit at the
-   top of this list is done, and it moved this item up rather than down:
-   [`quebec-addresses.md`](quebec-addresses.md) now splits 727 Québec failures six ways and finds
-   **41.3% of them are addresses the Répertoire québécois des adresses holds and NAR does not** —
-   up from 26.4%, because the old split keyed on the full postal code and so filed an address both
-   registers hold at a mistyped postal code under "in neither". The parser's own share is 33.4%
-   and shrinking; no parser change reaches the coverage class at all. Anti-joining the gap in puts
-   the Québec ceiling at **81.8% → 88.3%**, a street-level merge at 89.3%. Nothing else on this
-   list is worth six points. Load it as a **separate table**, not merged into NAR: merging would
-   destroy the only instrument Québec has (every measurement in that note exists because the two
-   registers are separately readable), and the added rows are positionally weaker than NAR's own.
-   Licence is CC-BY 4.0, attribution-compatible with NAR's OGL. That note has the sizing, the
-   quality and region breakdowns, and the recommendation.
-2. **The Québec odonyme decomposition, now that the re-diagnosis has spoken.** It ranks below the
-   import rather than above it. RQA publishes every street name in the province already split into
+What is left is ordered the same way, by rows recovered per unit of effort — with the caveat that
+the largest number on this list has now twice been the one that moved least.
+
+1. **The Québec odonyme decomposition, now that the import has spoken.** It outlived the item it
+   used to rank below. RQA publishes every street name in the province already split into
    générique, particule, spécifique and point cardinal — 115,352 odonymes, a particule on 27.8% of
    rows — plus 551,160 cross-references to alternative and former names in `Odonymes_renvois.csv`.
    The match fold captured the cheap part of what that data was going to buy (containment now sees
    through the particule and the hyphen), so what is left is the part folding cannot do: former
    names, and génériques that are part of the name rather than the type. Six of RQA's génériques
    have no counterpart in NAR's observed types, so they must not be promoted to canonical types.
-3. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
+2. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
    arbitration now exist; what is missing is the two strategies and their gates. One mechanism
    fixes both: when a stripped reading finds nothing in the gazetteer, retry with the token
    restored to the name. Affects ~686k addresses' worth of street forms; the direction half fires
    even on clean input. The name gate now recovers some of this incidentally — whole-word
    containment catches a type the parser ate whenever the gazetteer has the fuller name — so
    re-measure the remaining size before building it.
-4. **Reject a province name as a municipality** (mode 6). An afternoon.
-5. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
+3. **Reject a province name as a municipality** (mode 6). An afternoon.
+4. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
    determined case is now answered; this is the 157 rows with 2 or more candidates. Either
    document `NA` as the honest answer or return candidates. A design decision, not a bug fix.
-6. **A period-abbreviated type glued to the next word.** `nar_norm_text()` strips every period at
+5. **A period-abbreviated type glued to the next word.** `nar_norm_text()` strips every period at
    input, so `BOUL.DES GRANDES PRAIRIES` arrives as one token `BOULDES` and no type is found.
    Single-digit row counts in the Québec residual, and probably the same anywhere French
    abbreviations are typed without a space; splitting on a period *before* stripping it, where the
    left side is a known type surface, would cover it. Cheap, and worth doing whenever the file is
    open for another reason.
-7. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
+6. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
 
 ## Deferred
 

@@ -20,8 +20,9 @@ name, but a matching type and an absent direction would still clear a
 combined 0.85 and silently substitute the wrong street.}
 }
 \value{
-`res` with matched rows replaced by their canonical NAR values,
+`res` with matched rows replaced by their canonical values,
 `confidence` set to the match score and `parse_source` set to `"gazetteer"`
+or `"rqa"` according to which register answered
 }
 \description{
 Restricts candidate streets to the locality -- recovering it
@@ -52,5 +53,12 @@ a locality, since there is nothing else to bound the candidate set with.
 Both NAR name families are matched against. Neither is complete on its own:
 `MAIL_STREET_NAME` is empty for 957k addresses, `OFFICIAL_STREET_NAME` for 95,
 and where both exist they differ beyond case for a further 530k.
+
+When [rqa_import()] has been run, a **second pass** offers Quebec's own
+register the rows NAR could not resolve -- and only those, so no answer that
+already worked can change. A match there comes back with
+`parse_source = \"rqa\"` rather than `\"gazetteer\"`, because the street was
+canonicalized against a register NAR does not carry it in, and a join against
+`Addresses` will still not find it.
 }
 \keyword{internal}

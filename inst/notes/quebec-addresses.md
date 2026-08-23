@@ -386,9 +386,50 @@ means for NAR: this package added nothing. Nothing here has measured what
 `Géocodée` or `Incertaine` are worth on the ground, and a plausible invented
 number would be indistinguishable from the two that were measured.
 
-Not done, and still the larger prize: **the normalization side**. The 81.8% → 88.3%
-above is a `normalize_address()` gain, and it needs `RqaStreets` wired into the
-gazetteer's candidate scoring. That changes how every Québec candidate scores, so
-run the eval harness in
-[`address-normalization-status.md`](address-normalization-status.md) before and
-after.
+### Built, 2026-08-23: the normalization pass, and what the 81.8% → 88.3% actually was
+
+`RqaStreets` is now wired into `normalize_address()` as a **second gazetteer pass**: Québec only,
+over the rows the NAR pass could not settle, labelled `parse_source = "rqa"`. The eval harness was
+run before and after, as this note asked. It does not support the projection this note made, and
+the correction matters more than the feature.
+
+On the same 5,000-filing Part B sample (942 Québec rows):
+
+| | before | after |
+| --- | --- | --- |
+| Québec confirmed against NAR | 77.5% | 77.5% |
+| Québec confirmed against NAR **or** RQA | — | **83.0%** |
+| rows the `rqa` gazetteer pass answered | — | **4** |
+
+**The 81.8% → 88.3% projected above was a confirmation-set effect, not a parser gain**, and this
+note wrote it up as the latter. It was computed by asking how many Québec failures are addresses
+RQA holds and NAR does not — a question about *the judge*, not about the parse. Importing RQA does
+make the judge better, and by 5.5 points rather than 6.5, which is close enough. What it does not
+do is make `normalize_address()` place more Québec strings: it placed 4 more.
+
+The reason is that this note's 41.3% coverage share was measured over **NAR's** residual — Québec
+filings that fail to *join* NAR — and then read as if it were the parser's residual. Those sets
+overlap much less than assumed. The gazetteer's fuzzy branch already answers most coverage-class
+rows with a near neighbour, correctly; what it leaves behind is dominated by strings the parser
+cannot read at all. Inspecting the 88 Québec filings the NAR pass still fails on shows them almost
+entirely mistyped rather than uncovered: `20-110 boul. de Mortagne, Bouceherville`,
+`1116 ST.CATHERINE ST.WEST`, `1052 N.P. LAPIERRE`, `1603 - 3410, rue Peel`,
+`13 place Jason Roxboro`, `4150 SteCatherine Ouest`. A second register cannot read a misspelling.
+
+The pass itself is correct and worth keeping. On a 3,000-address sample drawn from the gap
+population — what RQA holds and NAR does not — it answers **8.9%** of rows, all of them exactly
+right, where the NAR pass answers 81.9% correctly and the rules layer 0.6%. That is the population
+it exists for; Corporations Canada filings are simply not drawn from it, because a registered
+office is a business address in a settled municipality and the gap is rural, new and cottage
+addresses.
+
+`data-raw/eval_normalize.R` now judges Québec against both registers on separate lines, so the two
+effects can never be confused again in this harness. **Do not quote the "either" figure as a
+parser result.**
+
+One real bug fell out of building it: `nar_match_fold_sql()` folded `-` where its R twin folded
+the en and em dash as well, because stringi's transliteration in `nar_fold()` converts them and
+DuckDB's `strip_accents()` does not. NAR carries zero en dashes (it writes `--`, 2,134 addresses);
+RQA keeps them in 11 street names over 2,472 addresses, so the two spellings of
+`du Bord-du-Lac–Lakeshore` never met. Fixed, with a test that folds SQL-side from the raw name —
+the existing parity test folds in R first, which is the step that hides the character.

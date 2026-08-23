@@ -10,6 +10,8 @@
 #           the output resolves to an address NAR actually holds, and confirmed
 #           against the postal code the filing supplied -- a field the join
 #           never uses, so agreement is independent evidence the match is right.
+#           Where rqa_import() has been run, Quebec is judged a second time
+#           against its own register, reported separately -- see the block.
 #
 # Part A says how well the parser handles the mess we imagined. Part B says
 # whether we imagined the right mess. Diverging numbers mean the noise grammar
@@ -289,6 +291,45 @@ if (grepl("B", PARTS)) {
   cat("neither -- a genuine parse or\n")
   cat("  coverage failure:            ",
       pct(!got$postal_join & !got$postal_ok), "\n", sep = "")
+
+  # Quebec has a second register, and NAR does not carry all of it. Judging a
+  # Quebec row against NAR alone therefore scores 475k real addresses as parse
+  # failures. This block re-judges against RQA on a key of the same shape, and
+  # is reported beside the NAR-only lines rather than folded into them: moving
+  # the goalposts and the parser at once would make the two indistinguishable.
+  #
+  # Read it as a *confirmation-set* effect. A row that gains here gained
+  # because the judge got a second register to look in, not because the parse
+  # got better -- and the parse it confirms was very often NAR's all along.
+  if (cangeocode:::nar_has_rqa(con)) {
+    rqa_hits <- DBI::dbGetQuery(con, "
+      SELECT p.row_id,
+             max(CASE WHEN replace(a.POSTAL_CODE, ' ', '') = p.postal
+                      THEN 1 ELSE 0 END) = 1 AS postal_ok
+        FROM eval_probe p
+        JOIN RqaAddresses a
+          ON a.NAME_FOLD = p.name_fold
+         AND strip_accents(upper(a.MUN_NAME)) = p.mun_fold
+         AND a.PROV_ABVN = p.prov
+         AND a.CIVIC_NO = p.civic
+       WHERE p.name_fold <> '' AND p.civic IS NOT NULL
+       GROUP BY p.row_id")
+    got$rqa_ok <- FALSE
+    got$rqa_ok[rqa_hits$row_id] <- rqa_hits$postal_ok
+
+    qc <- corp$prov == "QC"
+    rule("Quebec, judged against both registers")
+    cat("QC rows:                       ", sum(qc), "\n", sep = "")
+    cat("confirmed against NAR:         ", pct(got$postal_ok[qc]), "\n", sep = "")
+    cat("confirmed against RQA:         ", pct(got$rqa_ok[qc]), "\n", sep = "")
+    cat("confirmed against either:      ",
+        pct((got$postal_ok | got$rqa_ok)[qc]), "\n", sep = "")
+    cat("  ... only RQA confirms:       ",
+        pct((got$rqa_ok & !got$postal_ok)[qc]), "\n", sep = "")
+    cat("rows the RQA gazetteer pass\n")
+    cat("  answered:                    ",
+        sum(got$parse_source[qc] == "rqa"), "\n", sep = "")
+  }
 
   rule("by province")
   by_p <- split(got$postal_ok, corp$prov)

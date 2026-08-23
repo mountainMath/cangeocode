@@ -157,6 +157,12 @@ in NAR; `rules` means the parse is the parser's own reading and nothing has
 confirmed it. On the sample above that single column separates the five rows
 that are certainly right from the one that is merely probably right.
 
+A third value, `rqa`, appears in Quebec once `rqa_import()` has been run: the
+street was found in the *Répertoire québécois des adresses* rather than in NAR.
+It is a real confirmation, and it is deliberately not called `gazetteer`,
+because a row carrying it will still not join `Addresses` — NAR does not hold
+that address.
+
 `confidence` grades within that — a fuzzy gazetteer match scores below an exact
 one — and `pattern` is the structural shape the string parsed as.
 
@@ -273,8 +279,8 @@ holds.
 | --- | --- |
 | every field the surface form carried, recovered exactly | 97.3% |
 | civic number and street name both recovered | 98.0% |
-| real filings: civic number and street name extracted | 98.8% |
-| real filings: joins an address NAR actually holds | 86.5% |
+| real filings: civic number and street name extracted | 98.9% |
+| real filings: joins an address NAR actually holds | 88.8% |
 
 Three known limits are worth knowing before you rely on this:
 
@@ -298,6 +304,17 @@ gazetteer recovers most, as it did for `HPCKING`, since a name one keystroke
 from a real street is treated as that street. What is left is mostly a typo
 that lands on *another* real street name, where nothing in the string can
 arbitrate.
+
+**Quebec is measured against a register NAR does not fully carry.** NAR is
+missing about 475,000 Quebec addresses that the province's own register holds,
+so judging a Quebec parse against NAR alone scores real addresses as failures.
+Of the 942 Quebec filings in the sample, 77.5% resolve to a NAR address and
+83.0% to one in NAR or the *Répertoire*. Running `rqa_import()` is what buys
+that second judge. What it does *not* buy is much of a better parse: the `rqa`
+gazetteer pass answered 4 of those 942 rows, because the Quebec filings NAR
+cannot settle are overwhelmingly mistyped rather than uncovered —
+`Bouceherville`, `ST.CATHERINE ST.WEST`, `1603 - 3410, rue Peel`. On the
+addresses the register holds and NAR does not, the same pass answers 8.9%.
 
 The full accounting — every failure mode ranked by how many addresses it
 affects, what was tried and rejected, and what to fix next — ships with the

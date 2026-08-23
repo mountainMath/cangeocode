@@ -165,3 +165,65 @@ test_that("rqa is a known method and keeps its priority position", {
   expect_equal(nar_geocode_methods(c("rqa", "nar")), c("rqa", "nar"))
   expect_error(nar_geocode_methods("rqa_"), "Unknown geocoding method")
 })
+
+test_that("the RQA gazetteer query has no exact branch and never leaves Quebec", {
+  sql <- nar_rqa_gazetteer_sql("probe")
+
+  # The NAR query answers a string that named no municipality from an exact,
+  # indexed name match. This one must not: RQA covers one province, so an
+  # unrestricted match here would assert Quebec about a string that never said
+  # so. A row with no locality at all simply drops out of the `muns` CTE.
+  expect_match(sql, "p.prov = '' OR p.prov = 'QC'", fixed = TRUE)
+  expect_match(sql, "WHERE p.mun_use IS NOT NULL", fixed = TRUE)
+
+  # One name family, and the comparison is the match fold throughout -- RQA
+  # keeps the particule in a column of its own, so its plain fold and NAR's are
+  # not the same string for the same street.
+  expect_match(sql, "s.MATCH_FOLD", fixed = TRUE)
+  expect_false(grepl("s.NAME_FOLD", sql, fixed = TRUE))
+
+  # The municipality resolves through NAR's alias table, restricted to Quebec,
+  # and MUN_KEY's third field is the CSD name RQA files under.
+  expect_match(sql, "JOIN MunAlias m", fixed = TRUE)
+  expect_match(sql, "m.PROV_ABVN = 'QC'", fixed = TRUE)
+  expect_match(sql, "split_part(m.MUN_KEY, ':', 3)", fixed = TRUE)
+
+  # The same weights as the NAR pass, so `confidence` means one thing whichever
+  # register answered.
+  for (w in c("0.72 * name_sim", "0.10 * CASE", "0.06 * CASE", "0.12 * CASE")) {
+    expect_match(sql, w, fixed = TRUE)
+  }
+})
+
+test_that("normalization falls through to the Quebec register", {
+  skip_if_no_duckdb_spatial()
+  con <- local_rqa_connection()
+
+  # Rue Courtemanche in Montreal-Est is the fixture's one address NAR does not
+  # carry, so it is the whole reason the second pass exists.
+  out <- normalize_address("431 rue Courtemanche, Montreal-Est, QC", con = con)
+  expect_equal(out$parse_source, "rqa")
+  expect_equal(out$STREET_NAME, "Courtemanche")
+  expect_equal(out$STREET_TYPE, "RUE")
+  expect_equal(out$MUN_NAME, "MONTRÉAL-EST")
+  expect_equal(out$PROV_ABVN, "QC")
+})
+
+test_that("the Quebec register cannot displace an answer NAR already gave", {
+  skip_if_no_duckdb_spatial()
+  con <- local_rqa_connection()
+
+  # Rue Peel is the one address both fixtures carry, and the two registers
+  # spell its municipality differently -- MONTREAL in NAR, Montreal in RQA.
+  # Priority is running order, exactly as in geocode(): NAR goes first, so
+  # importing RQA cannot change an answer that already worked, and the
+  # municipality that comes back is the proof of which pass answered.
+  out <- normalize_address("1255 rue Peel, Montreal, QC", con = con)
+  expect_equal(out$parse_source, "gazetteer")
+  expect_equal(out$MUN_NAME, "MONTREAL")
+
+  # And a province RQA does not cover is never offered to it at all.
+  out <- normalize_address("4001 W King Edward Ave, Vancouver, BC", con = con)
+  expect_equal(out$parse_source, "gazetteer")
+  expect_equal(out$MUN_NAME, "VANCOUVER")
+})

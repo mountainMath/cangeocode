@@ -553,6 +553,29 @@ test_that("the match fold spells Saint out and treats a hyphen as a space", {
   expect_equal(nar_match_fold("ST"), "SAINT")
 })
 
+test_that("the en dash folds like a hyphen on both sides", {
+  skip_if_no_duckdb_spatial()
+  # The one place the two halves of the match fold could drift apart without
+  # any test noticing. R never sees an en dash, because stringi's Latin-ASCII
+  # transliteration inside nar_fold() has already turned it into a hyphen;
+  # DuckDB's strip_accents() leaves it exactly where it was. Quebec's register
+  # writes a dual name with an en dash where NAR transliterates the same name
+  # to a double hyphen, so a divergence here folds one street into two.
+  #
+  # The parity test above cannot catch this: it folds its inputs in R first,
+  # which is the step that hides the character. This one folds SQL-side the way
+  # rqa_build_tables() does, from the raw name.
+  x <- c("Bord-du-Lac\u2013Lakeshore", "Bord-du-Lac--Lakeshore",
+         "Sainte-Anne\u2014de-Bellevue")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  DBI::dbWriteTable(con, "x", data.frame(v = x), temporary = TRUE)
+  sql <- DBI::dbGetQuery(con, paste(
+    "SELECT", nar_match_fold_sql("strip_accents(upper(v))"), "AS f FROM x"))$f
+  expect_equal(sql, nar_match_fold(x))
+  expect_equal(sql[1], sql[2])
+})
+
 test_that("an abbreviated Saint and a dropped particule still find the street", {
   skip_if_no_duckdb_spatial()
   # Three failures at once, all of them Quebec's ordinary spelling: the writer

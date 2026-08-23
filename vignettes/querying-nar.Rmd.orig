@@ -28,11 +28,17 @@ library(dplyr)
 con <- nar_connection()
 ```
 
-## The two tables
+## The tables
 
 ```{r tables}
 DBI::dbListTables(con)
 ```
+
+Two of those are NAR's addresses and locations; `MunAlias`, `PostalMun` and
+`Streets` are gazetteers `normalize_address()` builds at import. `RqaAddresses`
+and `RqaStreets` appear only if `rqa_import()` has been run — they are Quebec's
+own register, kept beside NAR rather than merged into it, and
+`vignette("geocoding")` covers what they are for.
 
 **`Addresses`** has one row per civic address — the street name and number, the
 mailing address, the municipality, the postal code, and the point geometry.

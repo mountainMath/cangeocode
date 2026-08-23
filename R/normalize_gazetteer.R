@@ -50,6 +50,13 @@ nar_has_streets <- function(con) {
 #' `MAIL_STREET_NAME` is empty for 957k addresses, `OFFICIAL_STREET_NAME` for 95,
 #' and where both exist they differ beyond case for a further 530k.
 #'
+#' When [rqa_import()] has been run, a **second pass** offers Quebec's own
+#' register the rows NAR could not resolve -- and only those, so no answer that
+#' already worked can change. A match there comes back with
+#' `parse_source = \"rqa\"` rather than `\"gazetteer\"`, because the street was
+#' canonicalized against a register NAR does not carry it in, and a join against
+#' `Addresses` will still not find it.
+#'
 #' @param res A tibble from [nar_parse_rules()]
 #' @param con An open NAR connection
 #' @param threshold Minimum combined score for a match to be accepted
@@ -58,8 +65,9 @@ nar_has_streets <- function(con) {
 #' weak name over the line: `MAIN` against `MAITLAND` scores only 0.88 on the
 #' name, but a matching type and an absent direction would still clear a
 #' combined 0.85 and silently substitute the wrong street.
-#' @return `res` with matched rows replaced by their canonical NAR values,
+#' @return `res` with matched rows replaced by their canonical values,
 #' `confidence` set to the match score and `parse_source` set to `"gazetteer"`
+#' or `"rqa"` according to which register answered
 #' @keywords internal
 nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0.90) {
   if (!nar_has_streets(con)) {
@@ -85,8 +93,55 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
   }
   cand$.probe <- seq_len(nrow(cand))
 
-  todo <- cand[!is.na(cand$STREET_NAME), , drop = FALSE]
-  if (!nrow(todo)) return(res[, out_cols, drop = FALSE])
+  res <- nar_gazetteer_pass(res, cand, con,
+                            eligible = !is.na(cand$STREET_NAME),
+                            sql_fn = nar_gazetteer_sql, source = "gazetteer",
+                            threshold = threshold, name_threshold = name_threshold,
+                            prepare = nar_street_fold)
+
+  # Quebec's own register, second and only over what NAR left. Priority is
+  # running order, exactly as in geocode(): no row NAR resolved can be
+  # displaced by one of these, so importing RQA cannot change an answer that
+  # already worked -- it can only fill in one that did not.
+  if (nar_has_rqa(con)) {
+    unresolved <- res$parse_source != "gazetteer"
+    res <- nar_gazetteer_pass(
+      res, cand, con,
+      eligible = !is.na(cand$STREET_NAME) &
+        unresolved[match(cand$.row, res$.row)] &
+        (is.na(cand$PROV_ABVN) | cand$PROV_ABVN == "QC"),
+      sql_fn = nar_rqa_gazetteer_sql, source = "rqa",
+      threshold = threshold, name_threshold = name_threshold)
+  }
+
+  res <- res[, out_cols, drop = FALSE]
+  attr(res, "nar_candidates") <- NULL
+  res
+}
+
+#' Score one gazetteer against every candidate reading, and adopt the winner
+#'
+#' @description The machinery both passes share: build the probe, score it
+#' database-side, take one winner per input row, and write the canonical values
+#' back. Only the eligible rows, the query and the `parse_source` label differ,
+#' which is why they are arguments rather than two copies of this.
+#'
+#' @param res The rows being resolved, carrying `.row`
+#' @param cand Every candidate reading, carrying `.row`, `.cand` and `.probe`
+#' @param con An open NAR connection
+#' @param eligible Logical over `cand`: which readings this pass may probe
+#' @param sql_fn A function of `(probe_table, name_threshold)` returning SQL
+#' @param source The `parse_source` value a match from this pass earns
+#' @param threshold Minimum combined score for a match to be accepted
+#' @param name_threshold Minimum name similarity, passed to `sql_fn`
+#' @param prepare Optional function of `con`, run once there is work to do
+#' @return `res`, with matched rows replaced by their canonical values
+#' @keywords internal
+nar_gazetteer_pass <- function(res, cand, con, eligible, sql_fn, source,
+                               threshold = 0.85, name_threshold = 0.90,
+                               prepare = NULL) {
+  todo <- cand[eligible, , drop = FALSE]
+  if (!nrow(todo)) return(res)
 
   probe <- data.frame(
     row_id    = todo$.probe,
@@ -106,14 +161,11 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
   DBI::dbWriteTable(con, tmp, probe, temporary = TRUE)
   on.exit(try(DBI::dbRemoveTable(con, tmp), silent = TRUE), add = TRUE)
 
-  nar_street_fold(con)
-  best <- DBI::dbGetQuery(con, nar_gazetteer_sql(tmp, name_threshold))
+  if (!is.null(prepare)) prepare(con)
+  best <- DBI::dbGetQuery(con, sql_fn(tmp, name_threshold))
 
-  if (nrow(best)) {
-    ok <- best$score >= threshold
-    best <- best[ok, , drop = FALSE]
-  }
-  if (!nrow(best)) return(res[, out_cols, drop = FALSE])
+  if (nrow(best)) best <- best[best$score >= threshold, , drop = FALSE]
+  if (!nrow(best)) return(res)
 
   # One winner per input: the highest-scoring reading, and on a tie the
   # earliest candidate -- which is the baseline parse. A reading only displaces
@@ -147,10 +199,7 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
   res$PROV_ABVN[i]    <- ifelse(is.na(best$MAIL_PROV_ABVN), res$PROV_ABVN[i],
                                 best$MAIL_PROV_ABVN)
   res$confidence[i]   <- round(best$score, 3)
-  res$parse_source[i] <- "gazetteer"
-
-  res <- res[, out_cols, drop = FALSE]
-  attr(res, "nar_candidates") <- NULL
+  res$parse_source[i] <- source
   res
 }
 
@@ -207,9 +256,20 @@ nar_match_fold <- function(x) {
 nar_match_fold_sql <- function(col) {
   # Padded with spaces so the word replacements need no anchors, and trimmed
   # again on the way out.
+  #
+  # The dash class carries the en and em dash beside the hyphen, and that is
+  # the one place the two halves could silently drift apart. R's half never
+  # sees either, because stringi's Latin-ASCII transliteration inside
+  # nar_fold() has already turned them into a hyphen; DuckDB's strip_accents()
+  # leaves both alone. Quebec's register writes a dual name with an en dash --
+  # `Bord-du-Lac-Lakeshore` in 11 street names over 2,472 addresses -- where
+  # NAR transliterates the same names to a double hyphen, so without this the
+  # two spellings of the same street fold apart and never meet.
   quo <- "''''"
-  inner <- paste0("regexp_replace(replace(replace(replace(", col,
-                  ", '.', ''), '-', ' '), ", quo, ", ' '), '\\s+', ' ', 'g')")
+  dash <- "'[-\u2013\u2014]'"
+  inner <- paste0("regexp_replace(regexp_replace(replace(replace(", col,
+                  ", '.', ''), ", quo, ", ' '), ", dash,
+                  ", ' ', 'g'), '\\s+', ' ', 'g')")
   paste0("trim(replace(replace(' ' || trim(", inner,
          ") || ' ', ' STE ', ' SAINTE '), ' ST ', ' SAINT '))")
 }
@@ -483,5 +543,139 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
   sql <- gsub("{fold_smun}",
               nar_match_fold_sql("strip_accents(upper(s.MAIL_MUN_NAME))"),
               sql, fixed = TRUE)
+  gsub("{name_threshold}", format(name_threshold), sql, fixed = TRUE)
+}
+
+#' The RQA gazetteer scoring query
+#'
+#' @description The second pass's half of [nar_gazetteer_sql()], over
+#' `RqaStreets` instead of `Streets`. Same weights and the same name evidence,
+#' so a `confidence` means the same thing whichever register produced it --
+#' what differs is which register the street was found in, and that is reported
+#' as `parse_source` rather than folded into the score.
+#'
+#' Two things are deliberately not carried over:
+#'
+#' * **There is no exact branch.** Without a municipality or a postal code there
+#'   is no locality to restrict candidates to, and NAR's exact branch earns its
+#'   keep by canonicalizing a spelling every candidate of that name agrees on.
+#'   RQA covers one province, so an unrestricted match there would assert Quebec
+#'   about a string that never said so. Rows with neither locality are left to
+#'   the rules parse.
+#' * **Only one name family**, because RQA publishes one. `MATCH_FOLD` is
+#'   compared against, never `NAME_FOLD`: the addresses this pass exists for are
+#'   the ones NAR could not resolve, so the probe carries the *writer's*
+#'   spelling and not a register's.
+#'
+#' @section How the municipality is resolved: Through NAR's `MunAlias`, which is
+#' the load-bearing part. RQA files an address under its **census subdivision**
+#' -- `Montréal`, never `Verdun` -- while people write the postal city, and RQA
+#' publishes no alias table of its own. But `MunAlias` already keys a written
+#' name to a CSD, and `MUN_KEY` carries that CSD's name (`24:V:Montréal`), which
+#' is the name RQA files under. So `ANJOU`, `LASALLE`, `SAINT-LAURENT` and
+#' `VERDUN` all reach Montreal's 4,581 RQA streets for free, and the borough
+#' column RQA does carry is not needed here at all.
+#'
+#' The written name is also matched directly, for a municipality NAR has no
+#' addresses in and therefore no alias for -- which is a coverage gap of exactly
+#' the kind this pass exists for. The two are a `UNION` and not an `OR`: matching
+#' two ways with `OR` is the 99x pattern recorded in `.claude/geocoding.md`.
+#'
+#' @param probe Name of the temp table holding the parsed components
+#' @param name_threshold Minimum name similarity
+#' @return A single SQL string
+#' @keywords internal
+nar_rqa_gazetteer_sql <- function(probe, name_threshold = 0.90) {
+  sql <- "
+    WITH probe AS (
+      SELECT p.*,
+             -- Same rule as the NAR pass: a municipality named in the string
+             -- wins, otherwise the postal code supplies one. PostalMun is NAR's
+             -- and is used as-is -- an FSA denotes the same place whoever is
+             -- listing its addresses.
+             coalesce(nullif(p.mun_match, ''),
+                      (SELECT {fold_pm}
+                         FROM PostalMun pm
+                        WHERE pm.FSA = p.fsa AND p.fsa <> ''
+                        ORDER BY pm.N_ADDRESSES DESC LIMIT 1)) AS mun_use
+        FROM {probe} p
+       WHERE p.prov = '' OR p.prov = 'QC'
+    ),
+    muns AS (
+      SELECT p.*, p.mun_use AS mun_join
+        FROM probe p
+       WHERE p.mun_use IS NOT NULL
+      UNION
+      SELECT p.*, {fold_csd} AS mun_join
+        FROM probe p
+        JOIN MunAlias m
+          ON {fold_mun} = p.mun_use
+         AND m.PROV_ABVN = 'QC'
+       WHERE p.mun_use IS NOT NULL
+    ),
+    scored AS (
+      SELECT p.row_id,
+             -- Case is left alone. NAR's own OFFICIAL_STREET_NAME is title
+             -- case with the accents kept (`G.-E.-Cyr`, `118e`)
+             -- because its Quebec rows come from this register in the first
+             -- place, so RQA's spelling already *is* the convention. The
+             -- municipality is the one that differs: NAR upper-cases
+             -- MAIL_MUN_NAME, so this does too.
+             s.STREET_NAME,
+             coalesce(s.STREET_TYPE, '') AS STREET_TYPE,
+             coalesce(s.STREET_DIR, '')  AS STREET_DIR,
+             upper(s.MUN_NAME) AS MAIL_MUN_NAME,
+             s.PROV_ABVN AS MAIL_PROV_ABVN,
+             s.N_ADDRESSES,
+             jaro_winkler_similarity(p.match_fold, s.MATCH_FOLD) AS jw_sim,
+             -- The single edit and the whole-word containment, exactly as in
+             -- nar_gazetteer_sql() and for the same reasons -- including the
+             -- 0.70 prefilter and the length gate, which are there to keep the
+             -- edit distance off pairs that cannot pass it.
+             greatest(
+               jw_sim,
+               CASE WHEN jw_sim >= 0.70 AND length(p.match_fold) >= 3
+                     AND abs(length(p.match_fold) - length(s.MATCH_FOLD)) <= 1
+                     AND damerau_levenshtein(p.match_fold, s.MATCH_FOLD) <= 1
+                    THEN 0.90 ELSE 0 END,
+               CASE WHEN p.match_fold <> ''
+                     AND length(s.MATCH_FOLD) > length(p.match_fold)
+                     AND ' ' || s.MATCH_FOLD || ' '
+                           LIKE '% ' || p.match_fold || ' %'
+                    THEN 0.90 ELSE 0 END) AS name_sim,
+             0.72 * name_sim
+             + 0.10 * CASE WHEN p.type = '' THEN 1
+                           WHEN p.type = coalesce(s.STREET_TYPE, '') THEN 1
+                           ELSE 0 END
+             + 0.06 * CASE WHEN p.dir = '' THEN 1
+                           WHEN p.dir = coalesce(s.STREET_DIR, '') THEN 1
+                           ELSE 0 END
+             + 0.12 * CASE WHEN p.civic IS NULL THEN 1
+                           WHEN p.civic BETWEEN s.MIN_CIVIC_NO AND s.MAX_CIVIC_NO THEN 1
+                           ELSE 0 END
+               AS score,
+             p.mun_join = p.mun_use AS mun_exact
+        FROM muns p
+        JOIN RqaStreets s
+          ON {fold_smun} = p.mun_join
+    )
+    SELECT * EXCLUDE (jw_sim) FROM scored
+     WHERE name_sim >= {name_threshold}
+    -- As in the NAR pass: the street that also matches the municipality as
+    -- written wins a tie, then the busier street, then STREET_TYPE only to make
+    -- the answer reproducible.
+    QUALIFY row_number() OVER (PARTITION BY row_id
+                               ORDER BY score DESC, mun_exact DESC,
+                                        N_ADDRESSES DESC, STREET_TYPE) = 1"
+  sql <- gsub("{probe}", probe, sql, fixed = TRUE)
+  sql <- gsub("{fold_mun}", nar_match_fold_sql("m.NAME_FOLD"), sql, fixed = TRUE)
+  sql <- gsub("{fold_pm}",
+              nar_match_fold_sql("strip_accents(upper(pm.MAIL_MUN_NAME))"),
+              sql, fixed = TRUE)
+  sql <- gsub("{fold_csd}",
+              nar_match_fold_sql(
+                "strip_accents(upper(split_part(m.MUN_KEY, ':', 3)))"),
+              sql, fixed = TRUE)
+  sql <- gsub("{fold_smun}", nar_match_fold_sql("s.MUN_FOLD"), sql, fixed = TRUE)
   gsub("{name_threshold}", format(name_threshold), sql, fixed = TRUE)
 }
