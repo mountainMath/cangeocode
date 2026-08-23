@@ -9,13 +9,20 @@ locator's own reference names are `RQA_*` — so this note is what establishes
 that the tier, the register and NAR are three views of one dataset rather than
 three sources.
 
-Everything below comes from `data-raw/compare_rqa.R`, run against NAR 2026-06
-and the RQA release dated 2026-08-01. Re-run it after importing a new NAR
-release; the numbers move.
+Everything below comes from two harnesses, both run against NAR 2026-06 and the
+RQA release dated 2026-08-01. Re-run them after importing a new NAR release; the
+numbers move.
 
 ```
-RQA_PART=all Rscript data-raw/compare_rqa.R
+RQA_PART=all Rscript data-raw/compare_rqa.R      # register against register
+RQA_PART=all Rscript data-raw/diagnose_quebec.R  # a Québec eval sample against both
 ```
+
+`compare_rqa.R` compares the two registers directly. `diagnose_quebec.R` takes the
+Québec slice of the Part B eval corpus — Corporations Canada filings, addresses
+nobody cleaned — and asks of every failure whether the address is in NAR, in RQA,
+in both or in neither, which is what turns a join rate into a diagnosis. It takes
+`RQA_PART` of `split`, `gain`, `interp` or `all`.
 
 The bulk download is `https://diffusion.mern.gouv.qc.ca/Diffusion/RQA/RQA_CSV.zip`
 (778 MB, extracting to a 3.08 GB `RQA.csv` of 5,322,997 rows plus a 24 MB
@@ -122,19 +129,66 @@ The practical consequence is the one that matters here:
 opinion because the BC Geocoder maintains its own civic register; Quebec has no
 equivalent.
 
+## What is left of Québec, re-diagnosed
+
+The gazetteer's match fold took Québec's postal-confirmed Part B rate from 68.2%
+to 75.5%, and the two street-type surfaces added alongside this note took it to
+77.5%, so the diagnosis that used to sit here was stale. This is the re-run:
+`RQA_PART=split`, 4,000 Québec filings drawn QC-only, seed 20260821, scored with
+the same two joins Part B uses. **79.8% confirm against NAR through the
+municipality, 81.8% confirm one way or the other, 727 fail.** (The 79.8% and the
+77.5% are the same measure on different draws — Part B's QC figure is whatever
+slice of a national 5,000 happens to be Québec, a few hundred rows, so the two
+are not comparable at a point and only the split below is worth reading.) Each
+failure is looked up in both registers and put in exactly one class:
+
+| class | n | % of failures | whose problem |
+| --- | ---: | ---: | --- |
+| `spelling` | 97 | 13.3 | ours — NAR has the address, under a name the parse disagrees with |
+| `no_civic` | 37 | 5.1 | ours — no civic number or no street came out of the string |
+| `parse` | 109 | 15.0 | ours — RQA has the address, NAR does not confirm it |
+| `postal` | 100 | 13.8 | the filer's — NAR has the address, at a different postal code |
+| `coverage` | 300 | 41.3 | NAR's — RQA has the address and NAR does not |
+| `neither` | 84 | 11.6 | the filer's — no register holds it |
+
+**Ours 33.4%, NAR's coverage 41.3%, the filing's own 25.3%.**
+
+The classification uses two lookup levels, and the distinction is the whole
+reason the old split was wrong. A **key** is the full postal code plus the civic
+number; an **address** is the forward sortation area, the civic number and a
+street name matched under the same fold the gazetteer uses. The old split keyed
+on the full postal code only, so an address both registers hold at a postal code
+the filer typed wrong landed in `neither` and read as a bad filing.
+`1255 Rue Peel, Montréal H3B 2T6` is the worked example: both registers carry
+1255 Peel, at H3B 2T9 and H3B 4V4, and neither is what the filer wrote. That
+class is now `postal`, and isolating it moved a hundred rows out of `neither` and
+`parse`.
+
+So the headline finding of the old diagnosis survives and gets larger:
+**the single biggest block of Québec's remaining shortfall is addresses NAR does
+not carry, and it is now 41.3% rather than 26.4%.** The parser's own share fell
+from 33.7% to 33.4% while the total shrank, which is the fold and the lexicon
+rows doing what they were supposed to.
+
+Inside the classes that are ours, the dominant residue is a street type the
+lexicon does not know: 49 of the 243 come back with no `STREET_TYPE` at all.
+Before the lexicon rows added with this note it was 120 of 316, `CHEM.` (41) and
+`BD` (18) between them accounting for 59 failures on two missing surface forms.
+What is left of that tail is single rows of `BOU.`, `BV`, and — a different bug —
+`BOUL.DES`, where the input period strip glues a period-abbreviated type onto the
+word after it.
+
 ## What RQA is actually worth here
 
-Not as a geometry source. Two things:
+Not as a geometry source. Two things, and the ranking between them has flipped.
 
-**The 225,275 addresses NAR lacks.** They are concentrated in exactly the rural
-forms the parser struggles with, so they would extend coverage where coverage is
-thinnest. Adding them means either a second local table or a merged import, and
-either way a licence question — RQA is CC-BY where NAR is OGL, both
-attribution-compatible, unlike the ODbL problem that keeps `osm_geocode()` out
-of the tier list.
+**The 225,275 addresses NAR lacks** — the next section prices them, because the
+re-diagnosis above makes them the largest single thing standing between this
+package and a better Québec number.
 
-**The odonyme decomposition, which is the larger prize.** RQA does not store a
-street name as a string. It stores it decomposed, with a stable identifier:
+**The odonyme decomposition**, which used to be the larger prize. RQA does not
+store a street name as a string. It stores it decomposed, with a stable
+identifier:
 
 | générique | particule | spécifique | cardinal | recomposé (normal) | recomposé (court) |
 | --- | --- | --- | --- | --- | --- |
@@ -150,20 +204,132 @@ the alternative and former names, expanded in `Odonymes_renvois.csv`.
 
 That is a labelled decomposition of every street name in Quebec, in the exact
 shape `normalize_address()` is trying to produce, together with the register's
-own alternative spellings.
+own alternative spellings. It is worth less than it looks, and the reason is
+worth recording: the classes it was going to fix — `ST-`/`STE-` left unexpanded,
+a dropped leading particule, hyphen-versus-space — are the classes the match fold
+now handles for free. What the decomposition can still buy is the part folding
+cannot reach: former and alternative names via the renvois, and génériques that
+belong to the name rather than the type. One caution if it is ever loaded: six of
+RQA's génériques (`Domaine`, `Traverse`, `Descente`, `Chaussée`, `Trait-carré`,
+`Carrefour`) do not appear anywhere in NAR's observed street types, so promoting
+them to canonical types would make those addresses parse cleanly and then join
+nothing.
 
-**It is worth less than it was when this was written, and the reason is worth
-recording.** The diagnosis that ranked it — a Québec Part B join rate of 68.2%
-against building points on 99.8% of NAR's Quebec rows — was right that the
-geometry is there and the parse is what failed to reach it, and wrong about why.
-Cross-referencing 912 Québec failures against RQA split them: 33.7% a parse
-failure on an address both registers hold, **26.4% an address whose parse RQA
-confirms and NAR simply does not carry**, 24.8% in neither register, 9.0% a
-spelling NAR disagrees with. Half the shortfall was never the parser's. Of the
-half that was, the dominant classes were `ST-`/`STE-` left unexpanded, a dropped
-leading particule, and hyphen-versus-space — all three of which the gazetteer's
-match fold now handles for free, taking Québec to **75.5%**. What the
-decomposition can still buy is the part folding cannot reach: former and
-alternative names via the renvois, and génériques that belong to the name rather
-than the type. Re-measure the split before loading it. See
-[`address-normalization-status.md`](address-normalization-status.md).
+## Should the missing addresses be imported?
+
+`RQA_PART=gain` and `RQA_PART=interp` size both halves of that question. They
+answer differently, and the answer depends on which of this package's two
+objectives is being served.
+
+### How large the gap really is
+
+The postal-plus-civic key says 225,275. The coarser **address key** — forward
+sortation area, civic number, street name — says more, but only after one
+correction that has to be made or the number is nonsense. NAR stores a leading
+particule inside `OFFICIAL_STREET_NAME` (`de la Côte-de-Liesse`) while RQA keeps
+it in a column of its own and `specifique_odonyme` has none, so comparing the two
+raw counts every particule in the province as a miss: 1,265,940. Stripping the
+particule off both sides first:
+
+| | keys |
+| --- | ---: |
+| NAR Québec | 3,105,074 |
+| RQA | 3,400,293 |
+| **in RQA, not in NAR** | **357,723** |
+| in NAR, not in RQA — the noise floor | 62,504 |
+
+Two corrections come off the 357,723. 49,278 (13.8%) are addresses NAR does hold
+under a name that contains, or is contained by, RQA's; 43,174 sit at a civic
+number NAR has no row for on any street. **Net, the real gap is about 308,000
+addresses, roughly 9% on top of NAR's Québec.** The 13.8% containment estimate is
+independently confirmed below: of 4,000 sampled gap addresses geocoded against
+NAR, 12.5% resolved straight to a NAR *building* point.
+
+What they are matters as much as how many. RQA's own positional flag on the
+missing postal-plus-civic keys is **worse** than on what NAR already carries —
+Géocodée 41.3%, Incertaine 30.0%, Bâtiment 20.3%, Centre lot 6.0%, Front lot
+2.4%, against 26.9% building-placed register-wide. By region they are everywhere,
+not concentrated: Montréal 35,927, Montérégie 24,793, Chaudière-Appalaches
+20,235, Laurentides 18,726, Estrie 17,475, Capitale-Nationale 17,172, Outaouais
+15,368, Saguenay–Lac-Saint-Jean 12,494, Centre-du-Québec 10,503, Mauricie 9,885.
+Spot-checked by hand and genuinely absent from NAR: `5510 Saint-Jacques`,
+`1650 Chabanel`, `1370 Beauharnois` and `365 Rue Sainte-Catherine Est` in
+Montréal, `431 Courtemanche` in Montréal-Est, `45 Gamelin` in Gatineau.
+
+### For geocoding: it buys precision, and reach for a third of them
+
+`RQA_PART=interp` takes 4,000 addresses NAR does not carry, renders them the way
+a user would type them, and runs `geocode()` on the local tiers only:
+
+| `match_method` | n | share |
+| --- | ---: | ---: |
+| `nar_interpolated` | 2,247 | 56.2% |
+| `none` | 1,252 | 31.3% |
+| `nar_building` | 498 | 12.5% |
+| `nar_blockface` / `nar_no_geometry` | 3 | 0.1% |
+
+and measures how far the point it returns falls from the coordinate RQA holds for
+that address:
+
+| method | n | p50 | p90 | p99 | < 50 m | > 500 m |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `nar_interpolated` | 2,247 | 23.5 m | 323.7 m | 21,230 m | 65.7% | 7.2% |
+| `nar_building` | 498 | 0.1 m | 7.2 m | 9,926 m | 94.0% | 5.4% |
+
+The `nar_building` row is the containment correction showing up again: those are
+not missing addresses, they are the same address spelled differently, and NAR
+answers to a tenth of a metre. Of the genuine gap, **two thirds already get an
+interpolated point with a median error of 23 m**, and **a third get nothing at
+all** — 1,252 rows where NAR has no usable geometry for the street. Those are not
+parse failures: every one of them yielded a civic number and a street name, and
+the gazetteer resolved 73.8% of them, so the string was understood and NAR simply
+had nowhere to put it.
+
+So importing would give roughly 110,000 Québec addresses a coordinate they get
+none for today, and replace an interpolated guess with a register point for
+another 200,000 — cutting a 23 m median to nothing and removing a tail where 7%
+of interpolations land more than half a kilometre out and the worst are tens of
+kilometres out. That is real, but it is precision on addresses that mostly
+already resolve, and the `qc` tier already catches some of the rest online: of
+six hand-confirmed missing addresses, NAR alone placed four by interpolation, the
+`qc` tier placed a fifth, and only `431 Courtemanche` stayed unplaced.
+
+### For address normalization: it is the only thing that helps
+
+The other objective has no online fallback. Matching two address lists against
+each other needs the parse to resolve against a register, and if the register
+does not carry the address there is nothing a better parser can do. That is
+exactly the 41.3% `coverage` class above. Anti-joining the gap in and re-scoring
+the Québec sample puts the ceiling at **81.8% → 88.3%** for a postal-plus-civic
+import and **89.3%** for a street-level merge. Nothing else on the next-steps
+list is worth six points.
+
+### The recommendation
+
+**Import it, as a separate table and a separate tier — not merged into NAR.** The
+coverage is worth having and the licence permits it: CC-BY 4.0 against NAR's OGL,
+both attribution licences, compatible in the way ODbL is not (which is why
+`osm_geocode()` is bound but is not a tier — see
+[`geocoding.md`](../../.claude/geocoding.md)). Three reasons the merge is the
+wrong shape:
+
+1. **Merging destroys the only instrument Québec has.** Every measurement in this
+   note exists because NAR and RQA are separately readable. Once NAR contains RQA
+   there is no way left to ask what NAR is missing, and Québec — which already has
+   no independent geometry check — would lose its coverage check too.
+2. **The added rows are positionally weaker than what NAR carries** (20.3%
+   building-placed against 26.9%, 30.0% `Incertaine`), so a merged table would
+   quietly degrade the meaning of Québec's `geom_source = 'building'`, which this
+   note has already had to warn about once.
+3. **A merged table stops being NAR.** `nar_provinces()`, the row counts quoted in
+   the vignettes, the coverage tables in
+   [`geocoding-status.md`](geocoding-status.md) and `nar_schema_version()` all
+   describe a StatCan release. A local table with its own provenance keeps every
+   one of those honest.
+
+Sequenced: the normalization gain is the one that justifies the work, so the first
+build is the lookup — the gap rows loaded as a table `normalize_address()` and the
+Part B harness can join against. The geocoding tier is a smaller and later win,
+and should slot in below `nar_building` and above `nar_interpolated`, since a
+register point beats an interpolated one and loses to a NAR building point on the
+evidence above.

@@ -142,8 +142,11 @@ record the design.
 - **[`inst/notes/quebec-addresses.md`](../inst/notes/quebec-addresses.md)**
   — NAR's Quebec rows measured against the Répertoire québécois des adresses they come from:
   the 2.5-million-address point comparison that shows NAR is carrying RQA's own coordinates,
-  why Quebec's 99.8% "building" coverage is not a quality statement, the 225,275 addresses RQA
-  has and NAR does not, and the odonyme decomposition — which the gazetteer's match fold has
+  why Quebec's 99.8% "building" coverage is not a quality statement, the six-way split of what
+  is left of Québec's normalization failures (41.3% of them addresses NAR does not carry — and
+  why the previous split understated that by keying on the full postal code), what importing
+  those ~308,000 addresses would and would not buy for each of the package's two objectives,
+  and the odonyme decomposition — which the gazetteer's match fold has
   since made a smaller prize than it looked. Read it before trusting any Quebec comparison, `qc_validate()` included.
 - **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
   — where address normalization currently falls short: the measured failure modes, the things

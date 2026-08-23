@@ -6,7 +6,7 @@ Lives in `inst/notes/`, so it installs with the package and
 This file documents *where it currently falls short*. Every number here is measured, not
 estimated; each section says which measurement produced it so it can be re-run and disputed.
 
-**As of:** 2026-08-21, commit `6cde886`, NAR release `2026-06` (17,362,476 addresses).
+**As of:** 2026-08-23, commit `946ebed`, NAR release `2026-06` (17,362,476 addresses).
 Layers 1 (rules) and 2 (NAR gazetteer) are implemented. Layer 3 (LLM fallback) is not — see
 *Deferred* at the end.
 
@@ -75,8 +75,8 @@ against a number written down here.
 | | |
 | --- | --- |
 | street name and civic number extracted | 98.9% |
-| joins a real NAR address (civic + name + municipality + province) | 88.4% |
-| ... and the filer's postal code confirms it | 83.3% |
+| joins a real NAR address (civic + name + municipality + province) | 88.8% |
+| ... and the filer's postal code confirms it | 83.7% |
 
 ### How to read these
 
@@ -236,6 +236,21 @@ see this, because Part A renders its municipalities out of NAR into a comma-deli
 B's filings are mostly comma-delimited too. That is the same gap in the noise grammar the
 hyphenated-unit fix exposed, and it is the reason both of these were found by hand rather than by
 the eval.
+
+**Two street-type surfaces the lexicon never had.** Re-diagnosing Québec
+(see [`quebec-addresses.md`](quebec-addresses.md)) found 120 of 316 parser-side failures coming
+back with no `STREET_TYPE` at all, and the token sitting where the type should be was `CHEM.` on
+41 of them and `BD` on 18 — 59 failures on a 4,000-address sample from two abbreviations absent
+from `data-raw/street_types.csv`. Adding `CHEM,CH,fr` and `BD,BOUL,fr` and rebuilding
+`R/sysdata.rda` took that sample from 78.3% to 79.8% confirmed and Part B nationally from 88.4%
+to 88.8% joined, 83.3% to 83.7% confirmed, Québec 75.5% to 77.5%. Part A is byte-identical and
+so are both deepparse corpora, which is the expected shape: Part A renders its surface forms out
+of NAR's own type vocabulary, so a surface NAR never writes cannot appear there. **This is the
+cheapest class of fix in the package and the harnesses cannot find it** — only a residual
+inspection that tabulates the token following the civic number can, and
+`data-raw/diagnose_quebec.R` now prints that table. What is left of the tail is single rows
+(`BOU.`, `BV`) plus a different bug: `nar_norm_text()` strips every period at input, so
+`BOUL.DES GRANDES PRAIRIES` becomes `BOULDES ...` and the type is glued to the word after it.
 
 ### A comma-free string, segmented on the municipality inventory
 
@@ -596,23 +611,31 @@ Two things this explicitly does **not** settle:
 The first four items of the previous list came out of *What a local LLM adds* and are done — see
 *Fixed, and worth keeping fixed* for what they bought. So have the two the deepparse benchmark
 added, the prefix strip and comma-free segmentation, and with them nothing in that benchmark
-still beats the parser on a corpus it was never tuned on. What is left is ordered the same way,
+still beats the parser on a corpus it was never tuned on. So has the Québec re-diagnosis that
+led the last list; what it found is now item 1 in its place. What is left is ordered the same way,
 by rows recovered per unit of effort.
 
-1. **Re-diagnose what is left of Québec.** The match fold above took Québec's Part B join rate
-   from 68.2% to 75.5%, so the diagnosis that ranked this item is stale. What that diagnosis
-   *also* found, and what still stands, is that half of Québec's remaining shortfall is not the
-   parser's at all: of 912 failures on a 4,000-address Québec sample, 26.4% were addresses whose
-   parse the Répertoire québécois des adresses confirms and which NAR simply does not carry, and
-   a further 24.8% were not in either register. Re-run the split in
-   [`quebec-addresses.md`](quebec-addresses.md) before spending anything more here.
-2. **The Québec odonyme decomposition, if the re-diagnosis still wants it.** RQA publishes every
-   street name in the province already split into générique, particule, spécifique and point
-   cardinal — 115,352 odonymes, a particule on 27.8% of rows — plus 551,160 cross-references to
-   alternative and former names in `Odonymes_renvois.csv`. The match fold captured the cheap part
-   of what that data was going to buy (containment now sees through the particule and the hyphen),
-   so what is left is the part folding cannot do: former names, and génériques that are part of
-   the name rather than the type. Licence is CC-BY, attribution-compatible with NAR's OGL.
+1. **Load the Québec addresses NAR does not carry.** The re-diagnosis that used to sit at the
+   top of this list is done, and it moved this item up rather than down:
+   [`quebec-addresses.md`](quebec-addresses.md) now splits 727 Québec failures six ways and finds
+   **41.3% of them are addresses the Répertoire québécois des adresses holds and NAR does not** —
+   up from 26.4%, because the old split keyed on the full postal code and so filed an address both
+   registers hold at a mistyped postal code under "in neither". The parser's own share is 33.4%
+   and shrinking; no parser change reaches the coverage class at all. Anti-joining the gap in puts
+   the Québec ceiling at **81.8% → 88.3%**, a street-level merge at 89.3%. Nothing else on this
+   list is worth six points. Load it as a **separate table**, not merged into NAR: merging would
+   destroy the only instrument Québec has (every measurement in that note exists because the two
+   registers are separately readable), and the added rows are positionally weaker than NAR's own.
+   Licence is CC-BY 4.0, attribution-compatible with NAR's OGL. That note has the sizing, the
+   quality and region breakdowns, and the recommendation.
+2. **The Québec odonyme decomposition, now that the re-diagnosis has spoken.** It ranks below the
+   import rather than above it. RQA publishes every street name in the province already split into
+   générique, particule, spécifique and point cardinal — 115,352 odonymes, a particule on 27.8% of
+   rows — plus 551,160 cross-references to alternative and former names in `Odonymes_renvois.csv`.
+   The match fold captured the cheap part of what that data was going to buy (containment now sees
+   through the particule and the hyphen), so what is left is the part folding cannot do: former
+   names, and génériques that are part of the name rather than the type. Six of RQA's génériques
+   have no counterpart in NAR's observed types, so they must not be promoted to canonical types.
 3. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
    arbitration now exist; what is missing is the two strategies and their gates. One mechanism
    fixes both: when a stripped reading finds nothing in the gazetteer, retry with the token
@@ -624,7 +647,13 @@ by rows recovered per unit of effort.
 5. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
    determined case is now answered; this is the 157 rows with 2 or more candidates. Either
    document `NA` as the honest answer or return candidates. A design decision, not a bug fix.
-6. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
+6. **A period-abbreviated type glued to the next word.** `nar_norm_text()` strips every period at
+   input, so `BOUL.DES GRANDES PRAIRIES` arrives as one token `BOULDES` and no type is found.
+   Single-digit row counts in the Québec residual, and probably the same anywhere French
+   abbreviations are typed without a space; splitting on a period *before* stripping it, where the
+   left side is a known type surface, would cover it. Cheap, and worth doing whenever the file is
+   open for another reason.
+7. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
 
 ## Deferred
 
