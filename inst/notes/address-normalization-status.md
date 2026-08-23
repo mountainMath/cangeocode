@@ -38,7 +38,22 @@ R_ENVIRON_USER=/dev/null NAR_CACHE_PATH=/Users/jens/data/nar \
 It prints the residual ceilings with no model at all, and runs the two shortlist experiments only
 if `httr2` is installed and `LLM_HOST` answers.
 
-Two consecutive full runs are now byte-identical apart from timing. **Any change to the parser
+A third harness measures this parser against a purpose-built neural tagger on two corpora it was
+never tuned on — a generated dirty corpus and StatCan's healthcare-facility free text. It is the
+one that found the segmentation gap, and it has its own note,
+[`deepparse.md`](deepparse.md):
+
+```sh
+R_ENVIRON_USER=/dev/null NAR_CACHE_PATH=/Users/jens/data/nar \
+  Rscript data-raw/dirty_corpus.R                        # ~35 min, once, needs Ollama
+R_ENVIRON_USER=/dev/null NAR_CACHE_PATH=/Users/jens/data/nar \
+  EVAL_N=5000 DP_MODEL=fasttext Rscript data-raw/eval_deepparse.R
+```
+
+Unlike the two above it is **not** fully reproducible: the corpus is a local model's output, and
+regenerating it will move the numbers. `<EVAL_CACHE>/dirty_corpus.csv` is the corpus of record.
+
+Two consecutive full runs of `eval_normalize.R` are byte-identical apart from timing. **Any change to the parser
 should be evaluated by running the harness before and after on the same seed**, not by comparing
 against a number written down here.
 
@@ -511,39 +526,54 @@ Two things this explicitly does **not** settle:
   a routing job, not a knowledge job, and no measurement here touches it. Part A's noise grammar
   is comma-delimited and cannot generate that class — the same blind spot that hid the
   `Sault Ste. Marie` bug from both halves of the harness.
+  **This one has since been measured, and it was the larger of the two.** See
+  [`deepparse.md`](deepparse.md): on a corpus built specifically to escape Part A's grammar, a
+  leading prose prefix takes this parser from 98.0% to **0.0%** on the affected class, a neural
+  tagger used purely as a segmenter recovers 12.5 points of it, and a guarded prefix-strip rule
+  recovers 22.4 at no cost. The fine-tune question below is answered there.
 
 ## Next steps, in the order the measurements justify
 
 The first four items of the previous list came out of *What a local LLM adds* and are done — see
 *Fixed, and worth keeping fixed* for what they bought. What is left is ordered the same way, by
-rows recovered per unit of effort.
+rows recovered per unit of effort. Item 1 is new and goes to the top because it is the largest
+effect either harness has measured on input the parser was not tuned against.
 
-1. **Re-diagnose what is left of Québec.** The match fold above took Québec's Part B join rate
+1. **Strip a leading prose prefix before parsing.** Measured in
+   [`deepparse.md`](deepparse.md) and not yet built. In the first comma-delimited field, drop
+   everything before the first token beginning with a digit, guarded so a leading unit
+   designator (`Apt`, `Suite`, `Bureau`, `Unit`, `#`) is not eaten. On the generated dirty
+   corpus that is 70.9% → **93.3%** CORE — `careof` 18.6% → 93.2%, `verbose` 0.0% → 90.3% — and
+   −0.1 point on Part A, Part B and ODHF alike. It beats a 6.8 GB neural segmenter at the same
+   job by ten points. What it still needs is the design pass: where in the pipeline it belongs,
+   what it does to a care-of line carrying a person's name, whether the guard list is the unit
+   lexicon or a new one, and its own tests.
+2. **Re-diagnose what is left of Québec.** The match fold above took Québec's Part B join rate
    from 68.2% to 75.5%, so the diagnosis that ranked this item is stale. What that diagnosis
    *also* found, and what still stands, is that half of Québec's remaining shortfall is not the
    parser's at all: of 912 failures on a 4,000-address Québec sample, 26.4% were addresses whose
    parse the Répertoire québécois des adresses confirms and which NAR simply does not carry, and
    a further 24.8% were not in either register. Re-run the split in
    [`quebec-addresses.md`](quebec-addresses.md) before spending anything more here.
-2. **The Québec odonyme decomposition, if the re-diagnosis still wants it.** RQA publishes every
+3. **The Québec odonyme decomposition, if the re-diagnosis still wants it.** RQA publishes every
    street name in the province already split into générique, particule, spécifique and point
    cardinal — 115,352 odonymes, a particule on 27.8% of rows — plus 551,160 cross-references to
    alternative and former names in `Odonymes_renvois.csv`. The match fold captured the cheap part
    of what that data was going to buy (containment now sees through the particule and the hyphen),
    so what is left is the part folding cannot do: former names, and génériques that are part of
    the name rather than the type. Licence is CC-BY, attribution-compatible with NAR's OGL.
-3. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
+4. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
    arbitration now exist; what is missing is the two strategies and their gates. One mechanism
    fixes both: when a stripped reading finds nothing in the gazetteer, retry with the token
    restored to the name. Affects ~686k addresses' worth of street forms; the direction half fires
    even on clean input. The name gate now recovers some of this incidentally — whole-word
    containment catches a type the parser ate whenever the gazetteer has the fuller name — so
    re-measure the remaining size before building it.
-4. **Reject a province name as a municipality** (mode 6). An afternoon.
-5. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
+5. **Reject a province name as a municipality** (mode 6). An afternoon.
+6. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
    determined case is now answered; this is the 157 rows with 2 or more candidates. Either
    document `NA` as the honest answer or return candidates. A design decision, not a bug fix.
-6. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
+7. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
 
 ## Deferred
 
@@ -553,9 +583,18 @@ plan's sequencing said the eval decides whether they are warranted. The eval now
 foundation model scores below the gazetteer's own scorer, so Layer 3 as an off-the-shelf
 component is not warranted and is not merely deferred.
 
-The **fine-tune** is a separate claim and remains untested. Revisit it after the remaining *Next
-steps*, against whatever residual is left — which is where the honest case for it has to be made, since the
-classes those items remove are the ones it would otherwise be credited with.
+The **fine-tune** is a separate claim, and it has now been tested at one remove.
+[`deepparse.md`](deepparse.md) measures the strongest off-the-shelf *purpose-built* neural
+address tagger — trained on Canadian data, not a general foundation model — on four corpora,
+two of which this parser was never tuned against. It loses to the gazetteer on both tuned
+corpora and on six of eight generated classes, because it carries no register and a fine-tune
+would have to acquire one. It wins on exactly one thing, segmentation, and a six-line rule wins
+that by more. **Neither a fine-tune nor a from-scratch model is warranted on the evidence.**
+
+The case is not closed forever, only closed at this residual: re-run that harness once *Next
+step 1* ships. If `dp -> norm` still leads on the unanticipated corpora after the prefix rule
+has taken the cheap part, the case reopens — with a far smaller and better specified target
+than "parse addresses".
 
 Also noted in the plan and still outstanding, unrelated to normalization: `reverse_geocode()`
 builds its `address` string from `MAIL_*` columns, and `MAIL_STREET_NAME` is empty for 957,307

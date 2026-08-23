@@ -87,10 +87,12 @@ Full reference and articles: <https://mountainmath.github.io/cangeocode/>
   (`vignette("querying-nar")`) — using the database with dplyr and `sf`
 - [Changelog](https://mountainmath.github.io/cangeocode/news/index.html)
 
-Two longer notes ship with the package and say what does *not* work yet, with
-the measurements behind each claim:
-`system.file("notes", "geocoding-status.md", package = "cangeocode")` and
-`system.file("notes", "address-normalization-status.md", package = "cangeocode")`.
+Longer notes ship with the package and say what does *not* work yet, with the
+measurements behind each claim. `system.file("notes", package = "cangeocode")`
+lists them; the two to start with are `geocoding-status.md` and
+`address-normalization-status.md`. `deepparse.md` measures the address parser
+against a purpose-built neural tagger, and is where the case for a trained model
+is made and rejected.
 
 ## Geocoding
 

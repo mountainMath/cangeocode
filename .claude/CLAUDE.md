@@ -150,6 +150,13 @@ record the design.
   tried and rejected, and the ranked next steps. Read it before changing the parser or the
   gazetteer, and re-run the eval harness (instructions are in that file) before and after any
   such change.
+- **[`inst/notes/deepparse.md`](../inst/notes/deepparse.md)**
+  — the neural tagger measured against this parser on four corpora, two of which the parser
+  was never tuned on: why it loses on knowledge and wins on *segmentation*, the two generated
+  classes that carry its entire advantage, the leading-prose prefix that takes this parser from
+  98% to 0%, the six-line rule that beats the tagger at recovering it, and why a fine-tune and a
+  from-scratch model are both unwarranted on the evidence. It closes the open question at the
+  end of the normalization status note.
 
 ## Package-level plumbing (`R/misc.R`)
 
