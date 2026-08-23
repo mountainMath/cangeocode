@@ -27,7 +27,8 @@ reference:
   desc: >
     Online services that place an address without a local database: NRCan's
     national geolocator, the Province of British Columbia's Address Geocoder,
-    the latter also a second source to check a result against, and the
+    Quebec's geocoder over the Repertoire quebecois des adresses, the two
+    provincial ones also a second source to check a result against, and the
     OpenStreetMap geocoder the Government of Canada hosts. All make network
     requests, and the OpenStreetMap one returns data under a share-alike
     licence -- read `osm_geocode()` before using its results.
@@ -35,13 +36,18 @@ reference:
   - nrcan_geocode
   - bc_geocode
   - bc_validate
+  - qc_geocode
+  - qc_validate
   - osm_geocode
 
 - title: Reverse geocoding
   desc: >
-    Find the addresses nearest a coordinate.
+    Find the addresses nearest a coordinate. `reverse_geocode()` is NAR-backed
+    and local; `qc_reverse_geocode()` is the one online reverse geocoder here,
+    and it covers Quebec only.
   contents:
   - reverse_geocode
+  - qc_reverse_geocode
 
 - title: The NAR database
   desc: >

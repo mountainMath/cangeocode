@@ -266,6 +266,71 @@ ground truth** — NAR has its own bad records, so a large distance means the tw
 that the geolocator is wrong. The numbers it produced are in
 [`../inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md).
 
+## `R/geocode_qc.R` — the Quebec geocoder
+
+A binding to the Ministère des Ressources naturelles et des Forêts' Esri [GeocodeServer] over
+the *Répertoire québécois des adresses*, published CC-BY. `qc_geocode()` is the client,
+`nar_geocode_tier_qc()` is the `"qc"` tier `method` can name, `qc_validate()` compares an
+existing result against Quebec's answer in metres, and `qc_reverse_geocode()` is **the only
+online reverse geocoder in the package** — the other three services do forward only, so the
+sentence "reverse geocoding is NAR-backed and local" is no longer true of everything here.
+Quebec only, so the tier filters on `PROV_ABVN == "QC"` before sending anything.
+
+**The query has to be spelled French-canonical, and this is not cosmetic.** The locator's
+reference strings are `Rue Notre-Dame Ouest`; `nar_address_string()` renders NAR's own
+`NOTRE-DAME RUE O`, and sent that the locator does not degrade, it stops matching — 31.5%
+civic matches against 95.5%. `nar_qc_query()` exists for this and is the reason the tier is
+worth having at all. Spelling out the street type is worth 37 points, the direction 26, the
+word order under one; the measured table is in that function's roxygen and reproduced by
+`data-raw/probe_qc.R`. The failure is silent in the worst way: `1 RUE NOTRE-DAME O, MONTREAL`
+comes back as a *street centroid scoring 92.4* where the correct civic point scores 82.5, so
+the abbreviated form does not lose the address, it replaces it with a confident wrong answer.
+
+**`Loc_name` is the precision field. `Addr_type` is not, and `Score` is not a ranking.**
+`Addr_type` is `Feature` for both locators and separates nothing. The score measures how much
+of the string *sent* was consumed: correlation with distance-from-NAR is Spearman 0.018, and
+street-only answers score *higher* than civic ones (median 87.0 against 83.0). This is why
+`min_score` defaults to 0 and should stay there — a threshold here removes correct addresses
+before it removes street centroids, which is the opposite of what `min_score` does for BC.
+
+**Four things about the response would each produce silently wrong code.** They are captured
+in `tests/testthat/fixtures/qc-*.json` rather than described, so they stay checkable:
+
+- **The batch answers out of order.** Send three addresses, the `locations` come back 3, 1, 2.
+  `nar_qc_locations()` places rows by `ResultID`, and an id the service dropped stays an
+  unmatched row rather than shifting everything after it.
+- **The coordinates come from `location`, never from the `Latitude`/`Longitude` attributes.**
+  Those are rendered in the service's French locale with a comma decimal mark
+  (`"45,5061613986714"`), which `as.numeric()` turns into `NA` on a good day, and they are
+  empty for a street-level match whose `location` is populated.
+- **Only the batch endpoint populates `Loc_name`.** `findAddressCandidates` returns it empty,
+  which would leave a civic match and a street centroid indistinguishable — so the batch
+  endpoint is used even for one address.
+- **The reverse endpoint reports no distance.** `qc_reverse_geocode()` measures it itself in
+  EPSG:3347, because a caller wants to know how far the answer is before believing it.
+
+**The service is not independent of NAR, and `qc_validate()` says so in its own
+documentation.** The locators are named `RQA_Adresse` and `RQA_Rue`: it serves the Répertoire,
+which is also what NAR's Quebec records are built from. Measured over 400 NAR Quebec building
+points the median disagreement is **0.9 m** (p90 13.3 m, nothing over 500 m). That is evidence
+of shared lineage, not of accuracy — the same trap `.claude/CLAUDE.md` records for the BC
+geocoder, only more so. Use it as a fallback, not as a check.
+
+As a fallback it is worth about what the geolocator is: on 600 Quebec corporations addresses
+it takes coverage from 81.0% to 83.3%, recovering 12.3% of what NAR left unplaced.
+
+The floor is the shared one: `nar_address_agreement()` re-parses the returned title and
+compares it component by component against what was asked for, **without the gazetteer** —
+the same rule as the geolocator's, and for the same reason. It catches what the locator floor
+cannot, including `12 RUE SAINT-JEAN, GATINEAU` answered as `12 Rue Saint-Jean-Bosco,
+Gatineau` with `RQA_Adresse`: right municipality, right number, wrong street.
+
+`httr2` and `jsonlite` are in `Suggests` and nothing reaches the network unless one of these
+functions is called. `nar_qc_locations()` and `nar_qc_reverse_row()` take parsed JSON rather
+than a response object so the whole response layer is testable offline.
+
+[GeocodeServer]: https://servicescarto.mrnf.gouv.qc.ca/pes/rest/services/Territoire/Adresse_Geocodage/GeocodeServer
+
 ## `R/geocode_osm.R` — the OpenStreetMap geocoder
 
 A binding to **`https://maps.canada.ca/nominatim/search`** — the Nominatim instance the

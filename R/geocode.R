@@ -37,6 +37,9 @@ nar_blockface_uncertainty_m <- function() 176
 #' * **`nrcan`** -- answered by the `nrcan` tier. One value rather than several,
 #'   because only one class of geolocator answer survives its floors at all.
 #'   See [nrcan_geocode()].
+#' * **`qc_address`** -- answered by the `qc` tier. Also one value: the
+#'   service's other locator resolves a street rather than an address, and the
+#'   tier does not place a row from it. See [qc_geocode()].
 #' * **`not_covered`** -- the address parsed to a province this database does
 #'   not hold, so no tier could have matched it. Only a partial import (see the
 #'   `provinces` argument of [nar_connection()]) ever produces this, and it is
@@ -57,12 +60,18 @@ nar_blockface_uncertainty_m <- function() 176
 #'   honoured: what is sent is rebuilt from the components after any
 #'   `prov`/`mun` override, and a point outside `within` is discarded rather
 #'   than returned.
+#' * **`"qc"`** -- ask the Quebec government's [geocoder][qc_geocode()].
+#'   Answers `qc_address`. Quebec only, and the one online tier that does
+#'   **not** cost a request per row: it batches 1000 addresses per request, so
+#'   naming it is cheap even on a large unplaced tail. It is also the only one
+#'   that refuses -- it returns no point rather than a locality centroid when
+#'   it cannot match -- so its answers need less rejecting than the others'.
 #' * **`"nrcan"`** -- ask NRCan's national [geolocator][nrcan_geocode()].
-#'   Answers `nrcan`. Also one network request per unplaced row, and it covers
-#'   the whole country, so unlike `"bc"` there is no province that excludes a
-#'   row from being sent. **It belongs last.** Its surviving answers are
-#'   roughly interpolation-grade at the median with a much longer tail, and it
-#'   has no score of its own -- everything that separates a hit from a
+#'   Answers `nrcan`. One network request per unplaced row, and it covers
+#'   the whole country, so unlike `"bc"` and `"qc"` there is no province that
+#'   excludes a row from being sent. **It belongs last.** Its surviving answers
+#'   are roughly interpolation-grade at the median with a much longer tail, and
+#'   it has no score of its own -- everything that separates a hit from a
 #'   confident wrong answer is done by re-parsing the returned title, which is
 #'   strict but not free of false positives.
 #'
@@ -70,9 +79,11 @@ nar_blockface_uncertainty_m <- function() 176
 #' record over an interpolated one. `method = "nar"` keeps only the addresses
 #' NAR actually carries. `c("nar", "nar_interpolate", "bc")` adds the BC
 #' service as a last resort, and `c("bc", "nar")` prefers it over NAR wherever
-#' it answers. `"nrcan"` is the national counterpart to `"bc"` and is the only
-#' tier that answers with no local database at all, which is the case it exists
-#' for; it should be named after every other tier, never before one.
+#' it answers. `"qc"` is the same shape as `"bc"` for the other province that
+#' publishes its own geocoder. `"nrcan"` is the national counterpart to both
+#' and is the only tier that answers with no local database at all, which is
+#' the case it exists for; it should be named after every other tier, never
+#' before one.
 #'
 #' A row NAR holds without coordinates (`nar_no_geometry`) is passed on to the
 #' next tier: knowing the address exists is worth reporting, but it is not worth
@@ -149,7 +160,7 @@ nar_blockface_uncertainty_m <- function() 176
 #' length-4 numeric `c(xmin, ymin, xmax, ymax)`, interpreted in `crs` unless it
 #' carries its own. **Authoritative**, and applied to every tier.
 #' @param method Tiers to try, in priority order: any of `"nar"`,
-#' `"nar_interpolate"`, `"bc"` and `"nrcan"`. Default
+#' `"nar_interpolate"`, `"bc"`, `"nrcan"` and `"qc"`. Default
 #' `c("nar", "nar_interpolate")`, which is the offline pair. See the section
 #' below.
 #' @param geometry Whether to return an `sf` object with POINT geometry.
@@ -162,11 +173,14 @@ nar_blockface_uncertainty_m <- function() 176
 #' connection passed in here is left open, while one opened internally is closed
 #' again before returning.
 #' @param ... Passed to the online tiers named in `method`. `rate` is
-#' understood by both of them; `min_score` and `api_key` are [bc_geocode()]'s,
-#' as is anything else, which it forwards to its own service as a query
-#' parameter. [nrcan_geocode()] is given only the arguments it declares, so a
-#' BC-only argument passed alongside `"nrcan"` reaches the BC tier alone rather
-#' than erroring. Unused when `method` names no online tier.
+#' understood by all of them; `api_key` is [bc_geocode()]'s, as is anything
+#' else it does not recognize, which it forwards to its own service as a query
+#' parameter. [nrcan_geocode()] and [qc_geocode()] are each given only the
+#' arguments they declare, so a BC-only argument passed alongside `"nrcan"`
+#' reaches the BC tier alone rather than erroring. Note that `min_score` is
+#' understood by [bc_geocode()] and [qc_geocode()] both, and means different
+#' things to them -- see [qc_geocode()] on why its score is not a ranking.
+#' Unused when `method` names no online tier.
 #' @return A data frame with one row per input, carrying every column
 #' [normalize_address()] returns plus `ADDR_GUID`, `match_method`,
 #' `uncertainty_m`, `n_matches`, and either `lon`/`lat` or an `sf` geometry
@@ -334,15 +348,20 @@ nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
       nar_interpolate = nar_geocode_tier_interp(out, probe, todo, con, bounds),
       bc              = nar_geocode_tier_bc(res, out, todo, con,
                                             bounds = bounds_geom, ...),
-      # The two online tiers have different vocabularies, so `...` cannot go to
-      # both: `min_score` is meaningless here and the BC tier forwards anything
-      # it does not recognize to its own service as a query parameter. The
-      # geolocator takes exactly one query parameter, so its argument list is
-      # closed and can be filtered against.
+      # The online tiers have different vocabularies, so `...` cannot go to
+      # all of them: `min_score` means nothing to the geolocator, and the BC
+      # tier forwards anything it does not recognize to its own service as a
+      # query parameter, so it is the one that has to keep receiving all of
+      # `...`. The other two take closed argument lists and are filtered
+      # against them.
       nrcan           = do.call(nar_geocode_tier_nrcan,
                                 c(list(res, out, todo, con,
                                        bounds = bounds_geom),
-                                  nar_nrcan_dots(dots))))
+                                  nar_nrcan_dots(dots))),
+      qc              = do.call(nar_geocode_tier_qc,
+                                c(list(res, out, todo, con,
+                                       bounds = bounds_geom),
+                                  nar_qc_dots(dots))))
   }
   nar_geocode_mark_uncovered(out, res, con)
 }
@@ -689,7 +708,7 @@ nar_nrcan_dots <- function(dots) {
 #' @return A character vector of tier names
 #' @keywords internal
 nar_geocode_methods <- function(method) {
-  known <- c("nar", "nar_interpolate", "bc", "nrcan")
+  known <- c("nar", "nar_interpolate", "bc", "nrcan", "qc")
   if (!length(method) || !is.character(method)) {
     stop("`method` must be one or more of ", paste0('"', known, '"', collapse = ", "),
          ", in the order they should be tried.", call. = FALSE)

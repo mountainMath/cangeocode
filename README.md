@@ -19,6 +19,7 @@ imports into a local [DuckDB](https://duckdb.org) database.
 Everything runs on your own machine: no API keys, no rate limits, and no
 address ever leaves it. The exceptions are opt-in — `geocode(method = c(..., "bc"))`
 calls the Province of British Columbia's public geocoder,
+`geocode(method = c(..., "qc"))` calls Quebec's,
 `geocode(method = c(..., "nrcan"))` calls NRCan's national one, and
 `osm_geocode()` calls the OpenStreetMap geocoder the Government of Canada
 hosts. Nothing contacts any of them unless you ask for it.
@@ -281,6 +282,47 @@ Like the geolocator, this is a path on which addresses leave your machine.
 Requests are throttled to be a good citizen of a free public service; register
 for an API key and pass it as `api_key` for anything large.
 
+## Quebec: a second geocoder, and reverse geocoding
+
+`qc_geocode()` binds the Ministère des Ressources naturelles et des Forêts'
+[geocoder](https://servicescarto.mrnf.gouv.qc.ca/pes/rest/services/Territoire/Adresse_Geocodage/GeocodeServer)
+over the *Répertoire québécois des adresses*. It covers Quebec only, needs no
+API key, and batches up to 1000 addresses per request.
+
+As a **last-resort tier**, for the Quebec addresses NAR cannot place:
+
+``` r
+geocode(addresses, method = c("nar", "nar_interpolate", "qc"))
+```
+
+On 600 Quebec addresses the NAR pathway placed 81.0%; the fallback took that to
+83.3%, all of it at civic level.
+
+It also does **reverse geocoding**, which none of the other online services here
+do:
+
+``` r
+qc_reverse_geocode(-73.5672, 45.5017)
+#>                                    qc_address qc_postal  qc_city qc_dist_m
+#> 1 706 Boulevard René-Lévesque Ouest, Montréal    H3H2S1 Montréal       2.8
+#>         lon      lat
+#> 1 -73.56718 45.50168
+```
+
+**Treat `qc_validate()` as a fallback check, not an independent one.** The
+service's locators are named `RQA_Adresse` and `RQA_Rue`: it serves the
+Répertoire, which is also what NAR's Quebec records are built from. Over 400 NAR
+Quebec addresses the median disagreement is 0.9 m — evidence that the two share
+an upstream, not that either is accurate.
+
+**A response from this service is not a match either**, and its `qc_score` is
+not a quality ranking: street-level answers score *higher* than civic ones, and
+the correlation between score and positional error is nil. `match_method` comes
+from which locator answered, and the returned address is re-parsed and compared
+against what you asked for before the row is accepted. Rejected rows keep
+`qc_locator`, `qc_score` and `qc_reject`, so you can see what was thrown away
+and why.
+
 ## OpenStreetMap: Canada's own Nominatim
 
 `osm_geocode()` binds the [Nominatim](https://maps.canada.ca/nominatim/search)
@@ -325,6 +367,9 @@ Coordinates are longitude/latitude (EPSG:4326) by default; `sf` points and
 other CRSs work too. `match_radius` and `dist` are in **metres**. `output`
 picks between all matches, the components of the closest one, or a single
 formatted address string, and `geometry = TRUE` returns an `sf` object.
+
+This is local and NAR-backed. `qc_reverse_geocode()` is the one online
+alternative here, and it covers Quebec only.
 
 ## Querying the database directly
 
