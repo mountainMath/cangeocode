@@ -14,7 +14,7 @@
 #   1. a result must be type `Street` with qualifier `INTERPOLATED_POSITION`
 #      (`INTERPOLATED_CENTROID` means "found the street, not the civic number");
 #   2. its `title` must re-parse, component by component, to the address that
-#      was sent -- see nar_nrcan_agreement().
+#      was sent -- see nar_address_agreement().
 #
 # Both floors are applied to EVERY result in the response, not just the one the
 # service ranked first, which is why the class table below is reported over the

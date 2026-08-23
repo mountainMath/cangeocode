@@ -384,6 +384,48 @@ and roughly half of what it is asked is rejected. What it is genuinely good for 
 NAR's tail but the case where there is **no NAR to fall back from**: a fresh install with
 nothing downloaded, or the `not_covered` rows a single-province import produces.
 
+## The OpenStreetMap binding
+
+`osm_geocode()` queries **`https://maps.canada.ca/nominatim/search`**, the Nominatim instance
+the Government of Canada hosts — not the volunteer-funded `nominatim.openstreetmap.org`, whose
+usage policy forbids bulk geocoding. It is exported and is **not** a `geocode()` tier.
+
+**Nothing in this section is measured yet, and that is the point of the section.**
+`data-raw/probe_osm.R` exists and runs over the same `REPEATABLE (42)` sample as
+`data-raw/probe_geolocator.R`, so the two services are directly comparable, but it has not been
+run at scale. `nar_osm_uncertainty_m()` returns `NA_real_` rather than a plausible constant,
+and `uncertainty_m` on an `osm` row is `NA` accordingly. Until that probe runs there is no
+coverage figure, no p90, and no basis for placing it in a `method` chain.
+
+**Why it is not a tier is a licence question, not an accuracy one.** OSM data is ODbL —
+attribution plus share-alike, with the obligation attaching to a derived *database* — where
+NAR, the BC geocoder and the geolocator are all Open Government Licence. A default tier would
+fold a handful of ODbL rows into a result table and change what the caller may do with the
+whole of it, silently. So the service's own licence string rides along as `osm_licence` on
+every row, and using it is an explicit call. If the probe shows it recovers a useful part of
+NAR's tail, the decision to make is about the licence, and it is the user's to make per
+project rather than this package's to make by default.
+
+**What the first live runs did show**, on a handful of addresses rather than a sample:
+
+* It **refuses**, which neither other service does. Empty array for an address it does not
+  have; the road at `place_rank` 26 when it has the street but not the number. Both confident
+  wrong answers this note uses as examples of the geolocator's failure mode —
+  `1 Rue Notre-Dame Ouest, Montreal` placed 500 km away, `28 Silver ST, CORNER BROOK` placed on
+  a different street — come back correct or refused here. So the floor rejects far less than
+  the geolocator's, and the number to watch when the probe runs is the **answer rate**.
+* Coverage is the open question, and it is uneven by construction: OSM's Canadian addresses
+  are concentrated in cities with municipal open-data imports. Downtown Vancouver, Montreal and
+  Toronto all answer at building level; nothing rural has been tried.
+* The French word order matters and is now handled — `1 NOTRE-DAME RUE O` returns nothing where
+  `1 Rue Notre-Dame Ouest` returns the address. See the design note; it is the only place in
+  the package where a query is spelled for a particular service.
+
+At the default one request a second, a 150-address probe takes about three minutes. The rate
+limit is deliberate: the instance is keyless, unmetered and exists to serve GeoView, and
+nothing published says what bulk use is acceptable. `geo@nrcan-rncan.gc.ca` is the contact the
+geolocator README names for bulk use, and asking is the honest step before any large run.
+
 ## Not built yet, in the order the measurements justify
 
 ### 1. Statistics Canada Road Network File (RNF)

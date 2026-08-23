@@ -18,9 +18,10 @@ imports into a local [DuckDB](https://duckdb.org) database.
 
 Everything runs on your own machine: no API keys, no rate limits, and no
 address ever leaves it. The exceptions are opt-in — `geocode(method = c(..., "bc"))`
-calls the Province of British Columbia's public geocoder and
-`geocode(method = c(..., "nrcan"))` calls NRCan's national one. Nothing contacts
-either unless you name it.
+calls the Province of British Columbia's public geocoder,
+`geocode(method = c(..., "nrcan"))` calls NRCan's national one, and
+`osm_geocode()` calls the OpenStreetMap geocoder the Government of Canada
+hosts. Nothing contacts any of them unless you ask for it.
 
 ## Installation
 
@@ -276,9 +277,35 @@ service's own precision vocabulary, and `min_score` (default 60) rejects what
 it scored badly. Rejected rows keep their `bc_score` and `bc_faults`, so you
 can see what was thrown away and why.
 
-This is the one path on which addresses leave your machine. Requests are
-throttled to be a good citizen of a free public service; register for an API
-key and pass it as `api_key` for anything large.
+Like the geolocator, this is a path on which addresses leave your machine.
+Requests are throttled to be a good citizen of a free public service; register
+for an API key and pass it as `api_key` for anything large.
+
+## OpenStreetMap: Canada's own Nominatim
+
+`osm_geocode()` binds the [Nominatim](https://maps.canada.ca/nominatim/search)
+instance the Government of Canada hosts — not the volunteer-funded
+`nominatim.openstreetmap.org`, whose usage policy forbids bulk geocoding. It
+needs no API key and no local database.
+
+``` r
+osm_geocode("990 Bute St, Vancouver, BC")
+```
+
+It is **not** one of `geocode()`'s tiers, and the reason is the licence rather
+than the accuracy: OpenStreetMap data is ODbL, which carries attribution and
+share-alike obligations that attach to a derived database, where every other
+source in this package is under an Open Government Licence. Folding a few ODbL
+rows into a result table by default would quietly change what you may do with
+the whole table, so this one is an explicit call and each row carries the
+service's own `osm_licence` string.
+
+The pleasant surprise is that it **refuses**. Where the other two services
+always answer, this one returns nothing for an address it does not have, and
+the street rather than a point when it has the street but not the number — so a
+result is far more likely to mean what it says. What is unmeasured is coverage:
+OpenStreetMap's Canadian addresses are concentrated in cities with municipal
+open-data imports, and no national comparison has been run yet.
 
 ## Reverse geocoding
 

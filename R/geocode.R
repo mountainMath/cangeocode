@@ -809,3 +809,90 @@ nar_geocode_bounds_sql <- function(g) {
           b[["xmin"]], b[["xmax"]], b[["ymin"]], b[["ymax"]],
           sf::st_as_text(g))
 }
+
+#' Does an online service's answer agree with the address that was asked for?
+#'
+#' @description **The online tiers always answer, and their wrong answers are
+#' confident.** NRCan's geolocator returns `1 Rue Notre-Dame Ouest, Montreal, QC`
+#' as an `INTERPOLATED_POSITION` on a real Rue Notre-Dame Ouest in Lorrainville,
+#' 500 km away, and `330 Spadina Rd, Toronto` as `330 Spadina Avenue`, a
+#' different street 3 km off. Neither is imprecision -- both are answers to a
+#' different question, and no confidence field distinguishes them.
+#'
+#' What separates them is that the answer is itself an address, so it can be put
+#' back into components and compared to the ones that were sent. That is the
+#' whole floor, and it is shared by every online tier: **the answer has to come
+#' back as the address that was asked for.** Where the components come from
+#' differs -- [nar_nrcan_floors()] re-parses a returned title, [nar_osm_floors()]
+#' reads fields the service already separated -- but what is done with them once
+#' they exist does not, and a second copy of these rules would drift from this
+#' one.
+#'
+#' The comparison is per component rather than a single [address_key()]
+#' equality, because the components are not equally strict:
+#'
+#' * `CIVIC_NO`, `STREET_NAME` -- must be **present on both sides and equal**.
+#'   These are what the query was about; a missing one means nothing was
+#'   verified.
+#' * `STREET_TYPE`, `STREET_DIR`, `PROV_ABVN` -- rejected only when both sides
+#'   are present and **contradict**. An absent one cannot contradict anything.
+#' * `MUN_NAME` -- whole-word containment either way, not equality. Both services
+#'   return incorporated names, so `TORONTO` comes back as `City Of Toronto`,
+#'   `NORTH VANCOUVER` as `District Of North Vancouver` and `CHARLOTTETOWN` as
+#'   `City of Charlottetown`. Equality would reject all three.
+#'
+#' Whole-word matters: comparing the municipality against the *whole* returned
+#' string with a plain substring test -- the first thing tried -- passes
+#' `28 Silver ST, CORNER BROOK` against `28 Brook Street, Corner Brook`, because
+#' `Brook` appears in the street name. Field-wise comparison is what catches it.
+#' @param q Parsed components of the address that was sent
+#' @param t Parsed components of the answer that came back
+#' @return A character vector, `NA` where the answer agrees and otherwise a
+#' short reason naming the component that disagreed
+#' @keywords internal
+nar_address_agreement <- function(q, t) {
+  col <- function(d, name) {
+    v <- d[[name]]
+    v <- if (is.null(v)) rep(NA_character_, nrow(d)) else as.character(v)
+    v <- nar_key_fold(v)
+    ifelse(is.na(v), "", v)
+  }
+  # `""` is absent, so a comparison against it is never a contradiction. Every
+  # rule below is written in terms of "both present" for that reason.
+  contradicts <- function(a, b) nzchar(a) & nzchar(b) & a != b
+  missing_or_differs <- function(a, b) !nzchar(a) | !nzchar(b) | a != b
+
+  # Only A-Z, 0-9 and spaces survive nar_key_fold(), so the folded value is
+  # already safe to paste into a pattern -- there is no metacharacter left.
+  contained <- function(a, b) {
+    mapply(function(x, y) {
+      grepl(paste0("\\b", x, "\\b"), y) || grepl(paste0("\\b", y, "\\b"), x)
+    }, a, b, USE.NAMES = FALSE)
+  }
+
+  reason <- rep(NA_character_, nrow(q))
+  note <- function(bad, what, a, b) {
+    bad <- bad & is.na(reason)
+    if (!any(bad)) return(reason)
+    reason[bad] <<- sprintf("%s %s != %s", what,
+                            ifelse(nzchar(a[bad]), a[bad], "?"),
+                            ifelse(nzchar(b[bad]), b[bad], "?"))
+    reason
+  }
+
+  qn <- col(q, "STREET_NAME");     tn <- col(t, "STREET_NAME")
+  qc <- col(q, "CIVIC_NO");        tc <- col(t, "CIVIC_NO")
+  qt <- col(q, "STREET_TYPE");     tt <- col(t, "STREET_TYPE")
+  qd <- col(q, "STREET_DIR");      td <- col(t, "STREET_DIR")
+  qm <- col(q, "MUN_NAME");        tm <- col(t, "MUN_NAME")
+  qp <- col(q, "PROV_ABVN");       tp <- col(t, "PROV_ABVN")
+
+  reason <- note(missing_or_differs(qn, tn), "street name", qn, tn)
+  reason <- note(missing_or_differs(qc, tc), "civic number", qc, tc)
+  reason <- note(contradicts(qt, tt), "street type", qt, tt)
+  reason <- note(contradicts(qd, td), "street direction", qd, td)
+  reason <- note(nzchar(qm) & nzchar(tm) & !contained(qm, tm),
+                 "municipality", qm, tm)
+  reason <- note(contradicts(qp, tp), "province", qp, tp)
+  reason
+}

@@ -44,7 +44,7 @@ titles -- is vectorized and would otherwise be paid per candidate.
    `Geoname` answers are the service degrading to a populated place and are
    catastrophic (p50 133 km).
 2. Its title must agree with the query, component by component -- see
-   [nar_nrcan_agreement()].
+   [nar_address_agreement()].
 }
 \section{Why the whole list is scanned}{
  The floor is what makes an answer

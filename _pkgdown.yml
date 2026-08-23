@@ -26,13 +26,16 @@ reference:
 - title: External geocoders
   desc: >
     Online services that place an address without a local database: NRCan's
-    national geolocator, and the Province of British Columbia's Address
-    Geocoder, the latter also a second source to check a result against.
-    Both make network requests.
+    national geolocator, the Province of British Columbia's Address Geocoder,
+    the latter also a second source to check a result against, and the
+    OpenStreetMap geocoder the Government of Canada hosts. All make network
+    requests, and the OpenStreetMap one returns data under a share-alike
+    licence -- read `osm_geocode()` before using its results.
   contents:
   - nrcan_geocode
   - bc_geocode
   - bc_validate
+  - osm_geocode
 
 - title: Reverse geocoding
   desc: >

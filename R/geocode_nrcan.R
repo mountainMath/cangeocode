@@ -26,89 +26,6 @@ nar_nrcan_url <- function() "https://geolocator.api.geo.ca/geolocation/en/locate
 #' @keywords internal
 nar_nrcan_uncertainty_m <- function() 150
 
-#' Does the geolocator's answer agree with the address that was asked for?
-#'
-#' @description **The service always answers, and its wrong answers are
-#' confident.** `1 Rue Notre-Dame Ouest, Montreal, QC` comes back as a
-#' `INTERPOLATED_POSITION` on a real Rue Notre-Dame Ouest in Lorrainville, 500 km
-#' away; `330 Spadina Rd, Toronto` comes back as `330 Spadina Avenue`, a
-#' different street 3 km off. Neither is imprecision -- both are answers to a
-#' different question, and no confidence field distinguishes them, because the
-#' service publishes none.
-#'
-#' What separates them is that the returned `title` is itself a Canadian address
-#' string, so it can be parsed by [normalize_address()] and compared to the
-#' components that were sent. That is the whole floor: **the answer has to
-#' re-parse to the address that was asked for.**
-#'
-#' The comparison is per component rather than a single [address_key()]
-#' equality, because the components are not equally strict:
-#'
-#' * `CIVIC_NO`, `STREET_NAME` -- must be **present on both sides and equal**.
-#'   These are what the query was about; a missing one means nothing was
-#'   verified.
-#' * `STREET_TYPE`, `STREET_DIR`, `PROV_ABVN` -- rejected only when both sides
-#'   are present and **contradict**. An absent one cannot contradict anything.
-#' * `MUN_NAME` -- whole-word containment either way, not equality. The service
-#'   returns the incorporated name, so `TORONTO` comes back as
-#'   `City Of Toronto` and `NORTH VANCOUVER` as `District Of North Vancouver`.
-#'   Equality would reject both.
-#'
-#' Whole-word matters: comparing the municipality against the *whole* title with
-#' a plain substring test -- the first thing tried -- passes
-#' `28 Silver ST, CORNER BROOK` against `28 Brook Street, Corner Brook`, because
-#' `Brook` appears in the street name. Field-wise comparison is what catches it.
-#' @param q Parsed components of the address that was sent
-#' @param t Parsed components of the returned `title`
-#' @return A character vector, `NA` where the answer agrees and otherwise a
-#' short reason naming the component that disagreed
-#' @keywords internal
-nar_nrcan_agreement <- function(q, t) {
-  col <- function(d, name) {
-    v <- d[[name]]
-    v <- if (is.null(v)) rep(NA_character_, nrow(d)) else as.character(v)
-    v <- nar_key_fold(v)
-    ifelse(is.na(v), "", v)
-  }
-  # `""` is absent, so a comparison against it is never a contradiction. Every
-  # rule below is written in terms of "both present" for that reason.
-  contradicts <- function(a, b) nzchar(a) & nzchar(b) & a != b
-  missing_or_differs <- function(a, b) !nzchar(a) | !nzchar(b) | a != b
-
-  # Only A-Z, 0-9 and spaces survive nar_key_fold(), so the folded value is
-  # already safe to paste into a pattern -- there is no metacharacter left.
-  contained <- function(a, b) {
-    mapply(function(x, y) {
-      grepl(paste0("\\b", x, "\\b"), y) || grepl(paste0("\\b", y, "\\b"), x)
-    }, a, b, USE.NAMES = FALSE)
-  }
-
-  reason <- rep(NA_character_, nrow(q))
-  note <- function(bad, what, a, b) {
-    bad <- bad & is.na(reason)
-    if (!any(bad)) return(reason)
-    reason[bad] <<- sprintf("%s %s != %s", what,
-                            ifelse(nzchar(a[bad]), a[bad], "?"),
-                            ifelse(nzchar(b[bad]), b[bad], "?"))
-    reason
-  }
-
-  qn <- col(q, "STREET_NAME");     tn <- col(t, "STREET_NAME")
-  qc <- col(q, "CIVIC_NO");        tc <- col(t, "CIVIC_NO")
-  qt <- col(q, "STREET_TYPE");     tt <- col(t, "STREET_TYPE")
-  qd <- col(q, "STREET_DIR");      td <- col(t, "STREET_DIR")
-  qm <- col(q, "MUN_NAME");        tm <- col(t, "MUN_NAME")
-  qp <- col(q, "PROV_ABVN");       tp <- col(t, "PROV_ABVN")
-
-  reason <- note(missing_or_differs(qn, tn), "street name", qn, tn)
-  reason <- note(missing_or_differs(qc, tc), "civic number", qc, tc)
-  reason <- note(contradicts(qt, tt), "street type", qt, tt)
-  reason <- note(contradicts(qd, td), "street direction", qd, td)
-  reason <- note(nzchar(qm) & nzchar(tm) & !contained(qm, tm),
-                 "municipality", qm, tm)
-  reason <- note(contradicts(qp, tp), "province", qp, tp)
-  reason
-}
 
 #' Is this response a transient failure worth re-sending?
 #'
@@ -210,7 +127,7 @@ nar_nrcan_candidates <- function(resp) {
 #'    `Geoname` answers are the service degrading to a populated place and are
 #'    catastrophic (p50 133 km).
 #' 2. Its title must agree with the query, component by component -- see
-#'    [nar_nrcan_agreement()].
+#'    [nar_address_agreement()].
 #'
 #' @section Why the whole list is scanned: The floor is what makes an answer
 #' trustworthy, and it does not consult the rank. A candidate at position 7 that
@@ -279,7 +196,7 @@ nar_nrcan_floors <- function(cand, q, idx = rep(1L, nrow(cand)),
     # above -- a gazetteer-resolved parse of the answer can rewrite its
     # municipality into the one that was asked for.
     t <- normalize_address(cand$nrcan_title[chk])
-    reason[chk] <- nar_nrcan_agreement(q[idx[chk], , drop = FALSE], t)
+    reason[chk] <- nar_address_agreement(q[idx[chk], , drop = FALSE], t)
   }
   pass <- class_ok & is.na(reason)
 

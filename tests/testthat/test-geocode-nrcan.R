@@ -246,17 +246,17 @@ test_that("a municipality that only appears inside the street name is rejected",
   q <- nrcan_parts(28, "SILVER", "ST", NA, "CORNER BROOK", "NL")
   t <- nrcan_parts(28, "BROOK", "ST", NA, "CORNER BROOK", "NL")
 
-  expect_equal(nar_nrcan_agreement(q, t), "street name SILVER != BROOK")
+  expect_equal(nar_address_agreement(q, t), "street name SILVER != BROOK")
 })
 
 test_that("an absent component cannot contradict, but an absent street name can", {
   # A type the query did not carry is not evidence of disagreement...
-  expect_true(is.na(nar_nrcan_agreement(
+  expect_true(is.na(nar_address_agreement(
     nrcan_parts(12, "MAIN", NA, NA, "MONCTON", "NB"),
     nrcan_parts(12, "MAIN", "ST", NA, "MONCTON", "NB"))))
   # ...but the street name and the civic number are what was being asked, so a
   # missing one means nothing was verified rather than nothing disagreed.
-  expect_match(nar_nrcan_agreement(
+  expect_match(nar_address_agreement(
     nrcan_parts(12, "MAIN", "ST", NA, "MONCTON", "NB"),
     nrcan_parts(NA, "MAIN", "ST", NA, "MONCTON", "NB")), "^civic number")
 })
@@ -264,7 +264,7 @@ test_that("an absent component cannot contradict, but an absent street name can"
 test_that("agreement is vectorized and keeps input order", {
   q <- nrcan_parts(c(1, 2, 3), c("MAIN", "MAIN", "MAIN"), mun = "X", prov = "NS")
   t <- nrcan_parts(c(1, 9, 3), c("MAIN", "MAIN", "OAK"), mun = "X", prov = "NS")
-  r <- nar_nrcan_agreement(q, t)
+  r <- nar_address_agreement(q, t)
 
   expect_length(r, 3L)
   expect_true(is.na(r[1]))
@@ -277,7 +277,7 @@ test_that("the floors report the first disagreement, not all of them", {
   # wrong, and the common case reads worse than the rare one.
   q <- nrcan_parts(5, "OAK", "AVE", NA, "PARIS", "ON")
   t <- nrcan_parts(5, "PARIS", "AVE", NA, "HAMILTON", "ON")
-  expect_equal(nar_nrcan_agreement(q, t), "street name OAK != PARIS")
+  expect_equal(nar_address_agreement(q, t), "street name OAK != PARIS")
 })
 
 test_that("`nrcan` is a tier geocode() accepts, and order is preserved", {

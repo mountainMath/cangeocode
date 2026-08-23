@@ -147,7 +147,7 @@ whose accuracy is a percentile on a long tail rather than a bound.
 infer.** What `INTERPOLATED_POSITION` actually certifies, why the fuzzy match answers a
 different question, and which of the floor's component checks do real work are recorded in
 [`../inst/notes/nrcan-geolocator.md`](../inst/notes/nrcan-geolocator.md). Read it before
-changing `nar_nrcan_candidates()`, `nar_nrcan_agreement()` or `nar_nrcan_floors()`.
+changing `nar_nrcan_candidates()`, `nar_address_agreement()` or `nar_nrcan_floors()`.
 
 **There is no reverse geocoding here, and not for want of looking.** `locate?lat=&lon=`
 returns `{"error": "Missing query parameter 'q'"}`, `reverse` and `reverse-geocode` are 404,
@@ -164,7 +164,7 @@ question, and two floors do all the work:
    "found the street, not the civic number", and a `Geoname` means the address degraded to a
    populated place — `Zzzzqqq nowhere at all` ranks a village first.
 2. its `title` must re-parse, **component by component**, to the address that was sent
-   (`nar_nrcan_agreement()`).
+   (`nar_address_agreement()`).
 
 **Both floors run over every result in the response, not just the top one, and the reason is
 that the floor is independent of rank.** This used to read `resp[[1]]` only, on the argument
@@ -200,7 +200,7 @@ trade: over 423 addresses it removes 27 answers the substring test kept (median 
 returned an incorporated or parent municipality — `City Of St. Catharines`, `Montréal` for
 `MONTRÉAL-NORD`. Measured, not assumed.
 
-The rules within `nar_nrcan_agreement()` are deliberately asymmetric. `""` is *absent*, and an
+The rules within `nar_address_agreement()` are deliberately asymmetric. `""` is *absent*, and an
 absent component cannot contradict, so a street type the query never carried is not evidence
 against an answer that has one. The two exceptions are the **street name and the civic
 number**: those are what was being asked, so a missing one means nothing was verified rather
@@ -265,5 +265,98 @@ restatement of it. It scores against NAR's building points, which are a **refere
 ground truth** — NAR has its own bad records, so a large distance means the two disagree, not
 that the geolocator is wrong. The numbers it produced are in
 [`../inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md).
+
+## `R/geocode_osm.R` — the OpenStreetMap geocoder
+
+A binding to **`https://maps.canada.ca/nominatim/search`** — the Nominatim instance the
+Government of Canada hosts, and the one NRCan's own aggregator queries under its `nominatim`
+service key. **It is not `nominatim.openstreetmap.org`**, whose usage policy forbids exactly
+this: bulk geocoding against the volunteer-funded instance is a violation, and pointing
+`nar_osm_url()` there would make every user of this package one. The GC instance is keyless,
+national, and under no such restriction. `osm_geocode()` is the client.
+
+**It is exported and deliberately not a `geocode()` tier.** Two reasons, and the licence is
+the one that decides it: OSM data is **ODbL**, a share-alike licence whose obligations attach
+to a derived *database*, while NAR, BC and NRCan are all Open Government Licence. Mixing a
+handful of ODbL rows into a result table changes what the caller may do with the whole table,
+and a default tier would do that silently. So the licence text the service returns is carried
+through as `osm_licence` on every row, and choosing this service is an explicit call. The
+second reason is that `nar_osm_uncertainty_m()` returns `NA_real_` — the accuracy has not been
+measured against NAR yet, and inventing a constant to make the tier tidy would be asserting
+something unmeasured.
+
+**This service refuses, which the other two do not.** BC answers a nonexistent address with a
+city centroid and the geolocator answers it with a confident wrong street; Nominatim returns
+`[]`. It also returns the road itself at `place_rank` 26 when it has the street but not the
+number, which is a legible "found the street, not the address" rather than a point. That
+changes what the floor is for — most of the loss here is coverage, not rejection — but does
+not make it unnecessary:
+
+1. `place_rank >= 30` **and** a `house_number` of its own. Rank 30 alone is not enough:
+   `24 Sussex Dr, Ottawa` comes back at rank 30 with no house number at all, so the belt and
+   the braces are both load-bearing.
+2. the separated fields must agree with the address that was sent, through the same
+   `nar_address_agreement()` the geolocator's floor uses.
+
+**The comparison function is shared, and lives in `R/geocode.R` rather than in either
+binding.** The rules — `""` is absent and cannot contradict, the street name and civic number
+are what was asked so a missing one is a failure, the municipality matches by whole-word
+containment in either direction — are properties of comparing two Canadian addresses, not of
+either service. Only the way the answer is *obtained* differs, and that is the interesting
+asymmetry: the geolocator hands back one string that has to be re-parsed, while Nominatim
+already separated `house_number`, `road`, `city` and `ISO3166-2-lvl4`.
+
+**So the road is parsed and the municipality is not.** `road` is a full street line
+(`Bute Street`, `Rue Notre-Dame Ouest`) and has to go through `normalize_address()` to be
+compared component by component; `city`/`town`/`village` and the ISO code are already the
+fields, and are written straight onto the parsed frame. Parsing the `display_name` instead
+would mean getting past a building name and two sub-municipal localities —
+`The Berkeley, 990, Bute Street, Davie Village, West End, Vancouver, …` — to reach what the
+service already handed over separately. `nar_osm_mun()` coalesces `city`, `town`, `village`,
+`municipality` and `hamlet` and **deliberately stops there**: `suburb`, `neighbourhood`,
+`quarter` and `city_district` are below the municipality and would match a query's
+municipality against something smaller than one.
+
+**That parse gets no gazetteer, for the same reason the geolocator's title does not** — a
+`con` would let the gazetteer rewrite the answer into the question and launder the error the
+floor exists to catch. See the geolocator section above; the mechanism is identical.
+
+**`n_matches` counts distinct addresses, not results.** `1155 Robson St, Vancouver` comes back
+as two OSM objects — the building and an office inside it, 8 m apart — with identical house
+number, road and city. Counting results would report an ambiguity that does not exist, so the
+survivors are deduplicated on `address_key()` of the parsed answer. More than one still means
+what it means at the geolocator: the same street in two places that both pass.
+
+**The query is not NAR's canonical order, and this is measured.** `nar_address_string()`
+produces `1 NOTRE-DAME RUE O`, which returns **nothing**; `1 Rue Notre-Dame O` also returns
+nothing; `1 Rue Notre-Dame Ouest` returns the address. Both the word order and the unexpanded
+direction are at fault, and only for French — `100 Queen St W` works as-is, because Nominatim
+expands `W` and has no idea what `O` is. `nar_osm_street()` therefore uses `nar_type_leads()`
+to put the type where the language puts it and spells out `N`/`S`/`E`/`O` only where it leads.
+Accents need no handling; the service folds them. This is the one place in the package where
+the *query string* is shaped for a specific service rather than being NAR's own spelling.
+
+**A supplied structured parameter is a requirement, not a hint.** `street=`, `city=` and
+`state=` narrow the search, so an empty one is a filter nothing can satisfy — `nar_osm_query()`
+drops absent elements rather than sending them blank. `structured = FALSE` collapses the same
+parts into a single `q=`, which is looser and is kept as a knob for the probe rather than as a
+recommendation.
+
+Small things that are easy to get wrong: `lat` and `lon` arrive as **strings** and are
+converted; the province comes from `ISO3166-2-lvl4` (`CA-BC`) with the `CA-` stripped, not
+from the prose `British Columbia`; Nominatim's usage policy asks a bulk caller to identify
+itself, so `req_user_agent()` here is a condition of use rather than a courtesy, and the
+default `rate` is **1 request a second** for the same reason. `nar_osm_transient()` mirrors the
+geolocator's predicate and is **precautionary** — this service has not been seen to drop
+requests, but an HTTP 400 with an `{"error": …}` body is *not* retried, since that is the
+service labelling a malformed query and re-sending it would only get the same answer three
+times.
+
+Tests run against `tests/testthat/fixtures/osm-*.json` captured from the live service, and
+unlike the geolocator's fixtures half of them are the service correctly declining.
+`data-raw/probe_osm.R` measures accuracy the way `data-raw/probe_geolocator.R` does — calling
+`nar_osm_candidates()` and `nar_osm_floors()` themselves, over the **same** `REPEATABLE (42)`
+sample, so the two services are comparable. It has not been run at scale yet, which is why
+there is no accuracy paragraph here and why `uncertainty_m` is `NA`.
 
 [geolocator]: https://geolocator.api.geo.ca/

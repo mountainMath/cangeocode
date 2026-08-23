@@ -29,7 +29,7 @@ it. Every rejection case documented in `R/geocode_nrcan.R` also reproduces again
 `expand=component` is worth naming because it is the one thing that would change the design
 here. In the retired `geogratis` service it returned a *structured* breakdown of the answer —
 street name, number, municipality, province as separate fields — which is precisely what
-`nar_nrcan_agreement()` reconstructs by re-parsing the title. It is dead. The parameter is
+`nar_address_agreement()` reconstructs by re-parsing the title. It is dead. The parameter is
 still in the schema file only because nothing removed it.
 
 There are three other backends in the repo. `backend/api-lambda/` is the aggregator behind
@@ -94,7 +94,7 @@ number on it (`address_interpolator.py`):
 address range on the street the text match selected.** That is a genuine signal and it is the
 reason the qualifier floor works.
 
-**It also means the civic-number comparison in `nar_nrcan_agreement()` is vacuous.** The
+**It also means the civic-number comparison in `nar_address_agreement()` is vacuous.** The
 number in the title is the number the package sent — step 4 pastes it back verbatim — so
 `CIVIC_NO` can never disagree for a row that got this far. The check is harmless and worth
 keeping as a guard against a future response shape, but it verifies nothing today, and the
@@ -160,7 +160,7 @@ result keeps its relevance-order position among the 25.
 roxygen — that "a correct answer further down is not distinguishable from a wrong one, the
 ranking is the only signal the service gives." **That reasoning predated the floor and was
 wrong.** The floor is a signal, it is independent of rank, and the correct answer is
-frequently sitting below a wrong one. Verified live, with `nar_nrcan_agreement()` run over the
+frequently sitting below a wrong one. Verified live, with `nar_address_agreement()` run over the
 full lists:
 
 ```
@@ -316,10 +316,16 @@ declined the number" and "have no ranges here at all", which the response does n
 
 ## The sibling worth a separate look: `maps.canada.ca/nominatim`
 
+> **Since written: it is bound.** `osm_geocode()` and `R/geocode_osm.R` query this endpoint,
+> with the floors and the query shaping described in
+> [`../../.claude/geocoding.md`](../../.claude/geocoding.md). It is exported and is **not** a
+> `geocode()` tier, for reason 1 below. What follows is what the source said and what the
+> first live probes showed; the measured paragraph at the end is what binding it added.
+
 `backend/geolocator-bucket-content/services/nominatim-schema.json` points at
 **`https://maps.canada.ca/nominatim/search`** — a Canada-hosted Nominatim instance, no key
 required, which the aggregator queries for the `nominatim` key. It is structurally better
-suited to this package than `locate` is, and is **not** currently bound:
+suited to this package than `locate` is:
 
 * It takes **structured input** — `street=`, `city=`, `state=`, `postalcode=`, `countrycodes=CA`
   — so the query's structure never has to be flattened into a string and recovered.
@@ -333,7 +339,7 @@ suited to this package than `locate` is, and is **not** currently bound:
 Verified live: `990 Bute St, Vancouver` returns the building (`The Berkeley`, rank 30) where
 `locate` returns a street centroid, and `1155 Robson St, Vancouver` likewise.
 
-Three things must be settled before it could be a tier, and none of them is technical:
+Three things must be settled before it could be a **tier**, and none of them is technical:
 
 1. **Licence.** Results are OpenStreetMap data under **ODbL** — attribution and share-alike —
    which is a materially different obligation from the OGL covering every other source here,
@@ -344,7 +350,33 @@ Three things must be settled before it could be a tier, and none of them is tech
 3. **Coverage.** Both probes were downtown Vancouver, which is the easy case. OSM's Canadian
    address coverage is uneven and concentrated in cities with municipal open-data imports; it
    would need the same `probe_geolocator.R` treatment on a national sample before any figure
-   could be claimed.
+   could be claimed. `data-raw/probe_osm.R` is that harness, over the same `REPEATABLE (42)`
+   sample the geolocator probe uses, and **it has not been run at scale yet** — which is why
+   `nar_osm_uncertainty_m()` returns `NA` rather than a number.
+
+### What binding it showed that reading the schema did not
+
+* **It refuses.** `locate` always answers; this returns `[]` when it has nothing and the road
+  itself at `place_rank` 26 when it has the street but not the number. Both of the confident
+  wrong answers this note uses as examples — `1 Rue Notre-Dame Ouest, Montreal` answered in
+  Lorrainville, `28 Silver ST, CORNER BROOK` answered as `28 Brook Street` — come back either
+  correct or refused here. That is the single biggest difference between the two services, and
+  it is not visible in either schema.
+* **Rank 30 does not imply a house number.** `24 Sussex Dr, Ottawa` returns rank 30 with no
+  `house_number` field at all, so the rank floor needs the field check beside it. The schema
+  suggested rank alone would be the qualifier.
+* **The query has to be spelled the service's way, and only in French.**
+  `1 NOTRE-DAME RUE O` — NAR's own canonical order — returns nothing; `1 Rue Notre-Dame O`
+  returns nothing; `1 Rue Notre-Dame Ouest` returns the address. Nominatim expands `W` and has
+  no idea what `O` is, and it wants the type where the language puts it. `100 Queen St W`
+  works untouched. This is the one place in the package where a query string is shaped for a
+  particular service.
+* **One address can be several OSM objects.** `1155 Robson St` comes back as the building and
+  an office inside it, 8 m apart, identical in every address field. Counting results rather
+  than distinct addresses would report an ambiguity that is not there.
+* **No sign of the one-in-twelve drop.** The retry is wired in as a precaution, but nothing in
+  the live runs so far looked like the geolocator's plain HTTP 500. The two sit behind
+  different front ends.
 
 ## Not our finding to use
 
