@@ -32,6 +32,11 @@ nar_blockface_uncertainty_m <- function() 176
 #' * **`nar_interpolated`** -- the civic number is *not* in NAR, so the position
 #'   is interpolated between the nearest known civic numbers of the same parity
 #'   on either side of it. See the section below.
+#' * **`rqa_building`**, **`rqa_geocoded`**, **`rqa_uncertain`**, **`rqa_lot`**,
+#'   **`rqa_other`** -- answered by the `rqa` tier, which carries Quebec's own
+#'   positional-quality class rather than one label. Only `rqa_building` is a
+#'   building placement, and it is the only one that reports an
+#'   `uncertainty_m`. See [rqa_import()].
 #' * **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
 #'   **`bc_locality`** -- answered by the `bc` tier. See [bc_geocode()].
 #' * **`nrcan`** -- answered by the `nrcan` tier. One value rather than several,
@@ -52,6 +57,15 @@ nar_blockface_uncertainty_m <- function() 176
 #'
 #' * **`"nar"`** -- look the civic number up in NAR directly. Answers
 #'   `nar_building`, `nar_blockface` or `nar_no_geometry`.
+#' * **`"rqa"`** -- look the civic number up in the **Repertoire quebecois des
+#'   adresses**, Quebec's own register, which has to be imported once with
+#'   [rqa_import()] and lives beside `Addresses` rather than in it. Quebec only,
+#'   offline, and it holds roughly 308,000 civic addresses NAR does not. It
+#'   belongs **after `"nar"` and before `"nar_interpolate"`**: a register point
+#'   beats an interpolated one, and NAR's own building point beats both. Placed
+#'   there it is worth about a third of Quebec's unplaceable tail outright and
+#'   replaces an interpolated guess -- median 23 m from RQA's own coordinate,
+#'   with 7% of them more than 500 m out -- for most of the rest.
 #' * **`"nar_interpolate"`** -- place a civic number NAR does not carry between
 #'   its known neighbours. Answers `nar_interpolated`.
 #' * **`"bc"`** -- ask the Province of BC's [Address Geocoder][bc_geocode()].
@@ -76,7 +90,10 @@ nar_blockface_uncertainty_m <- function() 176
 #'   strict but not free of false positives.
 #'
 #' The default `c("nar", "nar_interpolate")` is offline and prefers a real NAR
-#' record over an interpolated one. `method = "nar"` keeps only the addresses
+#' record over an interpolated one. It does **not** include `"rqa"`, which would
+#' otherwise appear and disappear depending on whether [rqa_import()] had been
+#' run; in Quebec, `c("nar", "rqa", "nar_interpolate")` is the recommended
+#' offline set once it has. `method = "nar"` keeps only the addresses
 #' NAR actually carries. `c("nar", "nar_interpolate", "bc")` adds the BC
 #' service as a last resort, and `c("bc", "nar")` prefers it over NAR wherever
 #' it answers. `"qc"` is the same shape as `"bc"` for the other province that
@@ -159,7 +176,7 @@ nar_blockface_uncertainty_m <- function() 176
 #' @param within A spatial restriction: an `sf`/`sfc` object, an `st_bbox`, or a
 #' length-4 numeric `c(xmin, ymin, xmax, ymax)`, interpreted in `crs` unless it
 #' carries its own. **Authoritative**, and applied to every tier.
-#' @param method Tiers to try, in priority order: any of `"nar"`,
+#' @param method Tiers to try, in priority order: any of `"nar"`, `"rqa"`,
 #' `"nar_interpolate"`, `"bc"`, `"nrcan"` and `"qc"`. Default
 #' `c("nar", "nar_interpolate")`, which is the offline pair. See the section
 #' below.
@@ -196,6 +213,9 @@ nar_blockface_uncertainty_m <- function() 176
 #' # Add the BC service as a last resort. Makes network requests.
 #' geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
 #'
+#' # Quebec's own register, offline, after one rqa_import().
+#' geocode(addresses, method = c("nar", "rqa", "nar_interpolate"))
+#'
 #' # NRCan's geolocator is national, so it can back up the whole country.
 #' geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"))
 #'
@@ -212,6 +232,13 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
   if (is.null(con)) {
     con <- nar_connection(version = version)
     on.exit(DBI::dbDisconnect(con), add = TRUE)
+  }
+  # Checked before any parsing, not when the tier is first reached: whether a
+  # tier runs at all depends on what its predecessors left unplaced, so a
+  # missing import would otherwise surface on one batch and not the next.
+  if ("rqa" %in% method && !nar_has_rqa(con)) {
+    stop("The \"rqa\" tier needs the Repertoire quebecois des adresses, which ",
+         "this database does not carry. Run rqa_import() first.", call. = FALSE)
   }
   if (!is.null(mun) && !nar_has_streets(con)) {
     stop("`mun` resolves through the MunAlias table, which arrived in schema ",
@@ -345,6 +372,7 @@ nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
     if (!length(todo)) break
     out <- switch(m,
       nar             = nar_geocode_tier_nar(out, probe, todo, con, bounds),
+      rqa             = nar_geocode_tier_rqa(res, out, probe, todo, con, bounds),
       nar_interpolate = nar_geocode_tier_interp(out, probe, todo, con, bounds),
       bc              = nar_geocode_tier_bc(res, out, todo, con,
                                             bounds = bounds_geom, ...),
@@ -489,6 +517,9 @@ nar_geocode_probe <- function(res, auth_mun = FALSE) {
   data.frame(
     row_id    = which(keep),
     name_fold = nar_fold(res$STREET_NAME[keep]),
+    # Only the RQA tier joins on this. The NAR tiers keep the plain fold,
+    # which is indexed; see rqa_geocode_sql() on why RQA cannot.
+    match_fold = nar_match_fold(res$STREET_NAME[keep]),
     mun_fold  = if (auth_mun) "" else
                   gsub(".", "", nar_fold(blank("MUN_NAME")), fixed = TRUE),
     mun_auth  = if (auth_mun)
@@ -708,7 +739,7 @@ nar_nrcan_dots <- function(dots) {
 #' @return A character vector of tier names
 #' @keywords internal
 nar_geocode_methods <- function(method) {
-  known <- c("nar", "nar_interpolate", "bc", "nrcan", "qc")
+  known <- c("nar", "rqa", "nar_interpolate", "bc", "nrcan", "qc")
   if (!length(method) || !is.character(method)) {
     stop("`method` must be one or more of ", paste0('"', known, '"', collapse = ", "),
          ", in the order they should be tried.", call. = FALSE)

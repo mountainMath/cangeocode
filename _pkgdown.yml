@@ -59,6 +59,17 @@ reference:
   - available_nar_versions
   - collect_nar
 
+- title: The Quebec address register
+  desc: >
+    Import the Repertoire quebecois des adresses into the same database
+    alongside NAR, in tables of its own. Optional, Quebec only, and what the
+    `"rqa"` tier of `geocode()` reads. The register is CC-BY 4.0 where the rest
+    of this package's data is OGL, so anything published from it has to carry
+    `rqa_attribution()`.
+  contents:
+  - rqa_import
+  - rqa_attribution
+
 articles:
 - title: Geocoding
   navbar: Geocoding

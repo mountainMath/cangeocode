@@ -389,6 +389,45 @@ and roughly half of what it is asked is rejected. What it is genuinely good for 
 NAR's tail but the case where there is **no NAR to fall back from**: a fresh install with
 nothing downloaded, or the `not_covered` rows a single-province import produces.
 
+## The Quebec register tier
+
+`rqa_import()` and the `"rqa"` tier. Offline, Quebec-only, and **not in the default
+`method`** — the tables it reads exist only if the import was run, and a tier that appears
+or disappears depending on that would be worse than an explicit one. `geocode()` checks for
+them up front rather than when the tier is first reached, because whether a tier runs at all
+depends on what its predecessors left unplaced: a missing import would otherwise surface on
+one batch of addresses and not the next.
+
+The register is Quebec's *Répertoire québécois des adresses*, the same source NAR's Quebec
+rows are derived from and the same one `qc_geocode()` queries over the wire — but published
+in full, and about 750,000 certified addresses larger than NAR's Quebec extract. What the
+gap is made of, why the import is a separate table rather than a merge, and how the numbers
+below were produced: [`quebec-addresses.md`](quebec-addresses.md).
+
+4,000 Corporations Canada filings with a Quebec address, seed 20260821, NAR 2026-06:
+
+| | placed | placed on a *register* point |
+| --- | ---: | ---: |
+| `c("nar", "nar_interpolate")` | 88.5% | 82.7% |
+| `c("nar", "rqa", "nar_interpolate")` | **90.1%** | **89.1%** |
+
+**The second column is the result, not the first.** The tier places 258 filings; only 62 of
+them were unplaced before. The other 196 were being interpolated between two neighbours, and
+the tier replaces that guess with the register's own coordinate — a median of 26 m away
+(p90 102 m). It costs nothing measurable: 10.0s against 10.1s for the batch, since it only
+ever sees the rows NAR left behind.
+
+**Where it sits in a `method` chain.** Below `"nar"` and above `"nar_interpolate"` — a
+register point, however coarse, beats an interpolated one, and loses to a NAR building
+point. It is not a fallback in the sense the online tiers are.
+
+`match_method` carries the register's own positional class — `rqa_building`, `rqa_geocoded`,
+`rqa_uncertain`, `rqa_lot`, `rqa_other` — and `uncertainty_m` is filled in only for
+`rqa_building`. Nothing here has measured what `Géocodée` or `Incertaine` are worth on the
+ground; the two non-zero figures in the table at the top of this note *were* measured, and
+an invented third would be indistinguishable from them. The 26 m median above is a
+disagreement with interpolation, not an accuracy figure — neither point is ground truth.
+
 ## The Quebec geocoder binding
 
 `qc_geocode()`, `qc_reverse_geocode()`, `qc_validate()`, and the `"qc"` tier

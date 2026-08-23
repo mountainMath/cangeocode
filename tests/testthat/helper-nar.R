@@ -29,7 +29,7 @@ nar_address_header <- function(blockface = FALSE) {
 # two flanking civics of the same parity, a gap between them, and an odd side
 # offset from the even one. It is opt-in because every other test in the suite
 # counts the rows in this table.
-nar_address_rows <- function(blockface = FALSE, run = FALSE) {
+nar_address_rows <- function(blockface = FALSE, run = FALSE, qc = FALSE) {
   base <- function(guid, civic, x, y,
                    street = "KING EDWARD", type = "AVE", dir = "W",
                    mail_mun = "VANCOUVER", postal = "V6S1N3") {
@@ -65,6 +65,17 @@ nar_address_rows <- function(blockface = FALSE, run = FALSE) {
       base("addr9", "5001", "4012300", "2007100", street = "MUSQUEAM",
            type = "DR", dir = "", mail_mun = "SOUTHLANDS", postal = "V6N3T7")))
   }
+  if (qc) {
+    # One Quebec address, so the RQA import has something to compute IN_NAR
+    # against. Opt-in for the same reason `run` is: it changes every row count
+    # in test-import.R. PROV_CODE is the SGC code, not the abbreviation --
+    # RqaNarKeys keys on '24' and would find nothing if this said "QC".
+    rows <- c(rows, list(
+      c("loc10", "addr10", "", "1255", "", "PEEL", "RUE", "",
+        "24", "Montreal", "Montréal", "V", "V", "PEEL", "RUE", "",
+        "MONTREAL", "QC", "H3B2T9", "", "", "", "", "", "",
+        "7626000", "1247000", "1", "1")))
+  }
   if (blockface) {
     bf <- list(c("4012086.46456561", "2006838.65510961"),
                c("4012086.46456561", "2006838.65510961"),
@@ -93,10 +104,11 @@ nar_location_lines <- function(run = FALSE) {
 }
 
 #' Write a miniature NAR release to a directory and return its path
-local_nar_fixture <- function(blockface = FALSE, run = FALSE, env = parent.frame()) {
+local_nar_fixture <- function(blockface = FALSE, run = FALSE, qc = FALSE,
+                              env = parent.frame()) {
   dir <- withr::local_tempdir(.local_envir = env)
   lines <- c(paste(nar_address_header(blockface), collapse = ","),
-             vapply(nar_address_rows(blockface, run), paste, character(1),
+             vapply(nar_address_rows(blockface, run, qc), paste, character(1),
                     collapse = ","))
   writeLines(lines, file.path(dir, "Address_BC.csv"))
   writeLines(nar_location_lines(run), file.path(dir, "Location_BC.csv"))
@@ -120,9 +132,9 @@ local_nar_env <- function(exdir, env = parent.frame()) {
 }
 
 #' Import the fixture and hand back an open connection
-local_nar_connection <- function(blockface = TRUE, run = FALSE,
+local_nar_connection <- function(blockface = TRUE, run = FALSE, qc = FALSE,
                                  env = parent.frame()) {
-  local_nar_env(local_nar_fixture(blockface, run, env = env), env = env)
+  local_nar_env(local_nar_fixture(blockface, run, qc, env = env), env = env)
   con <- suppressMessages(nar_connection(version = "test-01"))
   withr::defer(DBI::dbDisconnect(con), envir = env)
   con

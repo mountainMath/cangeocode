@@ -11,7 +11,9 @@
 #
 #   Rscript vignettes/precompute.R
 #
-# It needs NAR_CACHE_PATH set and a database already imported.
+# It needs NAR_CACHE_PATH set and a database already imported -- and, since the
+# geocoding vignette shows the `"rqa"` tier answering, one that `rqa_import()`
+# has been run against.
 
 if (!nzchar(Sys.getenv("NAR_CACHE_PATH"))) {
   stop("NAR_CACHE_PATH must be set to pre-compute the vignettes.")

@@ -16,8 +16,12 @@ The current implementation is built entirely on Statistics Canada's **NAR**
 the `spatial` extension. Three online geocoders are wired up as fallback tiers: NRCan's national
 geolocator, the Province of British Columbia's Address Geocoder, and Quebec's MRNF geocoder over
 the Répertoire québécois des adresses — the latter two provincial-only and also validation
-sources. A fourth, the Government of Canada's OpenStreetMap (Nominatim) instance, is bound as
-`osm_geocode()` but is deliberately **not** a tier — its data is ODbL where everything else here
+sources. Quebec's register, the *Répertoire québécois des adresses*, can also be imported into the same
+DuckDB file **as its own tables** by `rqa_import()`, which adds an offline `"rqa"` tier for
+Quebec. It is kept beside NAR rather than merged into it, and that is a load-bearing
+decision.
+A fourth online geocoder, the Government of Canada's OpenStreetMap (Nominatim) instance, is
+bound as `osm_geocode()` but is deliberately **not** a tier — its data is ODbL where everything else here
 is OGL. Reverse geocoding is NAR-backed and local except for `qc_reverse_geocode()`, the one
 online reverse geocoder here. Road network files are named in `DESCRIPTION` as a future source
 but are not implemented yet.
@@ -26,7 +30,7 @@ Public API (see `NAMESPACE`): `nar_connection()`, `nar_provinces()`,
 `available_nar_versions()`, `collect_nar()`, `reverse_geocode()`, `normalize_address()`,
 `address_pattern()`, `address_key()`, `format_address()`, `geocode()`, `nrcan_geocode()`,
 `bc_geocode()`, `bc_validate()`, `qc_geocode()`, `qc_reverse_geocode()`, `qc_validate()`,
-`osm_geocode()`.
+`osm_geocode()`, `rqa_import()`, `rqa_attribution()`.
 
 This file records the repo-wide facts: what to run, what the environment needs, how the tests
 and vignettes are built, and the conventions. **Why each component is shaped the way it is lives
@@ -121,6 +125,7 @@ covers the code you are about to touch.**
 | **[`spatial.md`](spatial.md)** — start here | `R/geo_helpers.R`, `R/reverse_geocode.R`, `collect_nar()`, CRS handling | all spatial SQL is TEMP macros defined once; geometry is stored *untagged* so the RTREE index can exist and the CRS is re-attached at query time; the zonemap prefilter is the biggest win in the package and is not an index; every lon/lat transform needs `always_xy = TRUE` |
 | **[`nar-database.md`](nar-database.md)** | `R/nar.R`, `R/nar_zip.R`, `R/nar_provinces.R` — download, schema, partial imports, version discovery | `nar_schema_version()` is 6 and older databases must keep working; a single province is fetched by HTTP range over the archive's own central directory; `BG` is Building and `BF` is Blockface, and a blockface distance is not comparable to a building one |
 | **[`normalization.md`](normalization.md)** | `R/normalize_address.R`, `R/normalize_pattern.R`, `R/normalize_variants.R`, `R/normalize_gazetteer.R`, `R/address_format.R` | numbered rural roads carry no street type at all; `STE` is Suite *and* Sainte, and all three unit paths must know it; `name_sim` is not a similarity; the fuzzy branch compares on a *match fold* that spells `ST` out to `SAINT` and turns the hyphen into a word boundary, and the R and SQL halves of it must stay identical or matching silently degrades; an alternative reading is generated only when the baseline is *demonstrably* broken, because the gazetteer scores a municipality-restricted match higher by construction and so cannot arbitrate a bad candidate away — and the third thing that counts as broken, a trailing run longer than the municipality claimed that also names one, is what segments a comma-free string and cannot fire on a delimited one; every civic-number rule anchors on a number at the *front* of the string, so `nar_strip_lead_prose()` cuts a prose prefix off before anything else reads it, and each of its four guards is holding back a real address form |
+| **[`rqa.md`](rqa.md)** | `R/rqa.R` — the RQA import and the `"rqa"` tier | RQA is kept beside NAR and not merged into it because merging spends the only instrument Quebec's coverage is measurable with; `nar_schema_version()` is deliberately *not* bumped, since the tables are optional and additive and a bump forces a re-download; NAR keeps the particule inside the street name and RQA in a column of its own, so comparing raw reads 1.27M missing where there are 358K; `IN_NAR` is fold equality and knowingly over-reports by ~14%; the tier joins on the *match* fold, not the plain one, because the addresses it exists for are exactly the ones the gazetteer could not resolve |
 | **[`geocoding.md`](geocoding.md)** | `R/geocode.R`, `R/geocode_bc.R`, `R/geocode_nrcan.R`, `R/geocode_qc.R`, `R/geocode_osm.R` | `method` names the tiers *in priority order*; "unplaced" is `is.na(x)`, never `match_method == "none"`; matching both NAR name families with `OR` instead of a `UNION` is a 99x slowdown; BC, the geolocator and Quebec always answer, so a response is not a match, while Nominatim genuinely refuses; a returned title must be re-parsed *without* the gazetteer or the floor launders the error it exists to catch; Quebec's locator needs the query spelled French-canonical (`Rue Notre-Dame Ouest`, not NAR's `NOTRE-DAME RUE O`) or it silently stops matching, and its `Score` is not a precision ranking; `osm_geocode()` is exported but is not a tier, and the reason is the ODbL licence rather than accuracy |
 
 ### Status notes
@@ -147,7 +152,9 @@ record the design.
   why the previous split understated that by keying on the full postal code), what importing
   those ~308,000 addresses would and would not buy for each of the package's two objectives,
   and the odonyme decomposition — which the gazetteer's match fold has
-  since made a smaller prize than it looked. Read it before trusting any Quebec comparison, `qc_validate()` included.
+  since made a smaller prize than it looked, and — since 2026-08-23 — what `rqa_import()` and
+  the `"rqa"` tier actually delivered against those projections. Read it before trusting any
+  Quebec comparison, `qc_validate()` included.
 - **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
   — where address normalization currently falls short: the measured failure modes, the things
   tried and rejected, and the ranked next steps. Read it before changing the parser or the

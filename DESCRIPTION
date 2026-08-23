@@ -17,7 +17,8 @@ Authors@R: c(
 Description: Implement a range of methods to help geocode and reverse geocode
     addresses in Canada, and to normalize free-text Canadian addresses into
     structured components as a task in its own right. Makes use of the NAR,
-    road network files, as well as online geocoders.
+    the Repertoire quebecois des adresses, road network files, as well as
+    online geocoders.
 URL: https://mountainmath.github.io/cangeocode/, https://github.com/mountainMath/cangeocode
 BugReports: https://github.com/mountainMath/cangeocode/issues
 License: MIT + file LICENSE

@@ -14,8 +14,10 @@ rows its predecessors left without a position. `match_method` reports which one 
 draws, the exact tier places 84.9% and interpolation lifts that to **89.1%**, in 0.9s for
 the whole batch.
 
-The vocabulary is `"nar"` (exact lookup), `"nar_interpolate"`, `"bc"` and `"nrcan"`, defaulting
-to `c("nar", "nar_interpolate")` — the offline pair. **`method` replaced the earlier `source`,
+The vocabulary is `"nar"` (exact lookup), `"nar_interpolate"`, `"rqa"`, `"bc"`, `"nrcan"` and
+`"qc"`, defaulting to `c("nar", "nar_interpolate")` — the offline pair. `"rqa"` is offline too
+but is **not** in the default, because its tables exist only if `rqa_import()` was run; it lives
+in [`rqa.md`](rqa.md). **`method` replaced the earlier `source`,
 `interpolate` and `fallback` arguments**, which were three ways of saying the same thing and
 could not express an ordering. `nar_geocode_methods()` validates it; exact matches beat
 prefixes in `pmatch()`, so `"nar"` is unambiguous against `"nar_interpolate"`.
@@ -33,6 +35,8 @@ last leaves interpolated rows with no `ADDR_GUID`.
 | `nar_blockface` | in NAR, but only a blockface centroid | 176 |
 | `nar_interpolated` | not in NAR; placed between the flanking civics | `0.5 * span` |
 | `nar_no_geometry` | in NAR (`ADDR_GUID` is set) but unplaceable | `NA` |
+| `rqa_building` | in Quebec's register with a building point; see [`rqa.md`](rqa.md) | 0 |
+| `rqa_geocoded` / `rqa_uncertain` / `rqa_lot` / `rqa_other` | in the register, placed by a weaker method | `NA` |
 | `nrcan` | interpolated by NRCan's geolocator, past both floors | 150 |
 | `not_covered` | parsed to a province this (partial) database does not hold | `NA` |
 | `none` | not found | `NA` |

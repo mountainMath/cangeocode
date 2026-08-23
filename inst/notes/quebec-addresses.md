@@ -333,3 +333,62 @@ Part B harness can join against. The geocoding tier is a smaller and later win,
 and should slot in below `nar_building` and above `nar_interpolated`, since a
 register point beats an interpolated one and loses to a NAR building point on the
 evidence above.
+
+### Built, 2026-08-23: `rqa_import()` and the `"rqa"` tier
+
+The import exists (`R/rqa.R`), in the shape argued for above. `rqa_import()` writes
+two tables into the same `.duckdb` the NAR release lives in — `RqaAddresses`, one
+row per certified register address, and `RqaStreets`, a gazetteer grouped by
+odonyme and municipality — and never touches `Addresses`. Over the 2026-06 release
+it takes **29 seconds** end to end from an extracted CSV.
+
+The **whole certified register is imported, not just the gap**, and each row
+carries `IN_NAR`. The gap is a property of the *pair*: a subset built against one
+NAR release would be silently wrong against the next, and computing `IN_NAR`
+inside the release's own file is the only way it stays correct by construction.
+`RqaStreets.N_NOT_IN_NAR` then counts, per street, how many of its addresses NAR
+has no row for — which is the street-level version of the same question this note
+has been asking throughout.
+
+`IN_NAR` is **fold equality on (FSA, civic number, folded street name)**, not
+containment — containment has no equijoin key and would turn a scan into a
+product. It therefore over-reports the gap by roughly 14%, the figure the `interp`
+run measured independently. What it reproduces:
+
+| | rows | distinct address keys |
+| --- | --- | --- |
+| certified register | 5,315,435 | 3,400,913 |
+| **not in NAR** | **475,294** | **356,089** |
+
+356,089 against the 357,723 this note measured out-of-band — the same number, from
+a different code path, which is the check that mattered. Of the gap rows, 40.7%
+are `Géocodée`, 31.0% `Incertaine` and 20.3% `Bâtiment`, matching the split above.
+
+**What the tier is worth.** Same 4,000-filing Québec sample, seed 20260821, NAR
+2026-06:
+
+| | placed | placed on a *register* point |
+| --- | --- | --- |
+| `c("nar", "nar_interpolate")` | 88.5% | 82.7% |
+| `c("nar", "rqa", "nar_interpolate")` | **90.1%** | **89.1%** |
+
+The headline is the second column, not the first. 258 filings get an RQA point;
+only 62 of them were unplaced before. The other 196 were already being
+interpolated, and the tier replaces a guess between two neighbours with the
+register's own coordinate — a median of **26 m** away (p75 51 m, p90 102 m, p95
+195 m). Cost: nothing measurable — 10.0s against 10.1s for the batch, because the
+tier only ever sees the rows NAR left unplaced.
+
+`match_method` reports the register's own positional class (`rqa_building`,
+`rqa_geocoded`, `rqa_uncertain`, `rqa_lot`, `rqa_other`) rather than one label,
+and **`uncertainty_m` is filled in only for `rqa_building`**, where 0 means what it
+means for NAR: this package added nothing. Nothing here has measured what
+`Géocodée` or `Incertaine` are worth on the ground, and a plausible invented
+number would be indistinguishable from the two that were measured.
+
+Not done, and still the larger prize: **the normalization side**. The 81.8% → 88.3%
+above is a `normalize_address()` gain, and it needs `RqaStreets` wired into the
+gazetteer's candidate scoring. That changes how every Québec candidate scores, so
+run the eval harness in
+[`address-normalization-status.md`](address-normalization-status.md) before and
+after.

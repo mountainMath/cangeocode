@@ -14,7 +14,9 @@ putting them on a map.
 Both are built on Statistics Canada's
 [National Address Repository](https://www.statcan.gc.ca/en/lode/databases/nar)
 (NAR), a national list of civic addresses with coordinates, which the package
-imports into a local [DuckDB](https://duckdb.org) database.
+imports into a local [DuckDB](https://duckdb.org) database. Quebec's own
+[Répertoire québécois des adresses](https://www.donneesquebec.ca/recherche/dataset/adresses-quebec)
+can be imported into the same database alongside it, in tables of its own.
 
 Everything runs on your own machine: no API keys, no rate limits, and no
 address ever leaves it. The exceptions are opt-in — `geocode(method = c(..., "bc"))`
@@ -152,10 +154,10 @@ geocode(addresses, method = c("bc", "nar"))             # prefer BC where it ans
 ```
 
 `"nar"` looks the civic number up directly and `"nar_interpolate"` places the
-ones NAR does not carry; `"bc"` asks the Province of BC's geocoder and
-`"nrcan"` NRCan's national one. The default is the offline pair; nothing
-reaches the network unless `"bc"` or `"nrcan"` is named, and both belong last
-in the list.
+ones NAR does not carry; `"rqa"` reads Quebec's own address register, if you
+imported it; `"bc"` asks the Province of BC's geocoder and `"nrcan"` NRCan's
+national one. The default is the offline pair; nothing reaches the network
+unless `"bc"`, `"nrcan"` or `"qc"` is named, and those belong last in the list.
 
 ### Constraining the search
 
@@ -283,6 +285,52 @@ can see what was thrown away and why.
 Like the geolocator, this is a path on which addresses leave your machine.
 Requests are throttled to be a good citizen of a free public service; register
 for an API key and pass it as `api_key` for anything large.
+
+## Quebec: importing the address register
+
+Quebec's own *Répertoire québécois des adresses* (RQA) carries about 750,000
+certified addresses more than NAR's Quebec extract does. `rqa_import()` loads it
+into the same DuckDB file, **in tables of its own** rather than into
+`Addresses`:
+
+``` r
+rqa_import()                                   # ~780 MB download, once
+geocode(addresses, method = c("nar", "rqa", "nar_interpolate"))
+```
+
+The `"rqa"` tier is offline, Quebec-only, and belongs *before* interpolation —
+a register point, however coarse, beats a point interpolated between two
+neighbours. It is not in the default `method`, because the tables only exist if
+you ran the import.
+
+On 4,000 Quebec business filings:
+
+| | placed | placed on a *register* point |
+| --- | ---: | ---: |
+| `c("nar", "nar_interpolate")` | 88.5% | 82.7% |
+| `c("nar", "rqa", "nar_interpolate")` | **90.1%** | **89.1%** |
+
+The second column is the point. Of the 258 filings the tier places, only 62 were
+unplaced before — the other 196 were being interpolated between two neighbours,
+and now carry the register's own coordinate instead, a median of 26 m away. It
+costs nothing measurable, since it only ever sees the rows NAR left behind.
+
+They stay separate on purpose. Keeping the two registers separately readable is
+the only reason any of the coverage above is measurable at all, and the rows RQA
+adds are positionally weaker than what NAR carries — 20.3% of them are building
+points against 26.9% register-wide, and 30.0% are flagged `Incertaine`. So
+`match_method` reports the register's own class (`rqa_building`,
+`rqa_geocoded`, `rqa_uncertain`, `rqa_lot`) and `uncertainty_m` is filled in
+only for `rqa_building`, where 0 means the same thing it means for NAR. Every
+imported row carries `IN_NAR`, and `RqaStreets` counts the addresses per street
+that NAR has no row for.
+
+**The register is CC-BY 4.0**, where everything else here is an open government
+licence. Anything published from these points has to carry the attribution, which
+`rqa_attribution()` returns.
+
+See `vignette("geocoding")` and `inst/notes/quebec-addresses.md` for what the
+gap is made of and what importing it does and does not buy.
 
 ## Quebec: a second geocoder, and reverse geocoding
 
@@ -420,5 +468,9 @@ nothing", not "this point is exact".
 NAR is published by Statistics Canada under the
 [Statistics Canada Open Licence](https://www.statcan.gc.ca/en/reference/licence).
 The BC Address Geocoder is a service of the Province of British Columbia and
-carries its own terms, which its responses link to. This package is not
-affiliated with or endorsed by either.
+carries its own terms, which its responses link to. The *Répertoire québécois
+des adresses*, which `rqa_import()` loads and `qc_geocode()` queries, is
+published by the Ministère des Ressources naturelles et des Forêts under
+[CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) — a different licence
+from the rest, and one that requires attribution; `rqa_attribution()` returns
+it. This package is not affiliated with or endorsed by any of them.
