@@ -314,7 +314,11 @@ documentation.** The locators are named `RQA_Adresse` and `RQA_Rue`: it serves t
 which is also what NAR's Quebec records are built from. Measured over 400 NAR Quebec building
 points the median disagreement is **0.9 m** (p90 13.3 m, nothing over 500 m). That is evidence
 of shared lineage, not of accuracy — the same trap `.claude/CLAUDE.md` records for the BC
-geocoder, only more so. Use it as a fallback, not as a check.
+geocoder, only more so. Use it as a fallback, not as a check. The lineage has since been
+measured at scale — 2.5 million paired addresses, median 21 cm — in
+[`../inst/notes/quebec-addresses.md`](../inst/notes/quebec-addresses.md), which is also
+where the Répertoire's own positional-quality classes are recorded. There is no second
+opinion available for Quebec inside this package.
 
 As a fallback it is worth about what the geolocator is: on 600 Quebec corporations addresses
 it takes coverage from 81.0% to 83.3%, recovering 12.3% of what NAR left unplaced.

@@ -139,6 +139,12 @@ record the design.
   certifies, which of the floor's checks are vacuous, the one-in-twelve requests the
   service drops that a retry gets back, and the Canada-hosted Nominatim sibling that
   `osm_geocode()` now binds. Read it before touching `R/geocode_nrcan.R` or `R/geocode_osm.R`.
+- **[`inst/notes/quebec-addresses.md`](../inst/notes/quebec-addresses.md)**
+  — NAR's Quebec rows measured against the Répertoire québécois des adresses they come from:
+  the 2.5-million-address point comparison that shows NAR is carrying RQA's own coordinates,
+  why Quebec's 99.8% "building" coverage is not a quality statement, the 225,275 addresses RQA
+  has and NAR does not, and the odonyme decomposition that is the largest unexploited input to
+  the parser. Read it before trusting any Quebec comparison, `qc_validate()` included.
 - **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
   — where address normalization currently falls short: the measured failure modes, the things
   tried and rejected, and the ranked next steps. Read it before changing the parser or the

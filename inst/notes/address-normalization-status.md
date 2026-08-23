@@ -466,18 +466,29 @@ The first four items of the previous list came out of *What a local LLM adds* an
 *Fixed, and worth keeping fixed* for what they bought. What is left is ordered the same way, by
 rows recovered per unit of effort.
 
-1. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
+1. **Load the Québec odonyme decomposition into the gazetteer.** The Répertoire québécois des
+   adresses publishes every street name in the province already decomposed into générique,
+   particule, spécifique and point cardinal — 115,352 odonymes, a particule on 27.8% of rows,
+   four recomposed surface forms each — plus 551,160 cross-references to alternative and former
+   names in `Odonymes_renvois.csv`. That is a labelled version of exactly what the parser is
+   trying to infer, for the province where it does worst: the Part B Québec join rate is 68.2%
+   while NAR carries a building point on 99.8% of its Quebec rows, so the geometry is already
+   there and the parse is what fails to reach it. Sized but not yet measured — the ceiling is the
+   gap between those two figures, and how much of it the gazetteer actually closes is the thing to
+   measure first. Licence is CC-BY, attribution-compatible with NAR's OGL. See
+   [`quebec-addresses.md`](quebec-addresses.md).
+2. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
    arbitration now exist; what is missing is the two strategies and their gates. One mechanism
    fixes both: when a stripped reading finds nothing in the gazetteer, retry with the token
    restored to the name. Affects ~686k addresses' worth of street forms; the direction half fires
    even on clean input. The name gate now recovers some of this incidentally — whole-word
    containment catches a type the parser ate whenever the gazetteer has the fuller name — so
    re-measure the remaining size before building it.
-2. **Reject a province name as a municipality** (mode 6). An afternoon.
-3. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
+3. **Reject a province name as a municipality** (mode 6). An afternoon.
+4. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
    determined case is now answered; this is the 157 rows with 2 or more candidates. Either
    document `NA` as the honest answer or return candidates. A design decision, not a bug fix.
-4. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
+5. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
 
 ## Deferred
 

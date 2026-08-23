@@ -436,7 +436,10 @@ p50 of 19.8 m and the geolocator's tails. The explanation is in the locator name
 is serving the Répertoire, which is also what NAR's Quebec records are built from. **This is
 shared lineage, not accuracy**, and it means the Quebec service cannot settle NAR's Quebec
 accuracy any more than the BC geocoder can settle BC's. `qc_validate()` says so in its own
-documentation. It remains useful as a *fallback*, where sharing an upstream is harmless.
+documentation. It remains useful as a *fallback*, where sharing an upstream is harmless. The
+lineage has since been measured directly against the Répertoire, over 2.5 million paired
+addresses rather than 400 — median 21 cm, and NAR carrying RQA's coordinate verbatim on the
+classes RQA interpolated. See [`quebec-addresses.md`](quebec-addresses.md).
 
 **As a fallback it is worth roughly what the geolocator is.** On 600 Quebec addresses from the
 corporations file the NAR pathway placed 81.0%; with `method = c("nar", "nar_interpolate",
