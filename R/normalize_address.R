@@ -121,6 +121,17 @@ nar_parse_rules <- function(x, prov = NULL) {
   # are about to be cut out of it, and a PO box marker can sit anywhere.
   marks <- nar_delivery_marks(txt)
 
+  # --- leading prose ------------------------------------------------------
+  # "located at 41 Cultus Rd", "attn: J Smith, 119 Markham St". Everything
+  # downstream anchors the civic number at the front of the string, so this has
+  # to come off before anything else reads it. Delivery lines are exempt: the
+  # number in a PO box is not a civic number.
+  keep <- is.na(marks)
+  if (any(keep)) {
+    txt[keep] <- vapply(txt[keep], nar_strip_lead_prose, character(1),
+                        USE.NAMES = FALSE)
+  }
+
   # --- postal code -------------------------------------------------------
   # Stored six characters with no space, so the space is optional on input and
   # absent on output. D, F, I, O, Q and U never open a Canadian FSA, and W and
@@ -216,6 +227,96 @@ nar_strip_country <- function(s) {
   # last-but-one segment of a trailing empty one.
   rest <- rest[!(seq_along(rest) == length(rest) & rest == ",")]
   paste(rest, collapse = " ")
+}
+
+#' Strip a leading prose prefix from a normalized address string
+#'
+#' @description Free-text address fields open with a great deal that is not the
+#' address -- `"located at 41 Cultus Rd"`, `"attn: J Smith, 119 Markham St"`,
+#' `"Toronto General Hospital, 200 Elizabeth St"`. Every civic-number rule in
+#' this parser anchors on a number at the *front* of the string, so a prefix
+#' does not degrade the parse, it collapses it: the prefix and the civic number
+#' together are read as one street name and the pattern falls to `street_only`.
+#' On the generated dirty corpus the affected classes go from 0--19% correct to
+#' over 90% once the prefix comes off; see `inst/notes/deepparse.md`.
+#'
+#' Cutting to the first digit-initial token is easy to get wrong, because a lot
+#' of legitimate address openings put words in front of the first number. Four
+#' guards, and each one is holding back a real address form:
+#'
+#' * At most **one comma** may be crossed. The rule can reach past a care-of
+#'   line or a building name, never past a municipality.
+#' * A number that **closes its comma segment** is the tail of a street name,
+#'   not the head of an address: `Highway 7`, `Line 5`, `Rang 9`, and the
+#'   leading `Suite 200,` of `Suite 200, 119 Markham St`.
+#' * A **unit designator** anywhere in the dropped run means the number is a
+#'   unit: `Apt 4B-1234 Bloor St W`, `Unit 5 100 Main St`, `# 5 100 Main St`.
+#'   So does a **digit inside a dropped token**, which is how an undesignated
+#'   unit shows up: `PH12, 2160 Terry-Fox Av`, `E10, 20 Palace St`. Prose does
+#'   not carry digits.
+#' * A **street type or numbered-road word** directly in front of the number --
+#'   after peeling the French particules that sit between them -- means the
+#'   number belongs to the name: `Range Road 272`, `County Road 21 North`,
+#'   `Chemin du 4e Rang`, `Avenue du 8 Mai`. Only the run *after* the last
+#'   comma is examined, because a type separated from the number by a comma
+#'   cannot be governing it (`Sunnybrook Health Sciences Centre, 2075 Bayview`).
+#'
+#' Strings carrying a delivery mark are exempt, and the caller enforces that: a
+#' PO box or rural route line is an instruction rather than an address, and the
+#' number in it is not a civic number.
+#'
+#' @param s A single normalized address string (post-[nar_norm_text()], so
+#' uppercase with commas standing as their own tokens)
+#' @return `s`, or `s` with the prefix removed
+#' @keywords internal
+nar_strip_lead_prose <- function(s) {
+  if (is.na(s) || !nzchar(s)) return(s)
+  toks <- nar_tokens(s)
+  if (length(toks) < 3L) return(s)
+
+  at <- which(grepl("^[0-9]", toks))
+  if (!length(at)) return(s)
+  at <- at[1]
+  if (at == 1L) return(s)               # nothing in front of it
+
+  drop <- toks[seq_len(at - 1L)]
+  if (sum(drop == ",") > 1L) return(s)
+  if (at == length(toks) || toks[at + 1L] == ",") return(s)
+
+  f <- nar_fold(drop[drop != ","])
+  if (!length(f)) return(s)
+  if (any(f %in% c(nar_lex_unit_words, nar_lex_unit_bare, "#"))) return(s)
+  # Prose does not carry digits; a token that does and is not the number we are
+  # cutting to is a unit sitting in front of it, often in a comma segment of its
+  # own -- "PH12, 2160 Terry-Fox Av", "Suite-1606, 80 Alton Towers Cir".
+  if (any(grepl("[0-9]", f))) return(s)
+
+  # The type test looks only at what shares a comma segment with the number.
+  cut <- utils::tail(c(0L, which(drop == ",")), 1L)
+  seg <- if (cut < length(drop)) nar_fold(drop[seq(cut + 1L, length(drop))]) else
+    character(0)
+  particule <- c("DU", "DE", "DES", "D", "LA", "LE", "LES", "L", "AU", "AUX",
+                 "A", "EN")
+  k <- length(seg)
+  while (k >= 1L && (seg[k] %in% particule || grepl("^[DL]'", seg[k]))) k <- k - 1L
+  if (k >= 1L && (nar_is_street_type(seg[k]) || seg[k] %in% nar_road_tail_words()))
+    return(s)
+
+  paste(toks[seq(at, length(toks))], collapse = " ")
+}
+
+#' The last word of every numbered-road surface form
+#'
+#' @description `nar_is_street_type()` claims most of them (`ROAD`, `RD`,
+#' `CONCESSION`, `ROUTE`) but not all -- `MUN` is a numbered-road word and not a
+#' street type -- so the leading-prose guard needs the lexicon's own tails too.
+#' @return A character vector
+#' @keywords internal
+nar_road_tail_words <- function() {
+  s <- nar_lex_numbered_roads$surface_fold
+  s <- s[!is.na(s) & nzchar(s)]
+  unique(vapply(strsplit(s, " ", fixed = TRUE),
+                function(z) z[length(z)], character(1)))
 }
 
 #' Strip a trailing province name from a normalized string

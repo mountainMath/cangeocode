@@ -60,6 +60,48 @@ threaded out on `nar_parse_one()`'s `traits` column, because they record *how* a
 several forms end in identical columns. The pattern is computed once, in `nar_parse_rules()`,
 before the gazetteer runs — it describes the parse, not the corrected result.
 
+## The leading-prose strip
+
+`nar_strip_lead_prose()` runs at the very top of `nar_parse_rules()`, before the postal code
+comes out, and cuts everything in front of the first digit-initial token: `located at 41 Cultus
+Rd` becomes `41 Cultus Rd`. It exists because **every civic-number rule in this parser anchors on
+a number at the front of the string**, so a prose prefix does not degrade the parse, it collapses
+it — prefix and civic number are read as one street name and the pattern falls to `street_only`.
+Adding ten characters to the front of an address that otherwise parses perfectly took `CORE` from
+98% to 0% on the generated `verbose` class. Measured, the rule takes the generated dirty corpus
+from **70.9% to 93.2%** `CORE`, with `careof` going 18.6% → 92.4% and `verbose` 0.0% → 86.6%; see
+[`../inst/notes/deepparse.md`](../inst/notes/deepparse.md), which is where the failure was found.
+
+**It is deliberately near-inert everywhere else, and that is not a sign it is switched off.** It
+touches 0 of Part A's 4,982 rows and 6 of Part B's 5,000, because both of those corpora put the
+civic number first. Do not "fix" its low hit rate on the tuned corpora.
+
+**Four guards, and every one of them is holding back a real address form.** They were arrived at
+by running the rule over all four corpora and reading what changed, so removing one is not a
+simplification:
+
+- **At most one comma may be crossed.** One comma is a care-of line or a building name
+  (`Sarah Steele Building, 609 Steele Street`); two would be a municipality, and eating that
+  loses more than the prefix costs.
+- **A number that closes its comma segment is not a civic number.** It is the tail of a street
+  name — `Highway 7`, `Line 5`, `Rang 9` — or a unit written ahead of the address,
+  `Suite 200, 119 Markham St`.
+- **A unit designator anywhere in the dropped run, or a digit inside any dropped token.** The
+  first is `Apt 4B-1234 Bloor St W` and `# 5 100 Main St`. The second is the *undesignated* unit,
+  which is what comma-crossing exposes: `PH12, 2160 Terry-Fox Av`, `E10, 20 Palace St`,
+  `Suite-1606, 80 Alton Towers Cir`. Prose does not carry digits, so the test is cheap and it is
+  the guard that makes crossing a comma safe at all.
+- **A street type or numbered-road word governing the number**, after peeling the French
+  particules that sit between them: `Range Road 272`, `County Road 21 North`, `Chemin du 4e Rang`,
+  `Avenue du 8 Mai`. Only the run *after* the last dropped comma is examined — a type separated
+  from the number by a comma cannot be governing it, which is what keeps
+  `Sunnybrook Health Sciences Centre, 2075 Bayview Ave` strippable. `nar_road_tail_words()` exists
+  because `nar_is_street_type()` claims most numbered-road words but not `MUN`.
+
+**The caller applies the fifth guard, not the function.** Strings carrying a `nar_delivery_marks()`
+hit are exempt: a PO box or rural route line is an instruction, its number is not a civic number,
+and `Wabana, PO Box 580 Bell Island` would otherwise be cut down to `580 Bell Island`.
+
 ## Two collisions between the parser's vocabulary and real place names
 
 **`STE` is Suite and it is also Sainte.** Left unguarded, `Sault Ste. Marie` parses as a unit

@@ -117,6 +117,12 @@ hard. The file is cp1252, not UTF-8.
 test is Part B's: the parse must join a row NAR actually holds, and the file's own postal
 code — which the join never uses — has to agree.
 
+**These are measured with `nar_strip_lead_prose()` in place.** That rule is a direct
+product of this benchmark: the first pass found deepparse ahead on `llm` by 12.5 points,
+the whole of it in two classes where the address does not begin at the start of the
+string, and a six-line rule closed the gap and then some. [The rule this benchmark
+produced](#the-rule-this-benchmark-produced) records what the numbers were before it.
+
 ### `bpemb`
 
 | corpus | config | CIVIC | STREET | CORE | MUN | PROV | POSTAL |
@@ -124,18 +130,18 @@ code — which the join never uses — has to agree.
 | A | `cangeocode` | **99.9%** | **98.0%** | **98.0%** | **94.4%** | **98.8%** | **55.8%** |
 | A | `deepparse` | 97.4% | 83.8% | 82.9% | 59.4% | 67.4% | 51.8% |
 | A | `dp -> norm` | 97.9% | 92.7% | 91.3% | 74.2% | 89.1% | 54.6% |
-| llm | `cangeocode` | 72.9% | **97.3%** | 70.9% | 73.1% | 76.2% | **100.0%** |
-| llm | `deepparse` | **84.2%** | 74.1% | 69.8% | 49.7% | 93.7% | 98.8% |
-| llm | `dp -> norm` | 80.8% | 95.1% | **78.5%** | **92.0%** | **95.2%** | **100.0%** |
+| llm | `cangeocode` | **95.6%** | **97.3%** | **93.2%** | 73.0% | 76.2% | **100.0%** |
+| llm | `deepparse` | 84.2% | 74.1% | 69.8% | 49.7% | 93.7% | 98.8% |
+| llm | `dp -> norm` | 83.6% | 95.2% | 81.2% | **92.1%** | **95.2%** | **100.0%** |
 
 | corpus | config | joined | postal-confirmed |
 | --- | --- | ---: | ---: |
 | odhf | `cangeocode` | **72.2%** | **65.4%** |
 | odhf | `deepparse` | 58.0% | 53.0% |
 | odhf | `dp -> norm` | 70.7% | 64.3% |
-| B | `cangeocode` | **88.3%** | **83.3%** |
+| B | `cangeocode` | **88.4%** | **83.3%** |
 | B | `deepparse` | 64.1% | 60.2% |
-| B | `dp -> norm` | 84.7% | 79.7% |
+| B | `dp -> norm` | 84.8% | 79.8% |
 
 ### `fasttext`
 
@@ -146,9 +152,9 @@ The larger model, and the difference is not marginal.
 | A | `cangeocode` | **99.9%** | **98.0%** | **98.0%** | **94.4%** | **98.8%** | **55.8%** |
 | A | `deepparse` | 97.8% | 86.8% | 86.4% | 74.9% | 66.7% | 45.5% |
 | A | `dp -> norm` | 98.7% | 94.3% | 93.6% | 81.6% | 90.8% | 53.9% |
-| llm | `cangeocode` | 72.9% | **97.3%** | 70.9% | 73.1% | 76.2% | **100.0%** |
+| llm | `cangeocode` | **95.6%** | **97.3%** | **93.2%** | 73.0% | 76.2% | **100.0%** |
 | llm | `deepparse` | 81.1% | 94.0% | 78.2% | 92.0% | 95.0% | 94.8% |
-| llm | `dp -> norm` | **85.4%** | 96.4% | **83.4%** | **93.2%** | **95.2%** | **100.0%** |
+| llm | `dp -> norm` | 94.1% | 96.5% | 92.1% | **93.0%** | **95.2%** | **100.0%** |
 
 | corpus | config | joined | postal-confirmed | `odhf_full` | `odhf_street` |
 | --- | --- | ---: | ---: | ---: | ---: |
@@ -158,16 +164,20 @@ The larger model, and the difference is not marginal.
 
 | corpus | config | joined | postal-confirmed | QC | rest of Canada |
 | --- | --- | ---: | ---: | ---: | ---: |
-| B | `cangeocode` | **88.3%** | **83.3%** | **75.5%** | **85.1%** |
+| B | `cangeocode` | **88.4%** | **83.3%** | **75.5%** | **85.1%** |
 | B | `deepparse` | 71.3% | 66.7% | 59.8% | 68.3% |
-| B | `dp -> norm` | 87.1% | 82.2% | 74.6% | 83.9% |
+| B | `dp -> norm` | 87.2% | 82.2% | 74.6% | 84.0% |
 
-**The split is clean and it is not about accuracy in general.** On the two corpora this
-parser was tuned against — `A`, whose noise grammar we wrote, and `B`, which arrives
-pre-segmented with a comma between every field — `cangeocode` wins and `dp -> norm` costs
-4.4 and 1.1 points. On the two corpora built from mess nobody here anticipated,
-`dp -> norm` wins: +12.5 points of CORE on `llm`, +3.4 points postal-confirmed on `odhf`,
-and it wins on both `odhf` sub-sources including the comma-free one.
+**`cangeocode` now leads on three corpora of four, and the exception is precise.** On the
+two it was tuned against — `A`, whose noise grammar we wrote, and `B`, which arrives
+pre-segmented with a comma between every field — it wins, and `dp -> norm` costs 4.4 and
+1.1 points. On `llm`, which it was not tuned against, it leads `dp -> norm` by 12.0 points
+under `bpemb` and by 1.1 under `fasttext`; before the prose strip it trailed by 7.6 and
+12.5. What is left is **`odhf`**, where `dp -> norm` under `fasttext` still leads by 3.4
+points postal-confirmed, and the lead is concentrated in `odhf_full` — whole addresses
+with no comma anywhere in them — at 61.3% against 57.5%. That is a single, well-specified
+capability: finding field boundaries in text that carries none. It is the only thing in
+this benchmark a model still does better than we do.
 
 deepparse's own published Canadian figures are 99.76% on clean data and 98.96% on
 incomplete data (FastText; BPEmb 99.03% and 96.98%). Those are token-tagging accuracies
@@ -182,18 +192,19 @@ they were.
 | `abbrev` | 138 | **93.5%** | 75.4% | **93.5%** |
 | `bilingual` | 102 | 86.3% | **92.2%** | 89.2% |
 | `building` | 72 | 94.4% | **97.2%** | 93.1% |
-| `careof` | 118 | 18.6% | **75.4%** | 69.5% |
+| `careof` | 118 | **92.4%** | 75.4% | 83.9% |
 | `ocr` | 112 | 98.2% | 83.0% | **99.1%** |
 | `runon` | 123 | **99.2%** | 79.7% | 98.4% |
 | `terse` | 112 | **95.5%** | 90.2% | **95.5%** |
-| `verbose` | 134 | **0.0%** | **47.0%** | 38.8% |
+| `verbose` | 134 | **86.6%** | 47.0% | 85.1% |
 
-CORE by transformation, `fasttext`. Six of the eight classes are a wash or ours. The
-entire measured advantage sits in two: `careof` and `verbose`, which are the two classes
-where the address does not begin at the start of the string.
+CORE by transformation, `fasttext`, with the prose strip in place. Before it,
+`cangeocode` scored **18.6%** on `careof` and **0.0%** on `verbose` — those two classes
+were the entire measured advantage deepparse had, and they are the two where the address
+does not begin at the start of the string.
 
-`verbose` at **0.0%** is not a rounding artefact. Adding ten characters to the front of
-an address whose civic number and street name otherwise parse correctly destroys both:
+`verbose` at 0.0% was not a rounding artefact. Adding ten characters to the front of an
+address whose civic number and street name otherwise parse correctly destroyed both:
 
 ```r
 normalize_address("41 Cultus RD, CLEAR CREEK, ON, N0E1C0")
@@ -205,14 +216,14 @@ normalize_address("located at 41 Cultus RD, CLEAR CREEK, ON, postal code N0E1C0"
 #>       <NA>  LOCATED AT 41 CULTUS           RD  POSTAL CODE       <NA>  street_only
 ```
 
-The civic number is no longer the first token, so `civic_street` never fires, the pattern
-falls through to `street_only`, and the prefix is swallowed whole into the street name.
+The civic number was no longer the first token, so `civic_street` never fired, the pattern
+fell through to `street_only`, and the prefix was swallowed whole into the street name.
 (`MUN_NAME` is wrong in both rows for an unrelated reason — `CLEAR CREEK` is not a
 municipality the gazetteer resolves — which is why `CORE` is civic and street only.)
-This is precisely the **segmentation** blind spot that
-[`address-normalization-status.md`](address-normalization-status.md) flagged as
+This was precisely the **segmentation** blind spot that
+[`address-normalization-status.md`](address-normalization-status.md) had flagged as
 untested — "a routing job, not a knowledge job, and no measurement here touches it". It
-is now measured, and it is the whole of what deepparse buys.
+is now measured, and it was the whole of what deepparse bought.
 
 ## What it costs
 
@@ -231,34 +242,42 @@ Throughput is therefore not the objection. The 13.4 GB resident set for the mode
 actually worth using is, along with a Python-process dependency in an R package and an
 LGPL-3.0 component in an MIT one.
 
-## A six-line rule beats it
+## The rule this benchmark produced
 
-If the whole advantage is that the address does not start at the start of the string,
-then the cheap version of the fix is to make it start there. In the first comma-delimited
-field, drop everything before the first token that begins with a digit — guarded so that a
-leading unit designator (`Apt`, `Suite`, `Bureau`, `Unit`, `#`, …) is not eaten, since
-those legitimately precede the civic number.
+If the whole advantage is that the address does not start at the start of the string, the
+cheap version of the fix is to make it start there. `nar_strip_lead_prose()` drops
+everything in front of the first digit-initial token, at the very top of
+`nar_parse_rules()`. It is now shipped, and the tables above are measured with it in.
 
-| corpus | measure | as shipped | prefix stripped |
+| corpus | measure | before | after |
 | --- | --- | ---: | ---: |
-| A | CORE | 98.0% | 97.9% |
-| llm | CORE | 70.9% | **93.3%** |
+| A | CORE | 98.0% | 98.0% |
+| llm | CORE | 70.9% | **93.2%** |
 | odhf | postal-confirmed | 65.4% | 65.4% |
-| B | postal-confirmed | 83.3% | 83.2% |
+| B (Part B harness) | postal-confirmed | 83.3% | 83.3% |
+| B (Part B harness) | joins a real NAR address | 88.3% | 88.4% |
 
-and within the `llm` corpus, unguarded, `careof` goes 18.6% → **93.2%** and `verbose`
-0.0% → **90.3%**.
+and within `llm`, `careof` goes 18.6% → **92.4%** and `verbose` 0.0% → **86.6%**.
 
-That is +22.4 points where deepparse-as-segmenter bought +12.5, and −0.1 everywhere else,
-at no runtime cost, no dependency and no gigabytes. The guard costs 0.7 points against the
-unguarded rule on this corpus and is still the right call: promoting a unit number to a
-civic number is a wrong answer, where failing to strip is a missing one.
+That is **+22.3 points of CORE where deepparse-as-segmenter bought +12.5**, at no runtime
+cost, no dependency and no gigabytes. It is also the reason `cangeocode` now leads
+`dp -> norm` on `llm` under both models rather than trailing it.
 
-The rule is measured, not shipped. It needs a design pass before it goes in — where in
-the pipeline it belongs, what it does to a care-of line carrying a person's name, whether
-the guard list is the unit lexicon or a new one, and its own tests. It is item 1 of the
-next steps in
-[`address-normalization-status.md`](address-normalization-status.md).
+**It changes almost nothing anywhere else, and that is the expected result, not a bug.**
+It touches 0 of Part A's 4,982 rows, 6 of Part B's 5,000, and 22 of `odhf`'s 3,935 —
+because all three corpora put the civic number at the front. Only the generated corpus
+was asked to write addresses the way a person writes them into a free-text field.
+
+The guards matter more than the strip does. Four of them, each holding back a real address
+form the naive version eats — a number closing its comma segment (`Highway 7`,
+`Suite 200, 119 Markham St`), a unit designator or a bare digit-bearing token in the
+dropped run (`Apt 4B-1234`, `PH12, 2160 Terry-Fox Av`), a street type governing the number
+across the French particules (`Chemin du 4e Rang`), and a hard cap of one comma crossed so
+the rule can reach past a care-of line but never past a municipality. Delivery lines are
+exempt entirely. The full account is in
+[`normalization.md`](../../.claude/normalization.md); promoting a unit number to a civic
+number is a wrong answer where failing to strip is only a missing one, which is what sets
+the direction every guard leans.
 
 ## What this settles
 
@@ -270,14 +289,19 @@ rather than on principle:
    cannot disambiguate Saint from Street, and cannot reach a register. Against the
    gazetteer it loses on both tuned corpora and on six of eight generated classes. A
    fine-tune would have to acquire the register, which is the thing the register is for.
-2. **The segmentation half is real, and it is worth 12.5 points on unanticipated input.**
-   That is the honest finding and it should not be softened. But it is also worth 22.4
-   points to a rule with no model behind it, which is what happens when a neural component
-   is asked to solve a problem that has a shape.
-3. **What is left after the rule is the part a model might still earn.** Not measured yet,
-   because the rule is not built. Re-run this harness after it ships; if `dp -> norm` still
-   leads on `llm` or `odhf` at that point, the case reopens with a smaller and much better
-   specified target than "parse addresses".
+2. **The segmentation half was real, and it was worth 12.5 points on unanticipated
+   input.** That is the honest finding and it should not be softened. But it was worth
+   22.3 points to a rule with no model behind it, which is what happens when a neural
+   component is asked to solve a problem that has a shape. After the rule, `cangeocode`
+   leads `dp -> norm` on `llm` under both models.
+3. **What is left after the rule is one capability, and it is not "parse addresses".** It
+   is `odhf_full`: whole addresses with no comma anywhere in them, where `dp -> norm`
+   under `fasttext` still confirms 61.3% against our 57.5%. Nothing else in this benchmark
+   survives the rule — `llm` reversed, `A` and `B` were never close. A 3.8-point lead on
+   one sub-source of one corpus does not pay for 6.8 GB of weights, a Python dependency in
+   an R package and LGPL-3.0 in an MIT one. What it does justify is looking at that
+   sub-source directly: 2,241 rows of comma-free text is a small enough target that the
+   next thing to try is a rule, and a model only if a rule fails.
 
 This does not retract anything in *What a local LLM adds* in
 [`address-normalization-status.md`](address-normalization-status.md) — that measured a

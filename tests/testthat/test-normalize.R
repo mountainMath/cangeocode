@@ -648,3 +648,49 @@ test_that("a trailing unit is taken only when it cannot be part of a name", {
   expect_equal(r$APT_NO_LABEL, c("TH25", "PH2", NA, NA))
   expect_equal(r$MUN_NAME, c("VANCOUVER", "VANCOUVER", "COLEMAN", "WILLIAMS LAKE"))
 })
+
+test_that("a leading prose prefix comes off before the parse", {
+  # The civic-number rules all anchor on a number at the front of the string,
+  # so anything in front of it does not degrade the parse, it collapses it --
+  # prefix and civic number are read as one street name.
+  r <- normalize_address(c(
+    "located at 41 Cultus RD, Clear Creek, ON",
+    "attn: John Doe, 119 Markham St, Toronto, ON",
+    "c/o Dr. Smith, 119 Markham St, Toronto, ON",
+    "Sunnybrook Health Sciences Centre, 2075 Bayview Ave, Toronto ON",
+    "The office building at 200 Elizabeth St, Toronto"))
+  expect_equal(as.character(r$CIVIC_NO), c("41", "119", "119", "2075", "200"))
+  expect_equal(r$STREET_NAME,
+               c("CULTUS", "MARKHAM", "MARKHAM", "BAYVIEW", "ELIZABETH"))
+  expect_equal(r$MUN_NAME,
+               c("CLEAR CREEK", "TORONTO", "TORONTO", "TORONTO", "TORONTO"))
+})
+
+test_that("the prose strip leaves the forms that legitimately lead with words", {
+  # Each of these has a number that is not a civic number, and each is held
+  # back by a different guard: the number closes its comma segment, a unit
+  # designator introduces it, or a street type governs it.
+  x <- c("Highway 7", "Line 5", "Rang 9", "Concession 5", "Range Road 272",
+         "County Road 21 North", "Chemin du 4e Rang", "Rue de la 3e Avenue",
+         "Avenue du 8 Mai", "Apt 4B-1234 Bloor St W", "Unit 5 100 Main St",
+         "# 5 100 Main St", "Suite 200, 119 Markham St", "PO Box 123, 100 Main St")
+  txt <- nar_norm_text(x)
+  expect_equal(vapply(txt, nar_strip_lead_prose, character(1), USE.NAMES = FALSE),
+               txt)
+
+  # And the parse itself is unchanged: the numbers stay where they belong.
+  r <- normalize_address(x)
+  expect_true(all(is.na(r$CIVIC_NO[1:9])))
+  expect_equal(as.character(r$CIVIC_NO[10:13]), c("1234", "100", "100", "119"))
+  expect_equal(r$APT_NO_LABEL[10:13], c("4B", "5", "5", "200"))
+  expect_equal(as.character(r$pattern[14]), "po_box")
+})
+
+test_that("the prose strip reaches past one comma but never past two", {
+  # One comma is a care-of line or a building name; two would be a
+  # municipality, and eating that loses more than the prefix costs.
+  expect_equal(nar_strip_lead_prose(nar_norm_text("Attn J Smith, 119 Markham St")),
+               "119 MARKHAM ST")
+  keep <- nar_norm_text("Attn, J Smith, 119 Markham St")
+  expect_equal(nar_strip_lead_prose(keep), keep)
+})

@@ -74,8 +74,8 @@ against a number written down here.
 
 | | |
 | --- | --- |
-| street name and civic number extracted | 98.8% |
-| joins a real NAR address (civic + name + municipality + province) | 88.3% |
+| street name and civic number extracted | 98.9% |
+| joins a real NAR address (civic + name + municipality + province) | 88.4% |
 | ... and the filer's postal code confirms it | 83.3% |
 
 ### How to read these
@@ -236,6 +236,24 @@ see this, because Part A renders its municipalities out of NAR into a comma-deli
 B's filings are mostly comma-delimited too. That is the same gap in the noise grammar the
 hyphenated-unit fix exposed, and it is the reason both of these were found by hand rather than by
 the eval.
+
+### A prose prefix in front of the address, cut before anything else reads the string
+
+Found by the deepparse benchmark, not by this harness, and it is the largest effect measured on
+input the parser was not tuned against. Every civic-number rule anchors on a number at the *front*
+of the string, so `located at 41 Cultus Rd, Clear Creek, ON` did not parse badly — it parsed as a
+street called `LOCATED AT 41 CULTUS` with no civic number at all. `nar_strip_lead_prose()` cuts to
+the first digit-initial token at the top of `nar_parse_rules()`, behind four guards that each hold
+back a real address form (`Highway 7`, `Apt 4B-1234`, `PH12, 2160 Terry-Fox Av`,
+`Chemin du 4e Rang`) and with delivery lines exempt. The generated dirty corpus goes 70.9% →
+**93.2%** CORE; `careof` 18.6% → 92.4%, `verbose` 0.0% → 86.6%.
+
+**Part A does not move at all, and Part B moves 0.1 point.** The rule touches 0 of Part A's 4,982
+rows and 6 of Part B's 5,000, because both corpora put the civic number first — one more instance
+of the gap this section keeps documenting: the noise grammar cannot render a class it was not told
+about. What made this one visible was building a corpus specifically to escape it. See
+[`deepparse.md`](deepparse.md) for the measurement and
+[`normalization.md`](../../.claude/normalization.md) for what each guard is holding back.
 
 ### The gazetteer compares on a folded name, and Quebec stops failing at the door
 
@@ -526,28 +544,26 @@ Two things this explicitly does **not** settle:
   a routing job, not a knowledge job, and no measurement here touches it. Part A's noise grammar
   is comma-delimited and cannot generate that class — the same blind spot that hid the
   `Sault Ste. Marie` bug from both halves of the harness.
-  **This one has since been measured, and it was the larger of the two.** See
+  **This one has since been measured, it was the larger of the two, and it is now fixed.** See
   [`deepparse.md`](deepparse.md): on a corpus built specifically to escape Part A's grammar, a
-  leading prose prefix takes this parser from 98.0% to **0.0%** on the affected class, a neural
-  tagger used purely as a segmenter recovers 12.5 points of it, and a guarded prefix-strip rule
-  recovers 22.4 at no cost. The fine-tune question below is answered there.
+  leading prose prefix took this parser from 98.0% to **0.0%** on the affected class, a neural
+  tagger used purely as a segmenter recovered 12.5 points of it, and `nar_strip_lead_prose()` —
+  shipped — recovers 22.3 at no cost, which reverses the comparison. The fine-tune question
+  below is answered there.
 
 ## Next steps, in the order the measurements justify
 
 The first four items of the previous list came out of *What a local LLM adds* and are done — see
-*Fixed, and worth keeping fixed* for what they bought. What is left is ordered the same way, by
-rows recovered per unit of effort. Item 1 is new and goes to the top because it is the largest
-effect either harness has measured on input the parser was not tuned against.
+*Fixed, and worth keeping fixed* for what they bought. The prefix-strip item that headed this
+list has shipped too; what is left is ordered the same way, by rows recovered per unit of effort.
 
-1. **Strip a leading prose prefix before parsing.** Measured in
-   [`deepparse.md`](deepparse.md) and not yet built. In the first comma-delimited field, drop
-   everything before the first token beginning with a digit, guarded so a leading unit
-   designator (`Apt`, `Suite`, `Bureau`, `Unit`, `#`) is not eaten. On the generated dirty
-   corpus that is 70.9% → **93.3%** CORE — `careof` 18.6% → 93.2%, `verbose` 0.0% → 90.3% — and
-   −0.1 point on Part A, Part B and ODHF alike. It beats a 6.8 GB neural segmenter at the same
-   job by ten points. What it still needs is the design pass: where in the pipeline it belongs,
-   what it does to a care-of line carrying a person's name, whether the guard list is the unit
-   lexicon or a new one, and its own tests.
+1. **Segment comma-free text.** `odhf_full` is 2,241 rows of whole address with no comma
+   anywhere in it (`8512 164th st surrey bc v4n 1e5`), and it is the one place in
+   [`deepparse.md`](deepparse.md)'s four corpora where a neural segmenter still beats us after
+   the prose strip: 61.3% postal-confirmed against **57.5%**. Part A's noise grammar cannot
+   generate the class, which is why it went unseen; ODHF is now the corpus that does. The target
+   is small and specific enough that the next thing to try is a rule — the parser already has to
+   find the municipality and province in an unpunctuated tail — and a model only if a rule fails.
 2. **Re-diagnose what is left of Québec.** The match fold above took Québec's Part B join rate
    from 68.2% to 75.5%, so the diagnosis that ranked this item is stale. What that diagnosis
    *also* found, and what still stands, is that half of Québec's remaining shortfall is not the
@@ -588,13 +604,14 @@ The **fine-tune** is a separate claim, and it has now been tested at one remove.
 address tagger — trained on Canadian data, not a general foundation model — on four corpora,
 two of which this parser was never tuned against. It loses to the gazetteer on both tuned
 corpora and on six of eight generated classes, because it carries no register and a fine-tune
-would have to acquire one. It wins on exactly one thing, segmentation, and a six-line rule wins
+would have to acquire one. It won on exactly one thing, segmentation, and a six-line rule won
 that by more. **Neither a fine-tune nor a from-scratch model is warranted on the evidence.**
 
-The case is not closed forever, only closed at this residual: re-run that harness once *Next
-step 1* ships. If `dp -> norm` still leads on the unanticipated corpora after the prefix rule
-has taken the cheap part, the case reopens — with a far smaller and better specified target
-than "parse addresses".
+That harness has since been re-run with `nar_strip_lead_prose()` in place, which was the
+condition set for reopening the case. It does not reopen: `cangeocode` now leads `dp -> norm`
+on the generated corpus under both models, and the only place a tagger still wins is
+`odhf_full`, by 3.8 points on 2,241 rows of comma-free text — *Next step 1*, and a target for a
+rule long before a model. Re-run it again if that step fails to close the gap.
 
 Also noted in the plan and still outstanding, unrelated to normalization: `reverse_geocode()`
 builds its `address` string from `MAIL_*` columns, and `MAIL_STREET_NAME` is empty for 957,307
