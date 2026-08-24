@@ -300,6 +300,45 @@ test_that("candidates that disagree on the postal code report none", {
   expect_true(is.na(g$match_postal_code))
 })
 
+test_that("n_records counts addresses where n_matches counts points", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(units = TRUE)
+
+  # The two are the whole reason both columns exist. One place, two addresses:
+  # the units of a multi-unit building are separate NAR records sharing a
+  # coordinate, and n_matches alone reports that as unambiguous -- which it is,
+  # spatially, and is not as an answer to "which address is this".
+  g <- geocode("4001 King Edward Ave W, Vancouver, BC", con = con)
+  expect_equal(g$n_matches, 1L)
+  expect_equal(g$n_records, 2L)
+
+  # A record the fixture holds once is 1 and not 0: n_records is a count of
+  # what matched, not a count of what was surplus.
+  g2 <- geocode("4003 Musqueam Dr, Southlands, BC", con = con, method = "nar")
+  expect_equal(g2$match_method, "nar_no_geometry")
+  expect_equal(g2$n_records, 1L)
+})
+
+test_that("a tier that matched no record reports no records", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # Interpolation stands between two records rather than on one, so there is
+  # nothing to count -- 0, the same as an address that was not placed at all.
+  g <- geocode("150 Grant St, Vancouver, BC", con = con)
+  expect_equal(g$match_method, "nar_interpolated")
+  expect_equal(g$n_records, 0L)
+
+  expect_equal(geocode("1 Nowhere Rd, Vancouver, BC", con = con)$n_records, 0L)
+})
+
+test_that("the exact query counts points and records separately", {
+  sql <- nar_geocode_exact_sql("probe")
+  expect_match(sql, "count(DISTINCT c.x::VARCHAR || ',' || c.y::VARCHAR) AS n_points",
+               fixed = TRUE)
+  expect_match(sql, "count(DISTINCT c.ADDR_GUID) AS n_records", fixed = TRUE)
+})
+
 test_that("the postal-code aggregate folds a missing value into the agreement", {
   # count(DISTINCT) skips NULLs, so without the coalesce a set of one value and
   # one NULL would report the value as agreed.

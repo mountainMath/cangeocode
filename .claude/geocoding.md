@@ -104,6 +104,29 @@ pipeline for a genuinely empty input — `rbind()` of nothing is a zero-column m
 `out$lon <- NA_real_` is an error against zero rows — so `geocode(character(0))` is a test
 rather than an edge case.
 
+**`n_matches` and `n_records` count points and addresses, and neither substitutes for the
+other.** `n_matches` is `count(DISTINCT x||','||y)`; `n_records` is `count(DISTINCT ADDR_GUID)`
+over the same candidate set. The reason both exist is that NAR files every unit of a building
+as its own address at the building's single coordinate, so the two routinely disagree by an
+order of magnitude — `49321 Range Road 72` in Brazeau County is one point and **19** addresses,
+units 1 through 29 under one `LOC_GUID`, and `6093 Iona Dr, Vancouver` is one point and 33.
+Measured package-wide: 17,297,393 placed addresses over 10,311,130 distinct points, so
+**8,127,148 addresses (47.0%) share a point with at least one other**. That is why reporting
+only `n_matches` was misleading in a specific way — it is the *ambiguity* measure, and it was
+correctly saying "one place"; a reader hearing "one match" heard "one address".
+
+They are not two grades of the same warning. `n_matches > 1` means the point may be **in the
+wrong place** and is what widens `uncertainty_m`. `n_records > 1` means the point is in the
+right place and **stands for more than one thing**, which is usually the correct answer to the
+question asked — `geocode()` parses `APT_NO_LABEL` and does not match on it, and matching on it
+would return the same coordinate anyway. So `n_records` is not widened into `uncertainty_m` and
+must not be: the units of a building are 0 m apart. It only becomes a defect when the collapsed
+records **disagree** about a field being read off them, and the one such field today is
+`match_postal_code` — which is exactly why the Brazeau County row reports none.
+
+`n_records` is `0`, not `NA`, wherever no record was resolved — a bare interpolation, `rnf`,
+every online tier — which keeps it parallel with `n_matches`'s `0` for `none`.
+
 **`match_postal_code` is an aggregate over the candidate set, not a column read off the row
 that was returned**, and that distinction is the whole of it. NAR carries one row per address,
 so a civic number with units contributes many rows to `cand`; the tier already picks one of

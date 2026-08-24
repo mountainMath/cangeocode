@@ -22,7 +22,11 @@ A building point always outranks a blockface one for the same address, and
 `ADDR_GUID` breaks any remaining tie so the answer is stable across runs
 rather than depending on scan order. The second aggregation exists only to
 measure ambiguity: it rejoins the chosen point to every candidate that
-satisfied the query and reports how many distinct points there were and how
-far the furthest of them sits from the one returned.
+satisfied the query and reports how many distinct points there were, how
+many distinct addresses, and how far the furthest of the points sits from
+the one returned. Points and addresses are counted separately because they
+routinely differ: every unit of a multi-unit building is its own NAR address
+at the building's one coordinate, so `n_records` can be 19 where `n_points`
+is 1 -- see [geocode()].
 }
 \keyword{internal}

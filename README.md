@@ -159,6 +159,13 @@ a blockface one, half the flanking span for an interpolated one. It says
 nothing about NAR's own error, which is a separate quantity — the notes linked
 above measure that separately, for one province.
 
+**`n_matches` counts points; `n_records` counts addresses.** The two come apart
+whenever a building has units, since NAR files each unit as its own address at
+the one coordinate — `6093 Iona Dr, Vancouver` is one point and 33 records. That
+is not an error, and 47% of NAR's placed addresses share their coordinate with
+another. It matters when the collapsed records disagree about something you were
+using, which today means the postal code.
+
 **Two postal codes, and they are not two attempts at the same thing.**
 `POSTAL_CODE` is what the input string said — usually `NA`, since most addresses
 are typed without one — and `match_postal_code` is what the matched record

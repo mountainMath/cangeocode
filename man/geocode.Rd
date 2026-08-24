@@ -70,8 +70,8 @@ Unused when `method` names no online tier.}
 \value{
 A data frame with one row per input, carrying every column
 [normalize_address()] returns plus `ADDR_GUID`, `match_method`,
-`uncertainty_m`, `n_matches`, `match_postal_code`, and either `lon`/`lat` or
-an `sf` geometry column. `POSTAL_CODE` is the *parsed input* -- what the
+`uncertainty_m`, `n_matches`, `n_records`, `match_postal_code`, and either
+`lon`/`lat` or an `sf` geometry column. `POSTAL_CODE` is the *parsed input* -- what the
 address string itself said, or `NA` when it said nothing --  while
 `match_postal_code` is what the matched record carries; see the section
 below.
@@ -251,6 +251,34 @@ exact".
 above 1 means the address was ambiguous -- most often a street name the input
 did not pin to a municipality -- and `uncertainty_m` is then widened to the
 distance from the point returned to the furthest rejected candidate.
+}
+
+\section{How many matched}{
+ `n_matches` and `n_records` count two different
+things and the gap between them is the point of having both.
+
+`n_matches` counts distinct **points**. It is the ambiguity measure: it is
+what widens `uncertainty_m`, and it is what tells you the answer may be in
+the wrong place. `n_records` counts distinct **NAR addresses**, which is
+usually the larger number, and it tells you the answer may be in the right
+place but stand for more than one thing.
+
+They come apart because NAR files every unit of a multi-unit building as its
+own address, all at the building's one coordinate. `49321 Range Road 72` in
+Brazeau County, Alberta returns `n_matches = 1` and `n_records = 19`: there
+is exactly one place to put it and nineteen addresses there, units 1 through
+29, and `geocode()` parses `APT_NO_LABEL` but does not match on it. This is
+not a corner case -- **47% of the addresses NAR places share their
+coordinate with at least one other address.**
+
+A record count above 1 is therefore not a warning by itself. It is a warning
+when the collapsed records disagree about something you care about, and the
+one such disagreement reported today is the postal code: `match_postal_code`
+goes `NA` rather than pick one. The Brazeau County address is `NA` for that
+reason -- its nineteen units carry four postal codes between them.
+
+`n_records` is 0 wherever no record was matched: every interpolated row that
+did not first hit the `nar` or `rqa` tier, and every online tier.
 }
 
 \section{Two postal codes}{

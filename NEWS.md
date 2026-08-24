@@ -176,6 +176,17 @@ gains a tier when you run the import.
 
 ## Forward geocoding
 
+* **`geocode()` reports how many records matched**, in a new `n_records`
+  column beside `n_matches`. They count different things: `n_matches` counts
+  distinct *points* and is the ambiguity measure that widens `uncertainty_m`;
+  `n_records` counts distinct *NAR addresses*. A building with units is one
+  point and many addresses — `49321 Range Road 72` in Brazeau County is
+  `n_matches = 1` and `n_records = 19` — and **47% of the addresses NAR places
+  share their coordinate with at least one other**, so the old column was
+  silently reporting a large class of collapsed answers as unambiguous. It is
+  spatially unambiguous, which is what `n_matches` said and all it said. It is
+  0 for every tier that placed a row without resolving it to a record.
+
 * **`geocode()` returns the matched record's postal code**, in a new
   `match_postal_code` column. The existing `POSTAL_CODE` is unchanged and still
   means what it always meant — the postal code the *input string* carried, which

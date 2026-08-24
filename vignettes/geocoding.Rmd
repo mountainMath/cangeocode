@@ -159,6 +159,43 @@ of the country. `match_method` describes the *quality* of the match, not
 whether it was the one you meant — read `n_matches` alongside it, or fix the
 question with the constraints below.
 
+### One place, several addresses
+
+`n_matches` counts *points*, and beside it `n_records` counts the *NAR
+addresses* that matched. They are usually different numbers, and the gap is not
+noise:
+
+
+``` r
+geocode(c("4025 W 38th Ave, Vancouver BC",
+          "6093 Iona Dr, Vancouver BC",
+          "49321 Range Road 72")) |>
+  select(input, match_method, n_matches, n_records, match_postal_code)
+#>                           input match_method n_matches n_records match_postal_code
+#> 1 4025 W 38th Ave, Vancouver BC nar_building         1         1            V6N2Y8
+#> 2    6093 Iona Dr, Vancouver BC nar_building         1        33            V6T0B2
+#> 3           49321 Range Road 72 nar_building         1        19              <NA>
+```
+
+All three are unambiguous as *places* — one point each. Only the first is
+unambiguous as an *address*. NAR files every unit of a multi-unit building as
+its own address at the building's single coordinate, so the second matched 33
+records and the third 19. This is not exotic: **47% of the addresses NAR places
+share their coordinate with at least one other address.**
+
+So a high `n_records` is not by itself a problem. Geocoding a building with 33
+units to that building's point is the correct answer to the question that was
+asked; `geocode()` parses `APT_NO_LABEL` but does not match on it, and would
+return the same point if it did. `n_records` matters when the collapsed records
+*disagree* about something you were relying on — and the disagreement reported
+today is the postal code. The second address keeps its, because all 33 units
+share it. The third loses its, because those 19 records carry four postal codes
+between them.
+
+The two columns fail differently, and that is why both are there. `n_matches`
+above 1 says the point may be in the wrong place. `n_records` above 1 says the
+point is in the right place but stands for more than one thing.
+
 ## Choosing the methods
 
 `method` names the tiers to try and the order to try them in. Each tier is

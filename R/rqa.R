@@ -396,6 +396,7 @@ nar_geocode_tier_rqa <- function(res, out, probe, todo, con, bounds = "") {
   i <- hit$row_id
   out$match_method[i] <- rqa_method_label(hit$POS_QUALITY)
   out$n_matches[i]    <- as.integer(hit$n_points)
+  out$n_records[i]    <- as.integer(hit$n_records)
   out$match_postal_code[i] <- hit$match_postal_code
   out$x[i]            <- hit$x
   out$y[i]            <- hit$y
@@ -473,6 +474,7 @@ rqa_geocode_sql <- function(probe, bounds = "") {
     )
     SELECT b.row_id, b.POS_QUALITY, b.x, b.y,
            count(DISTINCT c.x::VARCHAR || ',' || c.y::VARCHAR) AS n_points,
+           count(DISTINCT c.RQA_ID) AS n_records,
            max(sqrt((c.x - b.x)^2 + (c.y - b.y)^2)) AS spread_m,
            %5$s
       FROM best b

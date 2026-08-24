@@ -184,6 +184,32 @@ nar_blockface_uncertainty_m <- function() 176
 #' did not pin to a municipality -- and `uncertainty_m` is then widened to the
 #' distance from the point returned to the furthest rejected candidate.
 #'
+#' @section How many matched: `n_matches` and `n_records` count two different
+#' things and the gap between them is the point of having both.
+#'
+#' `n_matches` counts distinct **points**. It is the ambiguity measure: it is
+#' what widens `uncertainty_m`, and it is what tells you the answer may be in
+#' the wrong place. `n_records` counts distinct **NAR addresses**, which is
+#' usually the larger number, and it tells you the answer may be in the right
+#' place but stand for more than one thing.
+#'
+#' They come apart because NAR files every unit of a multi-unit building as its
+#' own address, all at the building's one coordinate. `49321 Range Road 72` in
+#' Brazeau County, Alberta returns `n_matches = 1` and `n_records = 19`: there
+#' is exactly one place to put it and nineteen addresses there, units 1 through
+#' 29, and `geocode()` parses `APT_NO_LABEL` but does not match on it. This is
+#' not a corner case -- **47% of the addresses NAR places share their
+#' coordinate with at least one other address.**
+#'
+#' A record count above 1 is therefore not a warning by itself. It is a warning
+#' when the collapsed records disagree about something you care about, and the
+#' one such disagreement reported today is the postal code: `match_postal_code`
+#' goes `NA` rather than pick one. The Brazeau County address is `NA` for that
+#' reason -- its nineteen units carry four postal codes between them.
+#'
+#' `n_records` is 0 wherever no record was matched: every interpolated row that
+#' did not first hit the `nar` or `rqa` tier, and every online tier.
+#'
 #' @section Two postal codes: the result carries two postal-code columns and
 #' they answer different questions. `POSTAL_CODE` comes from
 #' [normalize_address()] and is **what the input string said** -- `NA` when it
@@ -254,8 +280,8 @@ nar_blockface_uncertainty_m <- function() 176
 #' Unused when `method` names no online tier.
 #' @return A data frame with one row per input, carrying every column
 #' [normalize_address()] returns plus `ADDR_GUID`, `match_method`,
-#' `uncertainty_m`, `n_matches`, `match_postal_code`, and either `lon`/`lat` or
-#' an `sf` geometry column. `POSTAL_CODE` is the *parsed input* -- what the
+#' `uncertainty_m`, `n_matches`, `n_records`, `match_postal_code`, and either
+#' `lon`/`lat` or an `sf` geometry column. `POSTAL_CODE` is the *parsed input* -- what the
 #' address string itself said, or `NA` when it said nothing --  while
 #' `match_postal_code` is what the matched record carries; see the section
 #' below.
@@ -337,7 +363,8 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
                             bounds = nar_geocode_bounds_sql(bounds),
                             bounds_geom = bounds, auth_mun = !is.null(mun), ...)
   out <- cbind(res, hits[, c("ADDR_GUID", "match_method", "uncertainty_m",
-                             "n_matches", "match_postal_code")])
+                             "n_matches", "n_records",
+                             "match_postal_code")])
 
   nar_geocode_geometry(out, hits$x, hits$y, con, crs = crs, geometry = geometry)
 }
@@ -409,8 +436,8 @@ nar_geocode_geometry <- function(out, x, y, con, crs = 4326, geometry = FALSE) {
 #' @param auth_mun Whether `MUN_NAME` is the caller's authoritative value
 #' @param ... Passed to the online tiers; see [geocode()] on how they are split
 #' @return A data frame with one row per row of `res`, carrying `ADDR_GUID`,
-#' `match_method`, `uncertainty_m`, `n_matches`, `match_postal_code`, `x` and
-#' `y`
+#' `match_method`, `uncertainty_m`, `n_matches`, `n_records`,
+#' `match_postal_code`, `x` and `y`
 #' @keywords internal
 nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
                               bounds = "", bounds_geom = NULL,
@@ -420,6 +447,7 @@ nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
                     match_method  = rep("none", n),
                     uncertainty_m = rep(NA_real_, n),
                     n_matches     = rep(0L, n),
+                    n_records     = rep(0L, n),
                     match_postal_code = rep(NA_character_, n),
                     x             = rep(NA_real_, n),
                     y             = rep(NA_real_, n),
@@ -534,6 +562,7 @@ nar_geocode_tier_nar <- function(out, probe, todo, con, bounds = "") {
   out$match_method[i] <- ifelse(located, paste0("nar_", exact$geom_source),
                                 "nar_no_geometry")
   out$n_matches[i]    <- as.integer(exact$n_points)
+  out$n_records[i]    <- as.integer(exact$n_records)
   out$match_postal_code[i] <- exact$match_postal_code
   out$x[i]            <- exact$x
   out$y[i]            <- exact$y
@@ -689,8 +718,12 @@ nar_geocode_candidates <- function(probe, select, extra = "", bounds = "") {
 #' `ADDR_GUID` breaks any remaining tie so the answer is stable across runs
 #' rather than depending on scan order. The second aggregation exists only to
 #' measure ambiguity: it rejoins the chosen point to every candidate that
-#' satisfied the query and reports how many distinct points there were and how
-#' far the furthest of them sits from the one returned.
+#' satisfied the query and reports how many distinct points there were, how
+#' many distinct addresses, and how far the furthest of the points sits from
+#' the one returned. Points and addresses are counted separately because they
+#' routinely differ: every unit of a multi-unit building is its own NAR address
+#' at the building's one coordinate, so `n_records` can be 19 where `n_points`
+#' is 1 -- see [geocode()].
 #' @param probe Name of the temp table holding the parsed components
 #' @param bounds A spatial restriction from [nar_geocode_bounds()], or `""`
 #' @return A single SQL string
@@ -710,6 +743,7 @@ nar_geocode_exact_sql <- function(probe, bounds = "") {
     )
     SELECT b.row_id, b.ADDR_GUID, b.geom_source, b.x, b.y,
            count(DISTINCT c.x::VARCHAR || ',' || c.y::VARCHAR) AS n_points,
+           count(DISTINCT c.ADDR_GUID) AS n_records,
            max(sqrt((c.x - b.x)^2 + (c.y - b.y)^2)) AS spread_m,
            %2$s
       FROM best b
