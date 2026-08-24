@@ -45,6 +45,15 @@
     <li><hr class="dropdown-divider"></li>
     <li><h6 class="dropdown-header" data-toc-skip>The database</h6></li>
     <li><a class="dropdown-item" href="articles/querying-nar.html">Querying the NAR database directly</a></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header" data-toc-skip>Data sources</h6></li>
+    <li><a class="dropdown-item" href="articles/source-nar.html">Source: the National Address Repository</a></li>
+    <li><a class="dropdown-item" href="articles/source-rqa.html">Source: the Répertoire québécois des adresses</a></li>
+    <li><a class="dropdown-item" href="articles/source-rnf.html">Source: the Road Network File</a></li>
+    <li><a class="dropdown-item" href="articles/source-bc.html">Source: the BC Address Geocoder</a></li>
+    <li><a class="dropdown-item" href="articles/source-nrcan.html">Source: NRCan's national geolocator</a></li>
+    <li><a class="dropdown-item" href="articles/source-qc.html">Source: the Quebec MRNF geocoder</a></li>
+    <li><a class="dropdown-item" href="articles/source-osm.html">Source: the Government of Canada Nominatim instance</a></li>
   </ul>
 </li>
 <li class="nav-item"><a class="nav-link" href="news/index.html">Changelog</a></li>
@@ -109,8 +118,62 @@
 <li>
 <a href="https://mountainmath.github.io/cangeocode/articles/querying-nar.html">Querying the NAR database directly</a> (<code><a href="articles/querying-nar.html">vignette("querying-nar")</a></code>) — using the database with dplyr and <code>sf</code>
 </li>
-<li><a href="https://mountainmath.github.io/cangeocode/news/index.html">Changelog</a></li>
 </ul>
+<p>One vignette per data source, each covering what it adds to the package, the licence it comes with, and what to watch out for:</p>
+<table class="table">
+<colgroup>
+<col width="33%">
+<col width="33%">
+<col width="33%">
+</colgroup>
+<thead><tr>
+<th>vignette</th>
+<th>source</th>
+<th>role</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><a href="https://mountainmath.github.io/cangeocode/articles/source-nar.html"><code>source-nar</code></a></td>
+<td>National Address Repository</td>
+<td>the base, and the yardstick everything else is measured against</td>
+</tr>
+<tr>
+<td><a href="https://mountainmath.github.io/cangeocode/articles/source-rqa.html"><code>source-rqa</code></a></td>
+<td>Répertoire québécois des adresses</td>
+<td>offline <code>"rqa"</code> tier, via <code><a href="reference/rqa_import.html">rqa_import()</a></code>
+</td>
+</tr>
+<tr>
+<td><a href="https://mountainmath.github.io/cangeocode/articles/source-rnf.html"><code>source-rnf</code></a></td>
+<td>Statistics Canada Road Network File</td>
+<td>offline <code>"rnf"</code> tier, via <code><a href="reference/rnf_import.html">rnf_import()</a></code>
+</td>
+</tr>
+<tr>
+<td><a href="https://mountainmath.github.io/cangeocode/articles/source-bc.html"><code>source-bc</code></a></td>
+<td>BC Address Geocoder</td>
+<td>online tier, and <code><a href="reference/bc_validate.html">bc_validate()</a></code>
+</td>
+</tr>
+<tr>
+<td><a href="https://mountainmath.github.io/cangeocode/articles/source-nrcan.html"><code>source-nrcan</code></a></td>
+<td>NRCan national geolocator</td>
+<td>online tier</td>
+</tr>
+<tr>
+<td><a href="https://mountainmath.github.io/cangeocode/articles/source-qc.html"><code>source-qc</code></a></td>
+<td>Quebec MRNF geocoder</td>
+<td>online tier, <code><a href="reference/qc_validate.html">qc_validate()</a></code>, <code><a href="reference/qc_reverse_geocode.html">qc_reverse_geocode()</a></code>
+</td>
+</tr>
+<tr>
+<td><a href="https://mountainmath.github.io/cangeocode/articles/source-osm.html"><code>source-osm</code></a></td>
+<td>Government of Canada Nominatim</td>
+<td>bound as <code><a href="reference/osm_geocode.html">osm_geocode()</a></code>, deliberately not a tier</td>
+</tr>
+</tbody>
+</table>
+<p>And the <a href="https://mountainmath.github.io/cangeocode/news/index.html">changelog</a>.</p>
 <p>Longer notes ship with the package and say what does <em>not</em> work yet, with the measurements behind each claim. <code>system.file("notes", package = "cangeocode")</code> lists them; the two to start with are <code>geocoding-status.md</code> and <code>address-normalization-status.md</code>. The rest go one level down: <code>road-network-file.md</code> and <code>quebec-addresses.md</code> measure the two sources that can be imported beside NAR, <code>nrcan-geolocator.md</code> reads the national geolocator from its own source, <code>deepparse.md</code> measures the address parser against a purpose-built neural tagger and is where the case for a trained model is made and rejected, and <code>nar-consistency.md</code> finds NAR’s own misplaced addresses using nothing but NAR.</p>
 </div>
 <div class="section level2">

@@ -28,6 +28,15 @@
     <li><hr class="dropdown-divider"></li>
     <li><h6 class="dropdown-header" data-toc-skip>The database</h6></li>
     <li><a class="dropdown-item" href="../articles/querying-nar.html">Querying the NAR database directly</a></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header" data-toc-skip>Data sources</h6></li>
+    <li><a class="dropdown-item" href="../articles/source-nar.html">Source: the National Address Repository</a></li>
+    <li><a class="dropdown-item" href="../articles/source-rqa.html">Source: the Répertoire québécois des adresses</a></li>
+    <li><a class="dropdown-item" href="../articles/source-rnf.html">Source: the Road Network File</a></li>
+    <li><a class="dropdown-item" href="../articles/source-bc.html">Source: the BC Address Geocoder</a></li>
+    <li><a class="dropdown-item" href="../articles/source-nrcan.html">Source: NRCan's national geolocator</a></li>
+    <li><a class="dropdown-item" href="../articles/source-qc.html">Source: the Quebec MRNF geocoder</a></li>
+    <li><a class="dropdown-item" href="../articles/source-osm.html">Source: the Government of Canada Nominatim instance</a></li>
   </ul></li>
 <li class="active nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
@@ -83,6 +92,10 @@
 <p>It agrees with NAR to within a metre, and <strong>that is shared lineage rather than accuracy</strong> — it serves the register NAR’s Quebec rows are built from. It cannot settle NAR’s Quebec accuracy, and <code><a href="../reference/qc_validate.html">qc_validate()</a></code> says so in its own documentation.</p>
 </li>
 <li><p>New <code><a href="../reference/osm_geocode.html">osm_geocode()</a></code> binds the Nominatim instance the Government of Canada hosts, not the volunteer-funded one whose usage policy forbids bulk geocoding. <strong>It is exported and deliberately not a tier, and the reason is the licence rather than the accuracy</strong>: OSM data is ODbL where NAR, the BC geocoder and the geolocator are all Open Government Licence, and a default tier would fold a handful of ODbL rows into a result table and change what the caller may do with the whole of it, silently. The licence string rides along on every row as <code>osm_licence</code>. Its coverage has not been measured at scale, so <code>uncertainty_m</code> is <code>NA</code> rather than a plausible constant.</p></li>
+<li>
+<p><code><a href="../reference/bc_geocode.html">bc_geocode()</a></code> now reports <strong><code>bc_descriptor</code></strong> and <strong><code>bc_accuracy</code></strong> — which reference point BC actually returned, and its own categorical accuracy class. Asking is not getting: of the six <code>locationDescriptor</code> values, only <code>accessPoint</code> and <code>routingPoint</code> are distinct requests. <code>frontDoorPoint</code>, <code>rooftopPoint</code> and <code>parcelPoint</code> each returned a point identical to the default on <strong>100%</strong> of 400 sampled addresses, because the service answers with whatever main location it holds rather than looking for the kind of point named.</p>
+<p>Measured against NAR’s building points, <strong>the existing default is already the closest match</strong> — p50 20.2 m, against 28.9 m for <code>accessPoint</code> and 31.6 m for <code>routingPoint</code> — so nothing about what the package requests changed. That refutes the standing hypothesis that NAR’s “may be the road access point” hedge meant <code>accessPoint</code> was the right thing to ask for. Per address, though, the default wins only 58% of the time: NAR’s BC points are a mixture of definitions, not one of them. <code>data-raw/probe_bc.R</code> reproduces it.</p>
+</li>
 </ul></div>
 <div class="section level3">
 <h3 id="address-normalization-0-3-0">Address normalization<a class="anchor" aria-label="anchor" href="#address-normalization-0-3-0"></a></h3>
@@ -106,7 +119,22 @@
 <li>
 <code>nar-consistency.md</code> — finding NAR’s misplaced addresses using nothing but NAR, and the 653 rows where the coordinate rather than the postal code is the part to disbelieve. Nothing is repaired and no tier reads it.</li>
 </ul><p>Read them with <code>system.file("notes", "&lt;name&gt;", package = "cangeocode")</code>.</p>
-</div>
+<p><strong>A new vignette per data source</strong> is where those measurements reach a user. Each one covers what that source adds to the package, the licence it comes with, and what to watch out for when using it:</p>
+<ul><li>
+<strong><code><a href="../articles/source-nar.html">vignette("source-nar")</a></code></strong> — what reads NAR, and its limits one at a time, each with a live example and the package’s answer: the two kinds of positional point and why their distances are not comparable, the addresses whose coordinate contradicts their own postal code, the ones NAR does not carry, ambiguity that is a property of the question rather than the file, and a closing remark on the complex relationship between a municipality and a postal city.</li>
+<li>
+<strong><code><a href="../articles/source-rqa.html">vignette("source-rqa")</a></code></strong> — Quebec’s register, why it is kept beside NAR rather than merged into it, and the standing warning against reading a parser gain off NAR’s residual.</li>
+<li>
+<strong><code><a href="../articles/source-rnf.html">vignette("source-rnf")</a></code></strong> — the road network file, the refusal that carries the tier’s quality, and why accuracy measured where a source overlaps NAR is an upper bound on how it behaves where NAR is silent.</li>
+<li>
+<strong><code><a href="../articles/source-bc.html">vignette("source-bc")</a></code></strong> — the BC Address Geocoder, the always-answers trap, and which of the six <code>locationDescriptor</code> reference points matches NAR best.</li>
+<li>
+<strong><code><a href="../articles/source-nrcan.html">vignette("source-nrcan")</a></code></strong> — the national geolocator, and what its <code>INTERPOLATED_POSITION</code> does and does not certify.</li>
+<li>
+<strong><code><a href="../articles/source-qc.html">vignette("source-qc")</a></code></strong> — Quebec’s online locator, why the query has to be spelled French-canonical, and why its <code>Score</code> is not a precision ranking.</li>
+<li>
+<strong><code><a href="../articles/source-osm.html">vignette("source-osm")</a></code></strong> — the one source bound but not wired as a tier, and the ODbL licence question that decides it.</li>
+</ul></div>
 </div>
     <div class="section level2">
 <h2 class="pkg-version" data-toc-text="0.2.0" id="cangeocode-020">cangeocode 0.2.0<a class="anchor" aria-label="anchor" href="#cangeocode-020"></a></h2>

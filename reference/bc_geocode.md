@@ -52,14 +52,15 @@ bc_geocode(
 - ...:
 
   Additional query parameters passed to the service, for example
-  \`locationDescriptor = "frontDoorPoint"\` or \`interpolation =
+  \`locationDescriptor = "accessPoint"\` or \`interpolation =
   "linear"\`.
 
 ## Value
 
 A data frame with one row per input: \`input\`, \`match_method\`,
-\`uncertainty_m\`, \`bc_score\`, \`bc_precision\`, \`bc_address\`,
-\`bc_faults\`, and either \`lon\`/\`lat\` or an \`sf\` geometry column.
+\`uncertainty_m\`, \`bc_score\`, \`bc_precision\`, \`bc_descriptor\`,
+\`bc_accuracy\`, \`bc_address\`, \`bc_faults\`, and either
+\`lon\`/\`lat\` or an \`sf\` geometry column.
 
 ## What a response means
 
@@ -88,6 +89,36 @@ network unless this function is called.
 
 Results are subject to the Province of British Columbia's terms; the
 response carries its own copyright notice and licence links.
+
+## Which point on the property
+
+BC can return several different points for one address –
+\`locationDescriptor\` selects among the parcel centroid, the rooftop,
+the front door, the \`accessPoint\` on the curb at the driveway, and the
+\`routingPoint\` on the road centreline in front of it. The default is
+the service's own \`any\`, which returns whatever "main location" it
+holds and only falls back to an access point when it holds none.
+
+\*\*Asking does not mean getting.\*\* Over 400 NAR BC building points
+(\`data-raw/probe_bc.R\`), \`frontDoorPoint\`, \`rooftopPoint\` and
+\`parcelPoint\` returned a point identical to \`any\` on \*\*100 does
+not search for the requested kind, it returns the main location it has,
+which was a parcel point for 359 of the 400 and a rooftop for 19. Only
+\`accessPoint\` and \`routingPoint\` are genuinely different points, and
+\`bc_descriptor\` reports which one actually came back.
+
+\*\*The default is also the closest to NAR\*\*, which is not what the
+NAR User Guide's "may be the road access point or the driveway" would
+suggest. Distance to NAR's own building point, same 378 addresses:
+
+\| requested \| p50 \| p90 \| within 10 m \| \| — \| —: \| —: \| —: \|
+\| \`any\` / \`parcelPoint\` / \`frontDoorPoint\` / \`rooftopPoint\` \|
+\*\*20.2 m\*\* \| 99.1 m \| \*\*38 \| \`accessPoint\` \| 28.9 m \| 98.7
+m \| 11 \| \`routingPoint\` \| 31.6 m \| 99.7 m \| 6
+
+So there is nothing to be gained by changing the default, and
+\`accessPoint\` is the one to ask for when the \*road-side\* position is
+what is wanted – routing, service delivery – rather than the building.
 
 ## Examples
 

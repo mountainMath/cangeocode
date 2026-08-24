@@ -36,6 +36,15 @@ against – see [bc_validate()]."></head><body>
     <li><hr class="dropdown-divider"></li>
     <li><h6 class="dropdown-header" data-toc-skip>The database</h6></li>
     <li><a class="dropdown-item" href="../articles/querying-nar.html">Querying the NAR database directly</a></li>
+    <li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header" data-toc-skip>Data sources</h6></li>
+    <li><a class="dropdown-item" href="../articles/source-nar.html">Source: the National Address Repository</a></li>
+    <li><a class="dropdown-item" href="../articles/source-rqa.html">Source: the Répertoire québécois des adresses</a></li>
+    <li><a class="dropdown-item" href="../articles/source-rnf.html">Source: the Road Network File</a></li>
+    <li><a class="dropdown-item" href="../articles/source-bc.html">Source: the BC Address Geocoder</a></li>
+    <li><a class="dropdown-item" href="../articles/source-nrcan.html">Source: NRCan's national geolocator</a></li>
+    <li><a class="dropdown-item" href="../articles/source-qc.html">Source: the Quebec MRNF geocoder</a></li>
+    <li><a class="dropdown-item" href="../articles/source-osm.html">Source: the Government of Canada Nominatim instance</a></li>
   </ul></li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><form class="form-inline" role="search">
@@ -108,14 +117,14 @@ throttling starts. Default 5.</p></dd>
 
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>
 <dd><p>Additional query parameters passed to the service, for example
-`locationDescriptor = "frontDoorPoint"` or `interpolation = "linear"`.</p></dd>
+`locationDescriptor = "accessPoint"` or `interpolation = "linear"`.</p></dd>
 
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>A data frame with one row per input: `input`, `match_method`,
-`uncertainty_m`, `bc_score`, `bc_precision`, `bc_address`, `bc_faults`, and
-either `lon`/`lat` or an `sf` geometry column.</p>
+`uncertainty_m`, `bc_score`, `bc_precision`, `bc_descriptor`, `bc_accuracy`,
+`bc_address`, `bc_faults`, and either `lon`/`lat` or an `sf` geometry column.</p>
     </div>
     <div class="section level2">
     <h2 id="what-a-response-means">What a response means<a class="anchor" aria-label="anchor" href="#what-a-response-means"></a></h2>
@@ -140,6 +149,33 @@ and a large job should register for an API key and pass it as `api_key`.
 the network unless this function is called.</p>
 <p>Results are subject to the Province of British Columbia's terms; the response
 carries its own copyright notice and licence links.</p>
+    </div>
+    <div class="section level2">
+    <h2 id="which-point-on-the-property">Which point on the property<a class="anchor" aria-label="anchor" href="#which-point-on-the-property"></a></h2>
+    <p>BC can return several different points
+for one address – `locationDescriptor` selects among the parcel centroid,
+the rooftop, the front door, the `accessPoint` on the curb at the driveway,
+and the `routingPoint` on the road centreline in front of it. The default is
+the service's own `any`, which returns whatever "main location" it holds and
+only falls back to an access point when it holds none.</p>
+<p>**Asking does not mean getting.** Over 400 NAR BC building points
+(`data-raw/probe_bc.R`), `frontDoorPoint`, `rooftopPoint` and `parcelPoint`
+returned a point identical to `any` on **100<!-- %** of addresses: the service -->
+does not search for the requested kind, it returns the main location it has,
+which was a parcel point for 359 of the 400 and a rooftop for 19. Only
+`accessPoint` and `routingPoint` are genuinely different points, and
+`bc_descriptor` reports which one actually came back.</p>
+<p>**The default is also the closest to NAR**, which is not what the NAR User
+Guide's "may be the road access point or the driveway" would suggest.
+Distance to NAR's own building point, same 378 addresses:</p>
+<p>| requested | p50 | p90 | within 10 m |
+| — | —: | —: | —: |
+| `any` / `parcelPoint` / `frontDoorPoint` / `rooftopPoint` | **20.2 m** | 99.1 m | **38<!-- %** | -->
+| `accessPoint` | 28.9 m | 98.7 m | 11<!-- % | -->
+| `routingPoint` | 31.6 m | 99.7 m | 6<!-- % | --></p>
+<p>So there is nothing to be gained by changing the default, and `accessPoint`
+is the one to ask for when the *road-side* position is what is wanted –
+routing, service delivery – rather than the building.</p>
     </div>
 
     <div class="section level2">

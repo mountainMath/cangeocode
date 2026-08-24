@@ -104,7 +104,22 @@ Full reference and articles:
   directly](https://mountainmath.github.io/cangeocode/articles/querying-nar.html)
   ([`vignette("querying-nar")`](https://mountainmath.github.io/cangeocode/articles/querying-nar.md))
   — using the database with dplyr and `sf`
-- [Changelog](https://mountainmath.github.io/cangeocode/news/index.html)
+
+One vignette per data source, each covering what it adds to the package,
+the licence it comes with, and what to watch out for:
+
+| vignette | source | role |
+|----|----|----|
+| [`source-nar`](https://mountainmath.github.io/cangeocode/articles/source-nar.html) | National Address Repository | the base, and the yardstick everything else is measured against |
+| [`source-rqa`](https://mountainmath.github.io/cangeocode/articles/source-rqa.html) | Répertoire québécois des adresses | offline `"rqa"` tier, via [`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md) |
+| [`source-rnf`](https://mountainmath.github.io/cangeocode/articles/source-rnf.html) | Statistics Canada Road Network File | offline `"rnf"` tier, via [`rnf_import()`](https://mountainmath.github.io/cangeocode/reference/rnf_import.md) |
+| [`source-bc`](https://mountainmath.github.io/cangeocode/articles/source-bc.html) | BC Address Geocoder | online tier, and [`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md) |
+| [`source-nrcan`](https://mountainmath.github.io/cangeocode/articles/source-nrcan.html) | NRCan national geolocator | online tier |
+| [`source-qc`](https://mountainmath.github.io/cangeocode/articles/source-qc.html) | Quebec MRNF geocoder | online tier, [`qc_validate()`](https://mountainmath.github.io/cangeocode/reference/qc_validate.md), [`qc_reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/qc_reverse_geocode.md) |
+| [`source-osm`](https://mountainmath.github.io/cangeocode/articles/source-osm.html) | Government of Canada Nominatim | bound as [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md), deliberately not a tier |
+
+And the
+[changelog](https://mountainmath.github.io/cangeocode/news/index.html).
 
 Longer notes ship with the package and say what does *not* work yet,
 with the measurements behind each claim.

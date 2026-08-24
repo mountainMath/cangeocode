@@ -197,6 +197,25 @@ run the import.
   has not been measured at scale, so `uncertainty_m` is `NA` rather than
   a plausible constant.
 
+- [`bc_geocode()`](https://mountainmath.github.io/cangeocode/reference/bc_geocode.md)
+  now reports **`bc_descriptor`** and **`bc_accuracy`** — which
+  reference point BC actually returned, and its own categorical accuracy
+  class. Asking is not getting: of the six `locationDescriptor` values,
+  only `accessPoint` and `routingPoint` are distinct requests.
+  `frontDoorPoint`, `rooftopPoint` and `parcelPoint` each returned a
+  point identical to the default on **100%** of 400 sampled addresses,
+  because the service answers with whatever main location it holds
+  rather than looking for the kind of point named.
+
+  Measured against NAR’s building points, **the existing default is
+  already the closest match** — p50 20.2 m, against 28.9 m for
+  `accessPoint` and 31.6 m for `routingPoint` — so nothing about what
+  the package requests changed. That refutes the standing hypothesis
+  that NAR’s “may be the road access point” hedge meant `accessPoint`
+  was the right thing to ask for. Per address, though, the default wins
+  only 58% of the time: NAR’s BC points are a mixture of definitions,
+  not one of them. `data-raw/probe_bc.R` reproduces it.
+
 ### Address normalization
 
 - **The gazetteer compares on a match fold**, which spells `ST` out to
@@ -247,6 +266,39 @@ rather than what was designed:
   it.
 
 Read them with `system.file("notes", "<name>", package = "cangeocode")`.
+
+**A new vignette per data source** is where those measurements reach a
+user. Each one covers what that source adds to the package, the licence
+it comes with, and what to watch out for when using it:
+
+- **[`vignette("source-nar")`](https://mountainmath.github.io/cangeocode/articles/source-nar.md)**
+  — what reads NAR, and its limits one at a time, each with a live
+  example and the package’s answer: the two kinds of positional point
+  and why their distances are not comparable, the addresses whose
+  coordinate contradicts their own postal code, the ones NAR does not
+  carry, ambiguity that is a property of the question rather than the
+  file, and a closing remark on the complex relationship between a
+  municipality and a postal city.
+- **[`vignette("source-rqa")`](https://mountainmath.github.io/cangeocode/articles/source-rqa.md)**
+  — Quebec’s register, why it is kept beside NAR rather than merged into
+  it, and the standing warning against reading a parser gain off NAR’s
+  residual.
+- **[`vignette("source-rnf")`](https://mountainmath.github.io/cangeocode/articles/source-rnf.md)**
+  — the road network file, the refusal that carries the tier’s quality,
+  and why accuracy measured where a source overlaps NAR is an upper
+  bound on how it behaves where NAR is silent.
+- **[`vignette("source-bc")`](https://mountainmath.github.io/cangeocode/articles/source-bc.md)**
+  — the BC Address Geocoder, the always-answers trap, and which of the
+  six `locationDescriptor` reference points matches NAR best.
+- **[`vignette("source-nrcan")`](https://mountainmath.github.io/cangeocode/articles/source-nrcan.md)**
+  — the national geolocator, and what its `INTERPOLATED_POSITION` does
+  and does not certify.
+- **[`vignette("source-qc")`](https://mountainmath.github.io/cangeocode/articles/source-qc.md)**
+  — Quebec’s online locator, why the query has to be spelled
+  French-canonical, and why its `Score` is not a precision ranking.
+- **[`vignette("source-osm")`](https://mountainmath.github.io/cangeocode/articles/source-osm.md)**
+  — the one source bound but not wired as a tier, and the ODbL licence
+  question that decides it.
 
 ## cangeocode 0.2.0
 

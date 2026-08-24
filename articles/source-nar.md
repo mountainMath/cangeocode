@@ -1,0 +1,412 @@
+# Source: the National Address Repository
+
+Almost everything in this package reads Statistics Canada’s **National
+Address Repository**.
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+is NAR and nothing else. The first two
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+tiers are NAR.
+[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+resolves municipalities and street names against gazetteers built from
+NAR at import time. And every other source wired up here — the BC
+Address Geocoder, NRCan’s geolocator, Quebec’s register, the road
+network file — has been *measured against* NAR, because there was
+nothing else national to measure against.
+
+That double role is why NAR’s limits matter twice. A wrong record is
+both a wrong answer and a wrong yardstick: where NAR is off, a
+comparison that calls another source wrong may have it backwards.
+
+This vignette is about where NAR falls short and what the package does
+about each one. None of it is an argument against using NAR — it is the
+best open national address file Canada has, 16.2 of its 17.4 million
+addresses carry a building point, and the alternatives are provincial,
+proprietary, or both. It is an argument for reading `match_method`,
+`n_matches` and `uncertainty_m` rather than the coordinate alone.
+
+``` r
+
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+## What this adds to the package
+
+Everything. NAR is not a tier — it is the base every offline tier reads
+and the reference the online ones are checked against.
+[`nar_connection()`](https://mountainmath.github.io/cangeocode/reference/nar_connection.md)
+opens it,
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+is entirely NAR-backed, the `"nar"` and `"nar_interpolate"` tiers are
+it, the gazetteer
+[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+uses is built from its street and municipality inventory, and
+[`collect_nar()`](https://mountainmath.github.io/cangeocode/reference/collect_nar.md)
+hands you the rows directly. Without an imported NAR release, the only
+things in this package that work are the four online geocoders and the
+rule-based half of the parser.
+
+## Licence
+
+**Open Government Licence – Canada**, and NAR’s own product page carries
+the attribution wording. It composes with the CC-BY covering Quebec’s
+register and the Statistics Canada Open Licence covering the Road
+Network File — which is what lets
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+mix all three tiers into one result table by default, and why the ODbL
+data behind
+[`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
+is deliberately excluded from that. See
+[`vignette("source-osm")`](https://mountainmath.github.io/cangeocode/articles/source-osm.md).
+
+## A reference is not ground truth
+
+NAR is a *compilation*. Statistics Canada assembles it from what
+provinces, territories and municipalities supply, and the quality of a
+record is largely the quality of what its contributor sent. StatCan
+publishes no accuracy figure for it, and the User Guide is explicit that
+a building representative point “may not correspond exactly to the
+physical center of the building structure itself” — it can be the road
+access point or the driveway.
+
+So the number this package reports as `uncertainty_m` is **the error
+this package introduced relative to NAR’s own point**, not the distance
+to the building. `uncertainty_m = 0` means “nothing was added here”, and
+says nothing at all about whether NAR put the address in the right
+place.
+
+The one calibration of that floor we have is 250 BC addresses geocoded
+through NAR and again through the BC Address Geocoder, which is a
+parcel-level provincial authority: on `nar_building` matches the two
+answers sit a median **19.8 m** apart, p90 118.8 m. That is disagreement
+rather than error — it contains both sources’ error plus their
+definitional difference — and the two are not independent, since BC’s
+records and NAR’s BC records plausibly share upstream data. It is best
+read as a lower bound on how far apart two genuinely independent sources
+would be.
+
+## Not every point is the same kind of point
+
+NAR carries two positional fields, and the package prefers the first:
+
+``` r
+
+tbl(con, "Addresses") |>
+  count(geom_source) |>
+  arrange(desc(n)) |>
+  collect()
+#> # A tibble: 3 × 2
+#>   geom_source        n
+#>   <chr>          <dbl>
+#> 1 building    16157303
+#> 2 blockface    1140090
+#> 3 <NA>           65083
+```
+
+`BG` is **Building** and `BF` is **Blockface** — the centroid of one
+side of a street between two intersecting features. A blockface point is
+not a coarser building point; it is a different object, and it is
+shared: 8.67 addresses per distinct blockface point against 1.61 per
+building point, a median 50 m from the building point they stand in for
+(p95 331 m), and in the worst case one point carrying 578 addresses.
+
+**What the package does.** It never reports a flat “matched”.
+`match_method` distinguishes `nar_building`, `nar_blockface` and
+`nar_no_geometry`, and
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+returns `geom_source` beside `dist` precisely so the two are not ranked
+against each other. A blockface `dist` of 30 m and a building `dist` of
+30 m are not the same claim.
+
+## Some points are in the wrong place
+
+One postal code makes the case better than a description. `M4W2C9` is a
+short street in Rosedale, Toronto, with 23 addresses on it:
+
+``` r
+
+andrews <- tbl(con, "Addresses") |>
+  filter(MAIL_POSTAL_CODE == "M4W2C9") |>
+  select(CIVIC_NO, OFFICIAL_STREET_NAME, geom_source, x, y) |>
+  collect()
+
+andrews |>
+  mutate(km_from_the_rest = round(sqrt((x - median(x))^2 + (y - median(y))^2) / 1000, 2)) |>
+  count(geom_source, km_from_the_rest)
+#> # A tibble: 9 × 3
+#>   geom_source km_from_the_rest     n
+#>   <chr>                  <dbl> <int>
+#> 1 blockface               0       14
+#> 2 building                0.02     1
+#> 3 building                0.03     1
+#> 4 building                0.04     1
+#> 5 building                0.05     2
+#> 6 building                0.06     1
+#> 7 building                0.07     1
+#> 8 building                0.08     1
+#> 9 building                2.09     1
+```
+
+Two of this vignette’s problems are visible in that one table. Fourteen
+of the 23 sit on a single shared blockface point. And one address —
+number 7 — carries a **building** point two kilometres away, which is
+not a rounding difference or a coarse fallback but a different part of
+the city:
+
+``` r
+
+misplaced <- geocode("7 Saint Andrews Gdns, Toronto, ON", con = con)
+
+misplaced |> select(match_method, n_matches, uncertainty_m, lon, lat)
+#>   match_method n_matches uncertainty_m       lon      lat
+#> 1 nar_building         1             0 -79.38556 43.66869
+```
+
+`nar_building`, one match, `uncertainty_m` of 0. Everything the package
+can say about this answer says it is good. Asking what is actually at
+that coordinate is what gives it away:
+
+``` r
+
+reverse_geocode(c(misplaced$lon, misplaced$lat), match_radius = 150, con = con) |>
+  count(OFFICIAL_STREET_NAME, sort = TRUE)
+#> # A tibble: 7 × 2
+#>   OFFICIAL_STREET_NAME     n
+#>   <chr>                <int>
+#> 1 Charles               1869
+#> 2 Hayden                 437
+#> 3 Yonge                   51
+#> 4 Isabella                11
+#> 5 Saint Nicholas           3
+#> 6 Saint Andrews            1
+#> 7 Saint Mary               1
+```
+
+Charles, Hayden and Yonge: the point is two thousand addresses deep into
+downtown, and the *only* thing within 150 m named Saint Andrews is the
+misplaced record itself.
+
+Rows like this can be found **without a second source**, which is
+unusual here. A row’s own postal code disagreeing with its own
+coordinate is an *internal* contradiction — no reference dataset is
+needed to see it and none can be blamed for it.
+`inst/notes/nar-consistency.md` does exactly that across the whole file,
+and the funnel is worth quoting because the shape of it is the finding:
+
+|  | rows |
+|----|---:|
+| addresses with both a postal code and a coordinate | 17,243,149 |
+| far from every address sharing their postal code (`d_own` \> 1 km) | 46,679 |
+| **and** sitting on top of a different postal code (`d_other` \< `d_own`/10) | **17,224** |
+| still flagged once `d_other` is measured along the road network | 13,460 |
+| of those, where the **coordinate** is the part to disbelieve | **653** |
+
+The last step needs a third field, because with a postal code and a
+coordinate there are only two witnesses and no majority. The street name
+is that field: ask whether the street NAR names exists around the point
+or around the postal code’s other addresses. For 8,875 rows the
+coordinate is corroborated and the postal code is the odd one out; for
+**653** it is the other way around, and those are the rows where the
+coordinate is what to disbelieve.
+
+Three cautions come with those numbers, and they are why nothing here is
+repaired automatically:
+
+- **This is a lower bound, and a biased one.** It can only see an error
+  that leaves its postal code’s neighbourhood entirely. An address on
+  the wrong side of the street, or on the wrong block of the right
+  street, is invisible to it — and those are certainly more common.
+- **84,282 addresses are the only member of their postal code**, and
+  cannot be far from a sibling they do not have. The method is blind to
+  them by construction.
+- **Corroboration is not proof.** One address in Amos, Québec has a
+  point in Kitchener, Ontario, 609 km away — and the street test
+  *supports* it, because Kitchener has an Appalachian Cres and the point
+  sits 15 m from it. A shared street name is exactly what produces the
+  misplacement in the first place.
+
+**What the package does.** Nothing repairs these, and no tier reads that
+analysis — it is a measurement, not a correction. What is available to a
+caller is the constraint arguments and the validators: `prov`, `mun` and
+`within` are assertions that force the search into a region you know,
+and
+[`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md)
+and
+[`qc_validate()`](https://mountainmath.github.io/cangeocode/reference/qc_validate.md)
+re-ask a provincial authority about an answer you already have.
+[`vignette("geocoding")`](https://mountainmath.github.io/cangeocode/articles/geocoding.md)
+covers both.
+
+## Addresses NAR does not have
+
+The 2026-06 release carries 17.4 million addresses, and Canada has more
+than that. Two shapes of absence matter.
+
+**The address is missing but the street is not.** Then NAR does not fail
+— it *interpolates*, and returns a point. Quebec is where this is
+measurable, because Quebec publishes the register NAR’s own Quebec rows
+are derived from, and it is about 308,000 addresses larger. Four
+addresses that are genuinely in the register and genuinely absent from
+NAR:
+
+``` r
+
+gap <- c("5510 Saint-Jacques, Montreal, QC", "1650 Chabanel, Montreal, QC",
+         "431 Courtemanche, Montreal-Est, QC", "45 Gamelin, Gatineau, QC")
+
+geocode(gap, method = c("nar", "nar_interpolate"), con = con) |>
+  select(input, match_method, uncertainty_m)
+#>                                input     match_method uncertainty_m
+#> 1   5510 Saint-Jacques, Montreal, QC nar_interpolated      58.76047
+#> 2        1650 Chabanel, Montreal, QC             none            NA
+#> 3 431 Courtemanche, Montreal-Est, QC             none            NA
+#> 4           45 Gamelin, Gatineau, QC nar_interpolated      14.25068
+```
+
+Two come back `none`, which is honest. The other two come back
+`nar_interpolated`, placed between the neighbours NAR does carry — a
+plausible point for an address NAR has never seen. With Quebec’s own
+register imported, all four resolve against the register instead:
+
+``` r
+
+geocode(gap, method = c("nar", "rqa", "nar_interpolate"), con = con) |>
+  select(match_method, uncertainty_m, lon, lat)
+#>   match_method uncertainty_m       lon      lat
+#> 1 rqa_geocoded            NA -73.60463 45.46885
+#> 2 rqa_building             0 -73.65830 45.52960
+#> 3 rqa_building             0 -73.51165 45.63419
+#> 4 rqa_geocoded            NA -75.73602 45.44344
+```
+
+Two of them land on a register **building** point, and two on the
+register’s own `GEOCODEE` class — which the tier reports as
+`rqa_geocoded` with an `uncertainty_m` of `NA`, rather than flattening
+it to a match and a zero. Quebec certified those two positions
+differently, and the column says so.
+
+**The street is missing too.** Interpolation cannot help there, and this
+is the single largest component of what
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+fails on. Statistics Canada’s road network file has every street in the
+country, which is what the `"rnf"` tier interpolates along.
+
+**What the package does.**
+[`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md)
+and
+[`rnf_import()`](https://mountainmath.github.io/cangeocode/reference/rnf_import.md)
+add those two sources as tiers, both offline, neither in the default
+`method` because their tables only exist if you ran the import. Both are
+kept in **their own tables** rather than merged into `Addresses`. That
+is deliberate: merging would fabricate NAR records nobody published, and
+it would spend the only instrument either source’s coverage can be
+measured with.
+
+One warning applies to both, and it generalizes past this package.
+**Quality measured where two sources overlap does not describe the rows
+where one of them is silent.** Checked against the filer’s own postal
+code, the road network tier sits 60 m from the expected location on rows
+NAR also placed — and 149 m on the rows only it can place. The addresses
+NAR is missing are harder addresses, not a random sample of the ones it
+has.
+
+## The string matched more than one row
+
+Not every bad answer is a bad record. A great many are a question that
+did not identify one address:
+
+``` r
+
+geocode(c("100 Main St", "100 Main St, Moncton, NB"), con = con) |>
+  select(input, match_method, n_matches, uncertainty_m)
+#>                      input match_method n_matches uncertainty_m
+#> 1              100 Main St nar_building       139       4043776
+#> 2 100 Main St, Moncton, NB nar_building         1             0
+```
+
+The first row is an exact `nar_building` match against 139 addresses,
+and the uncertainty is four thousand kilometres — the width of the
+country. It is not wrong; it is the correct answer to an under-specified
+question.
+
+**What the package does.** `n_matches` is on every row, `uncertainty_m`
+grows to cover the spread of the candidates rather than reporting the
+first one’s precision, and `prov` / `mun` / `within` let you supply what
+the string did not. Filtering on `uncertainty_m` catches this class
+before it reaches a map.
+
+## A remark: municipality and postal city are not the same thing
+
+Not a limit, but worth keeping in mind. A NAR row carries both a mailing
+municipality and a census subdivision, and the relationship between the
+two is complex in both directions — one postal city can span many
+municipalities, and one municipality can be served under several postal
+city names:
+
+``` r
+
+tbl(con, "MunAlias") |>
+  filter(NAME_FOLD %in% c("SCARBOROUGH", "TORONTO", "PRINCE RUPERT")) |>
+  count(NAME_FOLD, name = "csds_named") |>
+  collect()
+#> # A tibble: 3 × 2
+#>   NAME_FOLD     csds_named
+#>   <chr>              <dbl>
+#> 1 SCARBOROUGH            1
+#> 2 TORONTO                5
+#> 3 PRINCE RUPERT         47
+```
+
+`SCARBOROUGH` names exactly one census subdivision — Toronto, 234,568
+addresses — a name that stopped being a municipality in 1998 and is
+still a perfectly good mailing address. `PRINCE RUPERT` as a postal city
+reaches 47 of them.
+
+`MunAlias` is the mapping between the two, built at import, and both
+[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+and the `mun` argument resolve through it rather than comparing strings.
+It is honest as a candidate set and dishonest as an assignment: measured
+on 55,833 rows that carry both a postal city and a census subdivision
+label, the alias set contains the right municipality every single time —
+and its largest member alone is the right one 75.5% of the time.
+
+## What this package deliberately does not do
+
+- **It does not repair NAR.** No row is rewritten on import, and no tier
+  reads the consistency analysis. A flagged row is a candidate for
+  inspection, not a correction to apply.
+- **It does not fold NAR’s positional error into `uncertainty_m`.** That
+  error is not consistently knowable and inventing a number for it would
+  corrupt the one quantity in the column that *is* measured. If a
+  calibration ever becomes available it belongs in a separate column.
+- **It does not merge companion sources into `Addresses`.** Kept apart,
+  RQA and the road network file stay measurable against NAR — which is
+  where every figure quoted in this vignette came from.
+- **It does not treat “the source answered” as “the address matched”.**
+  The BC geocoder, the geolocator and Quebec’s locator always return
+  something; the tiers re-parse and score what comes back rather than
+  trusting the response.
+
+``` r
+
+DBI::dbDisconnect(con)
+```
+
+## Where the measurements live
+
+Every figure quoted above comes from a note that ships with the package,
+each of which records how it was measured and what it does not settle:
+
+``` r
+
+file.show(system.file("notes", "nar-consistency.md", package = "cangeocode"))
+file.show(system.file("notes", "quebec-addresses.md", package = "cangeocode"))
+file.show(system.file("notes", "road-network-file.md", package = "cangeocode"))
+file.show(system.file("notes", "geocoding-status.md", package = "cangeocode"))
+```
+
+`data-raw/probe_consistency.R` reproduces the misplacement analysis in
+about six minutes, and `data-raw/probe_rnf.R` the road network
+measurements.
