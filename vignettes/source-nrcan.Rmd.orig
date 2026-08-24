@@ -68,7 +68,7 @@ the ODbL data behind `osm_geocode()` — see `vignette("source-osm")`.
 the same `match_method` / `uncertainty_m` contract the rest of the package uses:
 
 ```{r geocode}
-nrcan_geocode("1 Rue Notre-Dame Ouest, Montreal, QC") |>
+nrcan_geocode("1 Rue Notre-Dame Ouest, Montreal, QC", retries = 8) |>
   select(match_method, uncertainty_m, n_matches, nrcan_qualifier, nrcan_title, lon, lat)
 ```
 
@@ -92,7 +92,9 @@ twelve** as a clean HTTP 500 — `nrcan_geocode()` retries, and a request that
 fails the retries too returns `none` with nothing to distinguish it from an
 address the service does not hold. That is worth about 8 points of coverage, and
 earlier measurements of this tier silently charged it to the geolocator's
-accuracy.
+accuracy. The two direct `nrcan_geocode()` calls below pass `retries = 8` rather
+than the default 3 for exactly that reason — over one or two addresses a drop is
+likely enough to change what the example shows.
 
 ## What to watch out for
 
@@ -104,7 +106,7 @@ position somewhere else:
 
 ```{r always_answers}
 nrcan_geocode(c("99999 Nowhere Rd, Nowhereville, SK",
-                "28 Silver St, Corner Brook, NL")) |>
+                "28 Silver St, Corner Brook, NL"), retries = 8) |>
   select(match_method, nrcan_qualifier, nrcan_title, nrcan_reject)
 ```
 
