@@ -13,6 +13,8 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.path = "",
 options(width = 100)
 ```
 
+*One of this package's seven data sources — one of the four online services. `vignette("data-sources")` is the overview and puts it in context.*
+
 Natural Resources Canada runs a national geolocation service on the Canadian
 Geospatial Platform, at `https://geolocator.api.geo.ca/geolocation/en/locate`.
 It takes one string, covers the whole country, needs no key, and is what
@@ -84,6 +86,13 @@ geocode(hard, method = c("nar", "nar_interpolate", "nrcan"), con = con) |>
 
 One of the three comes back, which is roughly the rate to expect: this tier is
 a thin recovery on a hard residual, not a second opinion on everything.
+
+Re-run that and you may get zero. The service drops roughly **one request in
+twelve** as a clean HTTP 500 — `nrcan_geocode()` retries, and a request that
+fails the retries too returns `none` with nothing to distinguish it from an
+address the service does not hold. That is worth about 8 points of coverage, and
+earlier measurements of this tier silently charged it to the geolocator's
+accuracy.
 
 ## What to watch out for
 

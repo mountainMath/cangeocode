@@ -92,8 +92,12 @@ Full reference and articles: <https://mountainmath.github.io/cangeocode/>
 - [Querying the NAR database directly](https://mountainmath.github.io/cangeocode/articles/querying-nar.html)
   (`vignette("querying-nar")`) — using the database with dplyr and `sf`
 
-One vignette per data source, each covering what it adds to the package, the
-licence it comes with, and what to watch out for:
+[The data sources](https://mountainmath.github.io/cangeocode/articles/data-sources.html)
+(`vignette("data-sources")`) is the overview: how the seven sources relate, what
+each layer of the tier chain is worth, which of them can be trusted to check
+another, and why one of them is not a tier. Below it sits one vignette per
+source, each covering what it adds to the package, the licence it comes with,
+and what to watch out for:
 
 | vignette | source | role |
 | --- | --- | --- |

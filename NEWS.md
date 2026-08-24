@@ -224,8 +224,13 @@ Read them with
 
 **A new vignette per data source** is where those measurements reach a user.
 Each one covers what that source adds to the package, the licence it comes with,
-and what to watch out for when using it:
+and what to watch out for when using it.
 
+* **`vignette("data-sources")`** is the parent, and the place to start. How the
+  seven sources relate, what each layer of the tier chain is worth, offline
+  against online, why the licence column decides the tier column, and which
+  source can be trusted to check another — only BC, and only in BC, because
+  Quebec's register is where NAR's Quebec rows come from.
 * **`vignette("source-nar")`** — what reads NAR, and its limits one at a time,
   each with a live example and the package's answer: the two kinds of positional
   point and why their distances are not comparable, the addresses whose

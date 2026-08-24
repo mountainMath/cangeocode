@@ -97,9 +97,12 @@ boundary tests key off.
 The vignettes are one per objective, plus support, plus **one per data source**:
 `cangeocode` (getting started, reverse geocoding), `geocoding` (`geocode()`),
 `address-normalization` (`normalize_address()` as a task in its own right, including address
-matching), `querying-nar` (the database directly), and the `source-*` family --
-`source-nar`, `source-rqa`, `source-rnf`, `source-bc`, `source-nrcan`, `source-qc`,
-`source-osm`. The source family is where the measurements in `inst/notes/` are surfaced to a
+matching), `querying-nar` (the database directly), and the source family -- `data-sources`
+(the parent: how the seven relate, what each tier layer is worth, which can check another,
+and why one is not a tier) over `source-nar`, `source-rqa`, `source-rnf`, `source-bc`,
+`source-nrcan`, `source-qc`, `source-osm`. Each child opens with a one-line backlink to the
+parent, and the parent's table is the index -- **add a row there when a source is added**, or
+the new vignette is unreachable from anywhere but the navbar. The source family is where the measurements in `inst/notes/` are surfaced to a
 user, and **every one of them carries a `## What this adds to the package` section and a
 `## Licence` section** -- those two are the contract for the family, not decoration, since the
 licences are what decide which sources may be default tiers (OGL and CC-BY compose; ODbL does

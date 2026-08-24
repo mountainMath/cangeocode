@@ -9,6 +9,8 @@ vignette: >
 
 
 
+*One of this package's seven data sources — one of the four online services. `vignette("data-sources")` is the overview and puts it in context.*
+
 Quebec's Ministère des Ressources naturelles et des Forêts runs an Esri
 `GeocodeServer` over the *Répertoire québécois des adresses* — the same register
 `rqa_import()` loads offline, served live. Two locators sit behind it:

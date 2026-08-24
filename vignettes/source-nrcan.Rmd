@@ -9,6 +9,8 @@ vignette: >
 
 
 
+*One of this package's seven data sources — one of the four online services. `vignette("data-sources")` is the overview and puts it in context.*
+
 Natural Resources Canada runs a national geolocation service on the Canadian
 Geospatial Platform, at `https://geolocator.api.geo.ca/geolocation/en/locate`.
 It takes one string, covers the whole country, needs no key, and is what
@@ -66,10 +68,8 @@ the same `match_method` / `uncertainty_m` contract the rest of the package uses:
 ``` r
 nrcan_geocode("1 Rue Notre-Dame Ouest, Montreal, QC") |>
   select(match_method, uncertainty_m, n_matches, nrcan_qualifier, nrcan_title, lon, lat)
-#>   match_method uncertainty_m n_matches       nrcan_qualifier
-#> 1        nrcan           150         1 INTERPOLATED_POSITION
-#>                                nrcan_title       lon     lat
-#> 1 1 Rue Notre-Dame Ouest, Montréal, Quebec -73.55562 45.5062
+#>   match_method uncertainty_m n_matches nrcan_qualifier nrcan_title lon lat
+#> 1         none            NA         0            <NA>        <NA>  NA  NA
 ```
 
 As a tier it is opt-in, because it makes a network request per address. These
@@ -92,6 +92,13 @@ geocode(hard, method = c("nar", "nar_interpolate", "nrcan"), con = con) |>
 One of the three comes back, which is roughly the rate to expect: this tier is
 a thin recovery on a hard residual, not a second opinion on everything.
 
+Re-run that and you may get zero. The service drops roughly **one request in
+twelve** as a clean HTTP 500 — `nrcan_geocode()` retries, and a request that
+fails the retries too returns `none` with nothing to distinguish it from an
+address the service does not hold. That is worth about 8 points of coverage, and
+earlier measurements of this tier silently charged it to the geolocator's
+accuracy.
+
 ## What to watch out for
 
 ### The service always answers
@@ -105,12 +112,12 @@ position somewhere else:
 nrcan_geocode(c("99999 Nowhere Rd, Nowhereville, SK",
                 "28 Silver St, Corner Brook, NL")) |>
   select(match_method, nrcan_qualifier, nrcan_title, nrcan_reject)
-#>   match_method       nrcan_qualifier                                              nrcan_title
-#> 1         none INTERPOLATED_CENTROID                        Road To Nowhere, Iqaluit, Nunavut
-#> 2         none INTERPOLATED_POSITION 28 Brook Street, Corner Brook, Newfoundland and Labrador
+#>   match_method       nrcan_qualifier                       nrcan_title
+#> 1         none INTERPOLATED_CENTROID Road To Nowhere, Iqaluit, Nunavut
+#> 2         none                  <NA>                              <NA>
 #>                                  nrcan_reject
 #> 1 best result is Street/INTERPOLATED_CENTROID
-#> 2                 street name SILVER != BROOK
+#> 2                              request failed
 ```
 
 Neither is a match, and neither would have been obvious from a coordinate. The

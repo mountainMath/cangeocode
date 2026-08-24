@@ -12,6 +12,8 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.path = "")
 options(width = 100)
 ```
 
+*One of this package's seven data sources — the base every other source here is measured against. `vignette("data-sources")` is the overview and puts it in context.*
+
 Almost everything in this package reads Statistics Canada's **National Address
 Repository**. `reverse_geocode()` is NAR and nothing else. The first two
 `geocode()` tiers are NAR. `normalize_address()` resolves municipalities and
@@ -270,6 +272,7 @@ one municipality can be served under several postal city names:
 tbl(con, "MunAlias") |>
   filter(NAME_FOLD %in% c("SCARBOROUGH", "TORONTO", "PRINCE RUPERT")) |>
   count(NAME_FOLD, name = "csds_named") |>
+  arrange(csds_named) |>
   collect()
 ```
 

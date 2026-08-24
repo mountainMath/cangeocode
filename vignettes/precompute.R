@@ -28,6 +28,7 @@ on.exit(setwd(old), add = TRUE)
 
 for (vignette in c("cangeocode", "querying-nar",
                    "address-normalization", "geocoding",
+                   "data-sources",
                    "source-nar", "source-rqa", "source-rnf",
                    "source-bc", "source-nrcan", "source-qc",
                    "source-osm")) {
