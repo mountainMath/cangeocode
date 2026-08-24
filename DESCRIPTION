@@ -1,7 +1,7 @@
 Package: cangeocode
 Type: Package
 Title: Geocode, Reverse Geocode and Normalize Addresses in Canada
-Version: 0.2.0
+Version: 0.3.0
 Authors@R: c(
     person(
       "Braden", "Batch",

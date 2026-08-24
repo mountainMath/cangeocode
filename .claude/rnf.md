@@ -98,10 +98,19 @@ Two rules, and they pull in opposite directions on purpose.
 municipality has no defensible placement: ambiguous rows land p90 **1,678 m** out with
 11.7% over a kilometre, against p90 107.8 m and 0.1% for unambiguous ones. Without this rule the tier
 ships a 20 km error in a package whose worst honest tier is 176 m, and the cost of the rule
-is 9 rows in 5,000. The recovered rows being measurably worse than the shared ones is the
-overlap-vs-residual correction biting again — see `quebec-addresses.md` for where that
-lesson was learned — and the cause is *ambiguity*, not imputation, which is why this
-particular filter fixes it.
+is 7 rows in 5,000 as shipped. The recovered rows being measurably worse than the shared
+ones is the overlap-vs-residual correction biting again — see `quebec-addresses.md` for
+where that lesson was learned.
+
+**The filter is necessary and it is not sufficient, and that was measured after the tier
+shipped.** On the rows NAR can check, ambiguity is where the gross errors are. On the rows
+only this tier can place, it is not: all three recovered rows past 2 km have
+`n_matches == 1`. Two of those are the postal-code *check* being wrong — a filer whose city
+and postal code name different municipalities — and the third is a bad parse (`County Road
+2` resolved to street `28` in `BAILIEBORO`) that the tier placed faithfully. **A tier that
+reaches streets NAR does not have cannot sanity-check its input against NAR**, which is
+what makes this the tier where a confidently wrong parse survives. Do not read the refusal
+as covering that; nothing currently does.
 
 **A parity mismatch does not refuse.** Parity chooses *between* the two sides; it never
 vetoes one. An even number inside an odd range on the only side that carries a range is
@@ -136,5 +145,8 @@ NAR does not carry, not a competitor for streets it does.
 ## What it is worth
 
 On the same 5,000-filing Corporations Canada draw the rest of the package is measured
-against, the tier places **25.3%** of the addresses `geocode()` currently fails — the
-largest recovery any tier has offered here.
+against, the tier places **24.5%** of the addresses `geocode()` fails — 93 of 379, taking
+placement from 92.4% to 94.3%, the largest recovery any tier has offered here. That is the
+*shipped* tier, measured through `geocode()` by `RNF_STAGES=5`, not the probe's own SQL:
+the design target was 87 rows, and the match-fold join and the direct CSD comparison —
+neither of which the probe had — are what buy the extra six.

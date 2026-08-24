@@ -20,6 +20,11 @@
 #   4. RECOVERY  -- run the SAME 5,000-filing Corporations Canada draw that
 #      data-raw/eval_normalize.R and inst/notes/geocoding-status.md use, and ask
 #      how many of the addresses geocode() currently FAILS the RNF would place.
+#   5. DELIVERED -- the same question again, asked of the SHIPPED tier through
+#      geocode() rather than of this file's own SQL. Stages 1-4 are the design
+#      target; R/rnf.R does not run the same query, so what it recovers had to
+#      be measured separately. Needs only the NAR database with rnf_import()
+#      run, so it costs no download.
 #
 # Stages 2 and 3 are measured where NAR already has the answer, which is the
 # complement of the population a tier would serve. Stage 4 exists because that
@@ -41,7 +46,7 @@
 #   RNF_YEAR    two-digit RNF release                (default 25)
 #   RNF_DIR     where the download and working db go (default <NAR_CACHE_PATH>/rnf)
 #   RNF_N       NAR building points to sample        (default 200000)
-#   RNF_STAGES  any of "1234"                        (default 1234)
+#   RNF_STAGES  any of "12345"                       (default 12345)
 #   EVAL_CACHE  where the corporations CSV lives     (default <NAR_CACHE_PATH>/eval)
 #
 # The download is ~340 MB and the working database ~1.6 GB; both are cached, so
@@ -69,7 +74,7 @@ library(duckdb)
 YEAR   <- Sys.getenv("RNF_YEAR", "25")
 DIR    <- Sys.getenv("RNF_DIR", file.path(Sys.getenv("NAR_CACHE_PATH"), "rnf"))
 N      <- as.integer(Sys.getenv("RNF_N", "200000"))
-STAGES <- Sys.getenv("RNF_STAGES", "1234")
+STAGES <- Sys.getenv("RNF_STAGES", "12345")
 CACHE  <- Sys.getenv("EVAL_CACHE", file.path(Sys.getenv("NAR_CACHE_PATH"), "eval"))
 NARDB  <- file.path(Sys.getenv("NAR_CACHE_PATH"),
                     paste0(Sys.getenv("RNF_NAR_VERSION", "2026-06"), ".duckdb"))
@@ -452,4 +457,125 @@ if (grepl("4", STAGES)) {
       grp, if (is.na(u)) "all" else if (u) "rural FSA" else "urban FSA", length(v),
       stats::median(v), 100*mean(v <= 500), 100*mean(v <= 2000)))
   }
+}
+
+## ---------------------------------------------------------------- stage 5 ---
+## The SHIPPED tier, end to end. Stage 4 measured a pathway written inside this
+## file; this measures what geocode() actually returns, which is not the same
+## query. R/rnf.R joins on MATCH_FOLD rather than the plain fold, compares the
+## municipality against RNF's own CSD name as well as through MunAlias,
+## constrains the street type and direction where both sides carry one, and
+## refuses n_matches > 1 instead of picking the shortest candidate. Every one of
+## those moves the recovery figure, in both directions, so the design target and
+## the delivered number have to be measured separately.
+##
+## It needs no download and no working database: the tables are the ones
+## rnf_import() put in the NAR database, so this stage runs wherever the "rnf"
+## tier does.
+
+if (grepl("5", STAGES)) {
+  set.seed(20260821)
+  corp <- as.data.frame(arrow::read_csv_arrow(
+    file.path(CACHE, "corporations-active-cbca-en.csv"),
+    col_select = c("Street","Street 2","City/town","Province/territory","Postal code"),
+    as_data_frame = TRUE))
+  names(corp) <- c("street","street2","city","prov","postal")
+  corp[] <- lapply(corp, function(x) ifelse(is.na(x), "", trimws(x)))
+  corp <- corp[nzchar(corp$street) & nzchar(corp$city) &
+               corp$prov %in% names(cangeocode:::nar_prov_lang) &
+               grepl("^[A-Za-z][0-9][A-Za-z] ?[0-9][A-Za-z][0-9]$", corp$postal), ]
+  corp <- corp[sample.int(nrow(corp), min(5000L, nrow(corp))), ]
+  parts <- cbind(corp$street, corp$street2, corp$city, trimws(paste(corp$prov, corp$postal)))
+  corp$text <- apply(parts, 1, function(x) paste(x[nzchar(x)], collapse = ", "))
+
+  con <- nar_connection()
+  stopifnot(cangeocode:::nar_has_rnf(con))
+  # crs = NULL returns the storage CRS, which is metres, so every distance below
+  # is computed without a reprojection of its own.
+  t0 <- system.time(
+    base <- geocode(corp$text, method = c("nar", "nar_interpolate"),
+                    crs = NULL, con = con))[["elapsed"]]
+  t1 <- system.time(
+    full <- geocode(corp$text, method = c("nar", "nar_interpolate", "rnf"),
+                    crs = NULL, con = con))[["elapsed"]]
+  # The tier alone, on every row rather than on the residual, is the only way to
+  # see it where geocode() already has an answer to compare against. In a real
+  # chain it never sees these rows.
+  t2 <- system.time(
+    solo <- geocode(corp$text, method = "rnf", crs = NULL, con = con))[["elapsed"]]
+
+  unplaced <- is.na(base$lon)
+  rule("5. the shipped tier, on the 5,000-filing draw")
+  cat(sprintf("baseline c(\"nar\",\"nar_interpolate\")     placed %4d (%.1f%%)  %.1fs\n",
+              sum(!unplaced), 100*mean(!unplaced), t0))
+  cat(sprintf("+ \"rnf\"                                placed %4d (%.1f%%)  %.1fs\n",
+              sum(!is.na(full$lon)), 100*mean(!is.na(full$lon)), t1))
+  cat(sprintf("recovered by the tier                  %4d (%.1f%% of the %d unplaced)\n",
+              sum(unplaced & !is.na(full$lon)),
+              100*sum(unplaced & !is.na(full$lon))/sum(unplaced), sum(unplaced)))
+  cat(sprintf("refused as ambiguous (rnf_ambiguous)   %4d\n",
+              sum(full$match_method == "rnf_ambiguous", na.rm = TRUE)))
+  cat(sprintf("still unplaced                         %4d (%.1f%%)\n",
+              sum(is.na(full$lon)), 100*mean(is.na(full$lon))))
+  print(as.data.frame(table(match_method = full$match_method), responseName = "n"),
+        row.names = FALSE)
+
+  # Agreement where geocode() also answered. A calibration, not a score: both
+  # are estimates of the same house and NAR's building point is the better one.
+  ok <- !unplaced & !is.na(solo$lon)
+  d <- sqrt((solo$lon[ok] - base$lon[ok])^2 + (solo$lat[ok] - base$lat[ok])^2)
+  mm <- base$match_method[ok]
+  u  <- solo$uncertainty_m[ok]
+  rule("agreement with geocode(), where geocode() also answered (tier run alone)")
+  for (k in c("every method", "nar_building", "nar_interpolated")) {
+    v <- if (k == "every method") d else d[mm == k]
+    w <- if (k == "every method") u else u[mm == k]
+    if (!length(v)) next
+    cat(sprintf("  %-17s rows %4d  p50 %5.1f  p90 %7.1f  within 50 m %4.1f%%  over 1 km %4.1f%%\n",
+                paste0(k, ":"), length(v), stats::median(v), stats::quantile(v, .9),
+                100*mean(v <= 50), 100*mean(v > 1000)))
+  }
+  # The shipped uncertainty model, tested as shipped. len_m is recoverable from
+  # it exactly -- rnf_uncertainty_m() is max(95, 0.35 * len_m) -- so the long
+  # segments stage 4 reported on separately are u > 210.
+  b <- d[mm == "nar_building"]; ub <- u[mm == "nar_building"]
+  rule("uncertainty_m as shipped: max(95, 0.35 * len_m) (target ~90% covered)")
+  cat(sprintf("  all segments        rows %4d  covered %.1f%%  median u %3.0f m\n",
+              length(b), 100*mean(b <= ub), stats::median(ub)))
+  cat(sprintf("  segments over 600 m rows %4d  covered %.1f%%\n",
+              sum(ub > 210), 100*mean(b[ub > 210] <= ub[ub > 210])))
+
+  # The independent check: nothing in the pathway reads the postal code. Two
+  # baselines are what make it readable, and they answer different questions.
+  # "nar, same rows" is a known-right answer measured the same way, so it says
+  # what "close to your own postal code" looks like at all. "rnf, same rows" is
+  # this tier on those same rows, so the gap between it and "rnf, recovered" is
+  # the overlap-versus-residual correction with the tier's own error held
+  # constant -- which is the thing the Quebec work had to learn to separate.
+  new <- which(unplaced & !is.na(full$lon))
+  chk <- rbind(
+    data.frame(grp = "rnf, recovered", pc = gsub(" ", "", toupper(full$POSTAL_CODE[new])),
+               x = full$lon[new], y = full$lat[new]),
+    data.frame(grp = "rnf, same rows", pc = gsub(" ", "", toupper(base$POSTAL_CODE[ok])),
+               x = solo$lon[ok], y = solo$lat[ok]),
+    data.frame(grp = "nar, same rows", pc = gsub(" ", "", toupper(base$POSTAL_CODE[ok])),
+               x = base$lon[ok], y = base$lat[ok]))
+  chk <- chk[nchar(chk$pc) == 6 & !is.na(chk$x), ]
+  chk$rural <- substr(chk$pc, 2, 2) == "0"
+  DBI::dbWriteTable(con, "PC", chk, temporary = TRUE, overwrite = TRUE)
+  r <- DBI::dbGetQuery(con, "
+    WITH a AS (SELECT replace(upper(MAIL_POSTAL_CODE),' ','') pc, x, y FROM Addresses
+                WHERE geom_source='building' AND MAIL_POSTAL_CODE IS NOT NULL),
+    f AS (SELECT pc, avg(x) mx, avg(y) my FROM a GROUP BY 1)
+    SELECT p.grp, p.rural, sqrt((p.x-f.mx)^2+(p.y-f.my)^2) d FROM PC p JOIN f ON f.pc=p.pc")
+  rule("independent check: distance to the filing's own postal code, NAR-derived")
+  for (grp in c("nar, same rows", "rnf, same rows", "rnf, recovered"))
+    for (v in c(NA, FALSE, TRUE)) {
+    z <- r$d[r$grp == grp & (is.na(v) | r$rural %in% v)]
+    if (!length(z)) next
+    cat(sprintf("  %-14s %-9s: n %4d  p50 %6.0f m  within 500 m %3.0f%%  within 2 km %3.0f%%\n",
+                grp, if (is.na(v)) "all" else if (v) "rural FSA" else "urban FSA",
+                length(z), stats::median(z), 100*mean(z <= 500), 100*mean(z <= 2000)))
+  }
+  DBI::dbDisconnect(con, shutdown = TRUE)
 }

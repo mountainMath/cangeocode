@@ -19,10 +19,13 @@ are an independent second reading of the same streets, so asking how often a civ
 holds falls inside the range RNF claims for its side turns the unknowable into a measured one.
 It does. The answer is **89.7%**, and the rest of this note is what that does and does not buy.
 
-Reproduce with `Rscript data-raw/probe_rnf.R` (needs `NAR_CACHE_PATH`; the four stages are
+Reproduce with `Rscript data-raw/probe_rnf.R` (needs `NAR_CACHE_PATH`; the stages are
 selectable with `RNF_STAGES`). Measured against the 2025 RNF and the 2026-06 NAR,
-2026-08-23. **Nothing in `R/` has been changed** — this is a decision note, and the decision it
-recommends is at the end.
+2026-08-23. Stages 1-4 are the decision, and the decision they recommend is under
+[Recommendation](#recommendation). **The tier was then built, and stage 5 measures the shipped
+code rather than this file's own SQL** — see
+[Delivered](#delivered-the-shipped-tier-2026-08-24), which is where the numbers to quote now
+live, and where one claim below does not survive.
 
 ## Getting the file: the shapefile, and only the shapefile
 
@@ -313,6 +316,79 @@ segment its own in-range/out-of-range count against NAR's points, and a segment 
 contradicts is a segment the tier should decline before it is asked — a better filter than any
 global rate, and one the file itself will never provide.
 
+## Delivered: the shipped tier, 2026-08-24
+
+`R/rnf.R` was built to both conditions, and it does **not** run the query stages 1-4 ran. It
+joins on `MATCH_FOLD` rather than the plain name fold, compares the municipality against RNF's
+own CSD name *as well as* through `MunAlias`, constrains the street type and direction wherever
+both sides carry one, and refuses `n_matches > 1` outright instead of picking the shortest
+candidate. Each of those moves the recovery figure, and not all in the same direction, so what
+was delivered had to be measured separately from what was designed. `RNF_STAGES=5` does it,
+through `geocode()`; it needs only a database `rnf_import()` has been run against, so unlike
+stages 1-4 it costs no download.
+
+| | design target (stages 1-4) | delivered (stage 5) |
+| --- | --- | --- |
+| coverage on the 5,000-filing draw | 92.4% → 94.3% | 92.4% → **94.3%** |
+| recovered, of the 379 unplaced | 87 after the refusal (23.0%) | **93 (24.5%)** |
+| refused as `rnf_ambiguous` | 9 | 7 |
+| p50 / p90 from `nar_building`, where both answer | 25.9 m / 107.8 m | **26.0 m / 107.9 m** |
+| `uncertainty_m` coverage | 91.7% | **91.8%** |
+| … on segments over 600 m | 93.1% | **92.6%** |
+
+**The tier delivers the design target and recovers six rows more than it.** The looser fold and
+the direct CSD comparison are what buy them — both reach rows the probe's plain-fold,
+`MunAlias`-only join never generated a candidate for — and the type and direction constraints
+cost less than that. The agreement figures are for every row the tier answers rather than for an
+unambiguous subset, because the shipped tier *has* no ambiguous answers to exclude; the refusal
+happens before the coordinate is computed.
+
+It costs nothing measurable: 13.4 s for `c("nar", "nar_interpolate", "rnf")` against 14.0 s for
+the offline pair on the same 5,000, since it only ever sees what its predecessors left.
+
+### The overlap-versus-residual correction survives, and is now decomposed
+
+Stage 5 adds a third group to the postal-code check, and the third group is the point of it.
+Urban FSAs only, since the rural ones carry no signal either way:
+
+| | n | p50 | within 500 m | within 2 km |
+| --- | ---: | ---: | ---: | ---: |
+| NAR's own answer, on rows the tier also placed | 3,749 | 43 m | 97% | 99% |
+| **the tier**, on those same rows | 3,749 | 60 m | 97% | 99% |
+| **the tier**, on the rows only it placed | 46 | **149 m** | **87%** | **93%** |
+
+The middle row holds the tier's own error constant, which is what the earlier comparison could
+not do. Reading down: placing an address the tier has a *checkable* answer for costs 43 → 60 m,
+and being an address NAR could not place costs a further 60 → 149 m. **The residual is harder by
+more than twice what the tier's own error is worth**, which is the correction surviving contact
+with the shipped code rather than an artefact of the probe's SQL.
+
+### The refusal did not remove the gross-error tail here, and the reason matters
+
+The section above says the ambiguous half holds essentially the whole gross-error tail, and on
+the rows NAR can check that is what the split shows. **It does not carry over to the residual.**
+All three of the recovered urban rows past 2 km have `n_matches == 1`, so the refusal never saw
+them. Read individually they are three different things, and only one is the tier's fault:
+
+| row | placed | cause |
+| --- | ---: | --- |
+| `185 Deerfield Rd, Newmarket, ON L4C 0Z1` | 23.7 km from the FSA centroid | **the check is wrong.** `L4C` is Richmond Hill; the filer's city and postal code name different municipalities. RNF put it on Deerfield in Newmarket, on a segment whose range is 165–195, which is where the filer said it was. |
+| `1006 Theatre Rd, Gravenhurst, ON P1P 1R3` | 10.2 km | **the check is wrong**, the same way. `P1P` is Bracebridge. The segment is in Gravenhurst with a range of 1001–1155. |
+| `10272 County Road 2, Cobourg, ON K9A 4J8` | 23.5 km | **the parse is wrong, and the tier laundered it.** The gazetteer resolves `County Road 2` to street `28`, type `HWY`, in `BAILIEBORO`; RNF then placed 10272 faithfully on that. |
+
+Three things follow. **The postal-code check is weaker than it was treated as** — two of its
+three worst accusations are a filer whose own two fields disagree, which is a thing corporate
+filings do, so `p50 149 m` is a pessimistic reading of the residual and not a generous one.
+**The refusal is still right and is still not sufficient**: it removes the ambiguity tail that
+the overlap exposes, and nothing about it addresses a confidently wrong parse. And **the one
+real error is upstream**. This is the failure mode the recovery section said the tier was not
+exhibiting — a parser error laundered into a coordinate by a looser matcher — and it is
+exhibiting it, at roughly 1 row in 93. A tier that reaches streets NAR does not have cannot
+sanity-check its input against NAR, which is precisely what makes it the tier where a bad parse
+survives. `numbered rural roads carry no street type at all` is the standing note in
+`.claude/normalization.md`, and `County Road 2` is that rule meeting a gazetteer entry it should
+have lost to.
+
 ## What this does not settle
 
 - **The 89.7% is against NAR, and NAR is not ground truth.** Where the two disagree, RNF is
@@ -327,5 +403,9 @@ global rate, and one the file itself will never provide.
   [`quebec-addresses.md`](quebec-addresses.md) for why a Quebec coverage share read off NAR's
   residual is the specific thing not to do.
 - **The 3.7% "street not in NAR" residual and the 8.3% "pair not in NAR" coverage figure are not
-  the same population**, and neither is the 25.3%. Only the last one was measured on addresses
+  the same population**, and neither is the 24.5%. Only the last one was measured on addresses
   the package actually fails.
+- **How often a bad parse reaches this tier is not measured.** One of 93 recovered rows is a
+  confidently wrong parse placed confidently, found by hand rather than by a method that would
+  find the others. Nothing counts them, and the postal-code check cannot: it accused two correct
+  rows for every real one it caught.

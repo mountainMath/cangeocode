@@ -14,9 +14,13 @@ putting them on a map.
 Both are built on Statistics Canada's
 [National Address Repository](https://www.statcan.gc.ca/en/lode/databases/nar)
 (NAR), a national list of civic addresses with coordinates, which the package
-imports into a local [DuckDB](https://duckdb.org) database. Quebec's own
-[Répertoire québécois des adresses](https://www.donneesquebec.ca/recherche/dataset/adresses-quebec)
-can be imported into the same database alongside it, in tables of its own.
+imports into a local [DuckDB](https://duckdb.org) database. Two more sources can
+be imported into the same database alongside it, each in tables of its own:
+Quebec's
+[Répertoire québécois des adresses](https://www.donneesquebec.ca/recherche/dataset/adresses-quebec),
+and Statistics Canada's
+[Road Network File](https://www150.statcan.gc.ca/n1/en/catalogue/92-500-X), which
+is what reaches streets NAR does not carry.
 
 Everything runs on your own machine: no API keys, no rate limits, and no
 address ever leaves it. The exceptions are opt-in — `geocode(method = c(..., "bc"))`
@@ -92,9 +96,13 @@ Full reference and articles: <https://mountainmath.github.io/cangeocode/>
 Longer notes ship with the package and say what does *not* work yet, with the
 measurements behind each claim. `system.file("notes", package = "cangeocode")`
 lists them; the two to start with are `geocoding-status.md` and
-`address-normalization-status.md`. `deepparse.md` measures the address parser
-against a purpose-built neural tagger, and is where the case for a trained model
-is made and rejected.
+`address-normalization-status.md`. The rest go one level down:
+`road-network-file.md` and `quebec-addresses.md` measure the two sources that
+can be imported beside NAR, `nrcan-geolocator.md` reads the national geolocator
+from its own source, `deepparse.md` measures the address parser against a
+purpose-built neural tagger and is where the case for a trained model is made
+and rejected, and `nar-consistency.md` finds NAR's own misplaced addresses using
+nothing but NAR.
 
 ## Geocoding
 
@@ -148,16 +156,18 @@ priority:
 ``` r
 geocode(addresses, method = "nar")                      # NAR records only
 geocode(addresses, method = c("nar", "nar_interpolate")) # the default
+geocode(addresses, method = c("nar", "nar_interpolate", "rnf"))
 geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
 geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"))
 geocode(addresses, method = c("bc", "nar"))             # prefer BC where it answers
 ```
 
 `"nar"` looks the civic number up directly and `"nar_interpolate"` places the
-ones NAR does not carry; `"rqa"` reads Quebec's own address register, if you
-imported it; `"bc"` asks the Province of BC's geocoder and `"nrcan"` NRCan's
-national one. The default is the offline pair; nothing reaches the network
-unless `"bc"`, `"nrcan"` or `"qc"` is named, and those belong last in the list.
+ones NAR does not carry; `"rqa"` reads Quebec's own address register and
+`"rnf"` the national road network file, both if you imported them; `"bc"` asks
+the Province of BC's geocoder and `"nrcan"` NRCan's national one. The default is
+the offline pair; nothing reaches the network unless `"bc"`, `"nrcan"` or
+`"qc"` is named, and those belong last in the list.
 
 ### Constraining the search
 
@@ -288,6 +298,56 @@ can see what was thrown away and why.
 Like the geolocator, this is a path on which addresses leave your machine.
 Requests are throttled to be a good citizen of a free public service; register
 for an API key and pass it as `api_key` for anything large.
+
+## The road network file: streets NAR does not have
+
+The largest single thing `geocode()` fails on is an address whose street is not
+in NAR at all — a new subdivision, a street built since the last release.
+Statistics Canada's **Road Network File** carries every street in the country
+with an address range on each side of each segment, and `rnf_import()` loads it
+into the same DuckDB file, in tables of its own:
+
+``` r
+rnf_import()                                   # ~340 MB download, once
+geocode(addresses, method = c("nar", "nar_interpolate", "rnf"))
+```
+
+The `"rnf"` tier places the civic number along the segment whose range contains
+it, offset to the correct side of the centreline. It is offline, national, and
+not in the default `method`, because the tables only exist if you ran the
+import. It belongs *after* interpolation: a point placed between two known
+civics is better than one placed along a range.
+
+On the same 5,000 business filings the rest of this README measures:
+
+| | placed |
+| --- | ---: |
+| `c("nar", "nar_interpolate")` | 92.4% |
+| `c("nar", "nar_interpolate", "rnf")` | **94.3%** |
+
+That is 93 of the 379 addresses the offline pair gives up on — a quarter of the
+residual, and the largest recovery any tier here offers. Spot-read, they are
+Ryan Reynolds Way, Celebration Dr, Grosbeak Trl: streets that exist and are too
+new for NAR.
+
+**It refuses rather than guessing when the street is ambiguous.** If more than
+one segment of that name in that municipality has a range containing the number,
+`match_method` is `rnf_ambiguous`, `n_matches` says how many were in contention,
+and no coordinate is returned. Ambiguity is where this file's gross errors live —
+those rows run a 90th-percentile 1.7 km against 108 m for the rest — and
+refusing costs 7 rows in 5,000.
+
+**Treat it as the coarse tier it is.** `uncertainty_m` is
+`max(95, 0.35 × len_m)`, never 0, and the addresses NAR cannot place are
+measurably harder than the ones it can: checked against the filer's own postal
+code, which the tier never reads, recovered rows sit a median 149 m from their
+urban FSA centroid against 60 m for rows NAR also placed. Filter on
+`uncertainty_m` rather than treating every row alike.
+
+The ranges themselves carry **no provenance flag** — an observed range and an
+imputed one are the same bytes — so everything above rests on measuring the file
+against NAR rather than on the file's own word.
+`inst/notes/road-network-file.md` is that measurement.
 
 ## Quebec: importing the address register
 

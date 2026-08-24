@@ -23,14 +23,16 @@ decision.
 A fourth online geocoder, the Government of Canada's OpenStreetMap (Nominatim) instance, is
 bound as `osm_geocode()` but is deliberately **not** a tier — its data is ODbL where everything else here
 is OGL. Reverse geocoding is NAR-backed and local except for `qc_reverse_geocode()`, the one
-online reverse geocoder here. Road network files are named in `DESCRIPTION` as a future source
-but are not implemented yet.
+online reverse geocoder here. Statistics Canada's **Road Network File** is imported into the
+same DuckDB file **as its own tables** by `rnf_import()`, which adds an offline `"rnf"` tier
+that interpolates a civic number along the street segment whose address range contains it —
+the one tier that reaches streets NAR does not carry at all.
 
 Public API (see `NAMESPACE`): `nar_connection()`, `nar_provinces()`,
 `available_nar_versions()`, `collect_nar()`, `reverse_geocode()`, `normalize_address()`,
 `address_pattern()`, `address_key()`, `format_address()`, `geocode()`, `nrcan_geocode()`,
 `bc_geocode()`, `bc_validate()`, `qc_geocode()`, `qc_reverse_geocode()`, `qc_validate()`,
-`osm_geocode()`, `rqa_import()`, `rqa_attribution()`.
+`osm_geocode()`, `rqa_import()`, `rqa_attribution()`, `rnf_import()`.
 
 This file records the repo-wide facts: what to run, what the environment needs, how the tests
 and vignettes are built, and the conventions. **Why each component is shaped the way it is lives
@@ -143,11 +145,14 @@ record the design.
   — Statistics Canada's Road Network File measured against NAR, which is how the missing
   provenance flag on its address ranges got replaced by a number: 89.7% of NAR civic numbers
   fall inside the range their own side claims, interpolation lands p50 24.3 m from NAR's
-  building point, and the pathway places 25.3% of the filings `geocode()` currently fails —
+  building point, and the shipped tier places 24.5% of the filings `geocode()` fails —
   the largest recovery any tier has offered. It is also where the overlap-vs-residual
-  correction bites again: the recovered rows are measurably worse than the shared ones, the
-  cause is *ambiguity* rather than imputation, and the tier is only safe if it refuses when
-  `n_matches > 1`. Carries the download contract (shapefile only, across releases), the 13
+  correction bites again, now decomposed against a third baseline into what the tier costs
+  (43 → 60 m from the filer's own postal code) and what the residual costs (60 → 149 m). The
+  tier is only safe if it refuses when `n_matches > 1` — and that refusal is **necessary and
+  not sufficient**: every recovered row past 2 km is unambiguous, and the one real error
+  among them is a bad parse the tier placed faithfully, which is the failure mode a tier
+  reaching streets NAR lacks cannot check for. Carries the download contract (shapefile only, across releases), the 13
   CircularStrings that fail the read, and the `max(95, 0.35 × len_m)` uncertainty model.
   Read it before building the RNF tier; `data-raw/probe_rnf.R` reproduces all of it.
 - **[`inst/notes/nrcan-geolocator.md`](../inst/notes/nrcan-geolocator.md)**

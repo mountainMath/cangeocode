@@ -1,3 +1,210 @@
+# cangeocode 0.3.0
+
+0.2.0 geocoded from one source. This release adds two more offline ones beside
+it — Quebec's own address register and Statistics Canada's road network file —
+and three online geocoders to fall through to. Together they take the 5,000
+Corporations Canada filings the package measures itself on from 89.1% placed to
+**94.3%**, and the road network file is where most of that came from.
+
+**No rebuild is needed.** Both new imports write their own tables and neither
+bumps `nar_schema_version()`, so an existing 0.2.0 database keeps working and
+gains a tier when you run the import.
+
+## The road network file
+
+* New `rnf_import()` loads Statistics Canada's Road Network File (product
+  92-500-X) into the same DuckDB database, in tables of its own, and adds an
+  offline **`"rnf"`** tier. It places a civic number along the street segment
+  whose address range contains it, at the position the range implies, offset
+  13 m to the side of the centreline that range belongs to.
+
+* **It is the only tier that reaches streets NAR does not carry at all**, which
+  is the largest single component of what `geocode()` fails. On the 5,000-filing
+  draw it takes coverage from **92.4% to 94.3%** — 93 of the 379 addresses the
+  offline pair leaves unplaced, 24.5% of the residual, against the `"nrcan"`
+  tier's 8.1%.
+
+* **The file carries no provenance flag on its address ranges**, so an observed
+  range and an imputed one are the same bytes and nothing in it says which is
+  which. Every threshold the tier uses therefore rests on a measurement against
+  NAR rather than on the file's own word: 89.7% of NAR civic numbers fall inside
+  the range their own side claims, and the geometric side agrees with the
+  range's parity 94.2% of the time against 7% for the other side.
+
+* **It refuses when more than one segment matches**, reporting
+  `match_method = "rnf_ambiguous"` and the count in `n_matches` rather than a
+  coordinate. That is not caution about an unmeasured risk: where NAR can check
+  the answer, rows with two same-named segments both containing the number run
+  p90 1,678 m with one in eight over a kilometre, against p90 108 m and one in a
+  thousand for the rest. Refusing costs 7 rows in 5,000. It is not *sufficient*,
+  though — on the rows only this tier can place, the three worst are all
+  unambiguous, and one of them is a bad parse the tier placed faithfully.
+
+* `uncertainty_m` is `max(95, 0.35 × len_m)`, which covers 91.8% of the measured
+  error where NAR can check it, and 92.6% on segments over 600 m where a flat
+  110 m covers 67.2%. Where both answer, the tier sits a median 26.0 m from
+  NAR's own building point (p90 108 m, 0.2% beyond a kilometre).
+
+* **Accuracy on the addresses NAR also has does not transfer to the ones it
+  does not.** Checked against the filing's own postal code — which the pathway
+  never reads — the recovered rows sit p50 149 m from their urban FSA centroid,
+  against 60 m for this tier on rows NAR also placed and 43 m for NAR's own
+  answer on those same rows. The residual is harder by more than twice what the
+  tier's own error is worth. Treat `rnf_interpolated` as the coarse tier it is,
+  and filter on `uncertainty_m`.
+
+* Only the **shapefile** is published for every release, so that is what
+  `rnf_import()` downloads: the GeoPackage resolves for 2025 alone, and it also
+  carries 13 CircularStrings that DuckDB's spatial extension refuses in a way
+  that fails the whole read. `rnf_latest_release()` finds the newest release by
+  probing constructed URLs rather than scraping a page that can be redesigned.
+
+* `inst/notes/road-network-file.md` records all of it and
+  `data-raw/probe_rnf.R` reproduces it, stage 5 against the shipped tier.
+
+## Quebec's address register
+
+* New `rqa_import()` loads the *Répertoire québécois des adresses* — the source
+  NAR's own Quebec rows are derived from, published in full and about 750,000
+  certified addresses larger than NAR's Quebec extract — and adds an offline
+  **`"rqa"`** tier. It is Quebec-only and deliberately not in the default
+  `method`: the tables exist only if the import was run, and a tier that appears
+  or disappears depending on that would be worse than an explicit one.
+
+* **It is kept beside NAR rather than merged into it.** Merging would spend the
+  only instrument Quebec's coverage is measurable with. The tier joins on the
+  *match* fold rather than the plain one, because the addresses it exists for
+  are exactly the ones the gazetteer could not resolve.
+
+* On 4,000 Quebec filings, `c("nar", "rqa", "nar_interpolate")` places 90.1%
+  against 88.5% for the offline pair — but **the placement figure is not the
+  result**. The share landing on a *register* point goes from 82.7% to 89.1%,
+  because 196 of the 258 rows the tier answers were already being interpolated
+  between two neighbours and it replaces that guess with the register's own
+  coordinate, a median 26 m away. It belongs below `"nar"` and above
+  `"nar_interpolate"` for that reason, and it costs nothing measurable.
+
+* `match_method` carries the register's own positional class — `rqa_building`,
+  `rqa_geocoded`, `rqa_uncertain`, `rqa_lot`, `rqa_other` — and `uncertainty_m`
+  is filled in only for `rqa_building`, where `0` means what it means for NAR.
+  Nothing here has measured what *Géocodée* or *Incertaine* are worth on the
+  ground, and an invented figure would be indistinguishable from the two that
+  were measured.
+
+* `normalize_address()` runs a **second gazetteer pass** over the register where
+  NAR left a Quebec row unresolved. It is worth 4 rows in 942, not the six
+  points that were projected, and the reason that projection was wrong is now
+  the standing warning in `inst/notes/quebec-addresses.md`: a coverage share
+  measured over NAR's residual is not a coverage share of the parser's residual.
+
+* New `rqa_attribution()` returns the attribution the register's CC-BY 4.0
+  licence requires, which is a different licence from everything else here.
+
+## Online geocoders
+
+* New `nrcan_geocode()` and the **`"nrcan"`** tier bind NRCan's national
+  geolocator. Keyless, national, and needing no local database, which is the
+  whole reason to want it: it is the only tier that can answer before NAR has
+  been downloaded, and the only one that covers provinces a partial import does
+  not hold. It does **not** reverse geocode — the alternatives were probed
+  rather than assumed.
+
+  **It always answers, and it answers plausibly**, which is harder to defend
+  against than an error. `1 Rue Notre-Dame Ouest, Montreal, QC` comes back as a
+  real interpolated position on a real Rue Notre-Dame Ouest 500 km away, with
+  nothing marking it as a substitution. Two floors decide: the result type, and
+  agreement on the parsed components. Component agreement is a strict
+  improvement over comparing the returned title as a string — it removes 27
+  answers a substring floor keeps, median 1,615 m off, and recovers 7 it
+  rejects. Rejected rows keep a `nrcan_reject` column saying why.
+
+  The whole result list is put through those floors rather than just the top
+  result, the civic-number suffix is dropped from the query (the service's own
+  house-number regex cannot match `990A`, so a suffixed civic never reached its
+  interpolator), and the roughly one request in twelve the service drops as a
+  clean HTTP 500 is retried — worth about 8 points of coverage that earlier
+  measurements silently charged to the geolocator.
+
+  As a fallback for NAR's tail it is worth little — 8.1% of the unplaced —
+  because the addresses NAR cannot place are largely the ones no national
+  compilation has.
+
+* New `qc_geocode()`, `qc_reverse_geocode()`, `qc_validate()` and the **`"qc"`**
+  tier bind the MRNF's geocoder over the same Quebec register. **How the query
+  is spelled decides whether the service works at all**, which is the single
+  largest effect measured anywhere in this package: rendering NAR's own
+  `NOTRE-DAME RUE O` matches 31.5% of the time, and spelling it French-canonical
+  as `Rue Notre-Dame Ouest` matches 95.5%. The failure is silent — the wrong
+  spelling returns a street centroid scoring *higher* than the correct civic
+  point.
+
+  Its `Score` carries no positional information (Spearman 0.018 against distance
+  from NAR's point), so `min_score` defaults to 0 and should be left there.
+  `qc_reverse_geocode()` is the one online reverse geocoder in the package.
+
+  It agrees with NAR to within a metre, and **that is shared lineage rather than
+  accuracy** — it serves the register NAR's Quebec rows are built from. It
+  cannot settle NAR's Quebec accuracy, and `qc_validate()` says so in its own
+  documentation.
+
+* New `osm_geocode()` binds the Nominatim instance the Government of Canada
+  hosts, not the volunteer-funded one whose usage policy forbids bulk geocoding.
+  **It is exported and deliberately not a tier, and the reason is the licence
+  rather than the accuracy**: OSM data is ODbL where NAR, the BC geocoder and
+  the geolocator are all Open Government Licence, and a default tier would fold
+  a handful of ODbL rows into a result table and change what the caller may do
+  with the whole of it, silently. The licence string rides along on every row as
+  `osm_licence`. Its coverage has not been measured at scale, so
+  `uncertainty_m` is `NA` rather than a plausible constant.
+
+## Address normalization
+
+* **The gazetteer compares on a match fold**, which spells `ST` out to `SAINT`
+  and turns the hyphen into a word boundary. Quebec was failing at the door
+  without it: the Part B join rate for Québec went from 68.2% to 75.5%. The R
+  and SQL halves of that fold must stay identical or matching silently degrades.
+
+* **The parser produces candidate readings and evidence chooses between them**,
+  rather than committing to the first rule that fires. An alternative reading is
+  generated only when the baseline is *demonstrably* broken, because the
+  gazetteer scores a municipality-restricted match higher by construction and so
+  cannot arbitrate a bad candidate away.
+
+* **A prose prefix is cut off the front before anything else reads the string.**
+  Every civic-number rule anchors on a number at the front, so `Located at 123
+  Main St` defeated all of them; each of the four guards on the strip is holding
+  back a real address form.
+
+* **A comma-free string is segmented on the municipality inventory** — a
+  trailing run longer than the municipality claimed that also names one. This
+  and the prefix strip came out of benchmarking the strongest off-the-shelf
+  neural address tagger against this parser, and each reversed one of the two
+  results the tagger still led on.
+
+* Part B — 5,000 registered offices nobody cleaned — now extracts a civic number
+  and street name from 98.9% and joins a real NAR address for 88.8%.
+
+## Documentation
+
+Five new notes ship with the package, each recording what was measured rather
+than what was designed:
+
+* `road-network-file.md` — the file measured against NAR, which is how the
+  missing provenance flag got replaced by a number.
+* `quebec-addresses.md` — NAR's Quebec rows measured against the register they
+  come from, over 2.5 million paired addresses.
+* `nrcan-geolocator.md` — what the geolocator does on the other end of the wire,
+  read from its own source.
+* `deepparse.md` — the neural tagger measured against this parser on four
+  corpora, two of which the parser was never tuned on. Neither a fine-tune nor a
+  from-scratch model is warranted on the evidence.
+* `nar-consistency.md` — finding NAR's misplaced addresses using nothing but
+  NAR, and the 653 rows where the coordinate rather than the postal code is the
+  part to disbelieve. Nothing is repaired and no tier reads it.
+
+Read them with
+`system.file("notes", "<name>", package = "cangeocode")`.
+
 # cangeocode 0.2.0
 
 The package went one direction only in 0.1.0: coordinates to addresses. This

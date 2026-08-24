@@ -49,20 +49,32 @@ to be shared by both sources to survive at the median.
 
 ## Where it stands
 
-5,000 Corporations Canada addresses, 0.9s for the whole batch:
+5,000 Corporations Canada addresses. Re-measured 2026-08-24, after the parser changes the
+normalization note records and with the `"rnf"` tier appended; the default offline pair is the
+first column and is what `geocode()` does out of the box.
 
-| `match_method` | n | share |
-| --- | ---: | ---: |
-| `nar_building` | 3,952 | 79.0% |
-| `nar_blockface` | 292 | 5.8% |
-| `nar_interpolated` | 210 | 4.2% |
-| `nar_no_geometry` | 7 | 0.1% |
-| `none` | 539 | 10.8% |
-| **placed** | **4,454** | **89.1%** |
+| `match_method` | `c("nar", "nar_interpolate")` | share | + `"rnf"` | share |
+| --- | ---: | ---: | ---: | ---: |
+| `nar_building` | 4,100 | 82.0% | 4,100 | 82.0% |
+| `nar_blockface` | 297 | 5.9% | 297 | 5.9% |
+| `nar_interpolated` | 224 | 4.5% | 224 | 4.5% |
+| `rnf_interpolated` | — | — | 93 | 1.9% |
+| `rnf_ambiguous` | — | — | 7 | 0.1% |
+| `nar_no_geometry` | 4 | 0.1% | 4 | 0.1% |
+| `none` | 375 | 7.5% | 275 | 5.5% |
+| **placed** | **4,621** | **92.4%** | **4,714** | **94.3%** |
 
-Without the interpolation tier, 84.9%. Every exact-tier match agreed with the postal code
-the filer wrote — 100% of 4,244 — which is worth stating because nothing in the query uses
-the postal code, so it is a free independent check rather than a tautology.
+The offline pair was 89.1% when this note was first written; the 3.3 points since are the
+parser, not the geocoder — the match fold, the leading-prose strip and the comma-free
+segmentation, none of which changed a single line of `R/geocode.R`. That is worth keeping in
+view when reading any tier's *marginal* contribution below: several of them were measured
+against a larger residual than the one that exists now, and a tier's share of the residual falls
+as the parser improves even though the tier is unchanged.
+
+Measured on the earlier draw and not re-measured: without the interpolation tier, 84.9%, and
+every exact-tier match agreed with the postal code the filer wrote — 100% of 4,244 — which is
+worth stating because nothing in the query uses the postal code, so it is a free independent
+check rather than a tautology.
 
 Interpolated results are honest but coarse: `uncertainty_m` has a median of 69 m and a p90
 of 380 m, with 26% at or under 25 m and 43% at or under 50 m. That spread is the point of
@@ -153,9 +165,12 @@ calibration — and into a defensible `uncertainty_m` for the `bc_*` tiers, whic
 the one set of numbers in this package that was not measured — is the obvious next piece of
 work.
 
-## The 10.8% that does not resolve
+## The residual that does not resolve
 
-Decomposed on the same draw, as a share of all 5,000:
+**7.5% now, and this decomposition was taken when it was 10.8%** — the parser changes above
+have since removed a third of it, and which of the four buckets they came out of has not been
+re-measured. The shares below are of the 5,000 as it stood then, and the ranking is what to
+trust rather than the numbers:
 
 - **3.7%** — the street does not exist in NAR anywhere in the province. Nothing in the NAR
   pathway can fix these; this is what the road network file is for.
@@ -165,12 +180,15 @@ Decomposed on the same draw, as a share of all 5,000:
 - **1.4%** — never parsed at all: no street name or no civic number was extracted.
 - the remainder — the street exists in NAR under a municipality that did not match.
 
-Combined ceiling for the NAR-only pathway is therefore around 93%.
+Combined ceiling for the NAR-only pathway was therefore put at around 93%. The offline pair
+now reaches 92.4%, so that ceiling is essentially met and the remaining headroom is in the tiers
+that reach outside NAR rather than in the NAR pathway itself.
 
 The `"nrcan"` tier reaches very little of this: appending it recovers 8.1% of the unplaced,
 for the reason given in its own section below — the addresses NAR cannot place are largely
-the ones no national compilation has. The road network file remains the pathway that would
-actually move this number.
+the ones no national compilation has. The road network file was the pathway that would
+actually move this number, and now does: `"rnf"` recovers 24.5% of the unplaced, three times
+what any online tier offers.
 
 ## Measured and deliberately not done
 
@@ -546,14 +564,30 @@ geolocator README names for bulk use, and asking is the honest step before any l
 
 ## Not built yet, in the order the measurements justify
 
-### 1. Statistics Canada Road Network File (RNF) — **built, 2026-08-23**
+### 1. Statistics Canada Road Network File (RNF) — **built and measured as shipped, 2026-08-24**
 
-`rnf_import()` and the `"rnf"` tier ship in `R/rnf.R`. Everything below is the measurement
-that justified building it and the shape the recommendation took; the tier implements both
-conditions. **What has not been done is re-measuring the shipped tier end to end** — the
-figures below come from `data-raw/probe_rnf.R`'s own interpolation, not from `geocode()`,
-so treat them as the design target rather than as a report on what the tier returns. Rerun
-stage 4 against the tier before quoting any of them as delivered.
+`rnf_import()` and the `"rnf"` tier ship in `R/rnf.R`. Everything below is the measurement that
+justified building it and the shape the recommendation took; the tier implements both
+conditions. **The shipped tier has now been measured end to end** — `RNF_STAGES=5` runs it
+through `geocode()` rather than through the probe's own SQL, which matters because the two are
+not the same query. It delivers the design target:
+
+| | design target | delivered |
+| --- | --- | --- |
+| coverage on the 5,000-filing draw | 92.4% → 94.3% | 92.4% → **94.3%** |
+| recovered, of the 379 unplaced | 87 (23.0%) | **93 (24.5%)** |
+| p50 / p90 from `nar_building` | 25.9 m / 107.8 m | **26.0 m / 107.9 m** |
+| `uncertainty_m` coverage | 91.7% | **91.8%** |
+
+The tier recovers six rows *more* than the design target, because it joins on the match fold and
+compares the CSD directly where the probe did neither, and it costs 13.4 s against the offline
+pair's 14.0 s on the same batch. Two findings in that run do not appear below and are in
+[`road-network-file.md`](road-network-file.md): the overlap-versus-residual gap, now decomposed
+against a third baseline into what the tier costs (43 → 60 m) and what the residual costs
+(60 → 149 m); and the fact that **the ambiguity refusal did not remove the gross-error tail on
+the recovered rows** — all three survivors past 2 km have `n_matches == 1`, two of them are the
+postal-code check accusing a filer whose city and postal code disagree, and the third is a bad
+parse the tier placed faithfully.
 
 Product **92-500-X**, annual, reference date 2025-01-01, latest release 2025-06-18, under the
 Statistics Canada Open Licence. Its CRS is **EPSG:3347 — identical to this package's storage
