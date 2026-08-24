@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">cangeocode</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -93,15 +93,19 @@ than in R.</p>
 </h2>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu">DBI</span><span class="fu">::</span><span class="fu"><a href="https://dbi.r-dbi.org/reference/dbListTables.html" class="external-link">dbListTables</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "Addresses"    "Locations"    "MunAlias"     "PostalMun"    "RqaAddresses"</span></span>
-<span><span class="co">#&gt; [6] "RqaStreets"   "Streets"      "nar_metadata"</span></span></code></pre></div>
+<span><span class="co">#&gt;  [1] "Addresses"    "Locations"    "MunAlias"     "PostalMun"    "RnfSegments" </span></span>
+<span><span class="co">#&gt;  [6] "RnfStreets"   "RqaAddresses" "RqaStreets"   "Streets"      "nar_metadata"</span></span></code></pre></div>
 <p>Two of those are NAR’s addresses and locations;
 <code>MunAlias</code>, <code>PostalMun</code> and <code>Streets</code>
-are gazetteers <code><a href="../reference/normalize_address.html">normalize_address()</a></code> builds at import.
-<code>RqaAddresses</code> and <code>RqaStreets</code> appear only if
-<code><a href="../reference/rqa_import.html">rqa_import()</a></code> has been run — they are Quebec’s own register,
-kept beside NAR rather than merged into it, and
-<code><a href="../articles/geocoding.html">vignette("geocoding")</a></code> covers what they are for.</p>
+are gazetteers <code><a href="../reference/normalize_address.html">normalize_address()</a></code> builds at import. The
+rest are companion sources, present only if their own import has been
+run and kept beside NAR rather than merged into it:
+<code>RqaAddresses</code> and <code>RqaStreets</code> are Quebec’s own
+register (<code><a href="../reference/rqa_import.html">rqa_import()</a></code>), and <code>RnfSegments</code> and
+<code>RnfStreets</code> are Statistics Canada’s road network file
+(<code><a href="../reference/rnf_import.html">rnf_import()</a></code>), which carries street centrelines with an
+address range on each side rather than addresses.
+<code><a href="../articles/geocoding.html">vignette("geocoding")</a></code> covers what each is for.</p>
 <p><strong><code>Addresses</code></strong> has one row per civic address
 — the street name and number, the mailing address, the municipality, the
 postal code, and the point geometry.</p>

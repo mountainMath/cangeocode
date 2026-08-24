@@ -20,7 +20,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">cangeocode</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.0</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.3.0</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -247,16 +247,21 @@ position, so the order <em>is</em> the priority.</p>
 carries, which is the right choice when a false position is worse than
 no position. The default pair adds interpolation, and on a 5,000-address
 sample of real Corporations Canada registered offices that lifts
-coverage from 84.9% to 89.1%.</p>
+coverage from 87.9% to 92.4%.</p>
 <p>Interpolation is deliberately conservative. It uses the <strong>same
 side of the street only</strong> — pooling both sides costs a median
 35.2 m against 4.2 m — and it <strong>refuses to extrapolate</strong>
 past the last known civic number on a side rather than continuing the
 run’s spacing, which scores a respectable 15.1 m median but a 237 m 90th
 percentile. Those rows come back <code>none</code>.</p>
-<p>There are further tiers below: <code>"rqa"</code>, which is offline
-and Quebec-only, and <code>"bc"</code> and <code>"nrcan"</code>, which
-call online services.</p>
+<p>There are further tiers below: <code>"rqa"</code>, offline and
+Quebec-only; <code>"rnf"</code>, offline and national, which
+interpolates along the road network instead of along NAR’s own
+addresses; and <code>"bc"</code>, <code>"nrcan"</code> and
+<code>"qc"</code>, which call online services. <code>"rqa"</code> and
+<code>"rnf"</code> both need an import of their own first, and
+<code><a href="../reference/geocode.html">geocode()</a></code> says so up front if you name one that is not
+there.</p>
 </div>
 <div class="section level2">
 <h2 id="constraining-the-search">Constraining the search<a class="anchor" aria-label="anchor" href="#constraining-the-search"></a>
@@ -506,6 +511,67 @@ to carry the attribution, which <code><a href="../reference/rqa_attribution.html
 returns.</p>
 </div>
 <div class="section level2">
+<h2 id="the-road-network-file">The road network file<a class="anchor" aria-label="anchor" href="#the-road-network-file"></a>
+</h2>
+<p>The single largest thing left unplaced is an address whose street is
+not in NAR at all — a subdivision built since the last release, a road
+NAR never carried. Statistics Canada’s <strong>Road Network
+File</strong> has every street in the country, with an address range on
+each side of each segment, and <code><a href="../reference/rnf_import.html">rnf_import()</a></code> loads it into
+the same database in tables of its own:</p>
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/rnf_import.html">rnf_import</a></span><span class="op">(</span><span class="op">)</span>   <span class="co"># a ~340 MB download, once</span></span></code></pre></div>
+<p>Once imported, <code>"rnf"</code> is available as a tier. It is
+offline and national, and it belongs <strong>after</strong>
+interpolation — a point placed between two known civic numbers beats one
+placed along a range:</p>
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<p>On the 5,000 filings above that takes coverage from 92.4% to
+<strong>94.3%</strong>: 93 of the 379 the offline pair gives up on, a
+quarter of the residual and the largest recovery any tier here
+offers.</p>
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">new_streets</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"1435 Celebration Dr, Pickering, ON L1W 0C4"</span>,</span>
+<span>                 <span class="st">"192037A TWP RD 665, Athabasca County, AB T0A 0M0"</span>,</span>
+<span>                 <span class="st">"1545 Maley Dr, Sudbury, ON P3A 4R7"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">new_streets</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
+<span><span class="co">#&gt; [1] "none" "none" "none"</span></span>
+<span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">new_streets</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">n_matches</span>, <span class="va">uncertainty_m</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
+<span><span class="co">#&gt;       match_method n_matches uncertainty_m        lon      lat</span></span>
+<span><span class="co">#&gt; 1 rnf_interpolated         1       95.0000  -79.07905 43.83198</span></span>
+<span><span class="co">#&gt; 2 rnf_interpolated         1      413.7086 -112.78776 54.74719</span></span>
+<span><span class="co">#&gt; 3    rnf_ambiguous         3            NA         NA       NA</span></span></code></pre></div>
+<p>The third row is the tier <strong>refusing</strong>. When more than
+one segment of that name in that municipality has a range containing the
+number, there is no way to tell which one was meant, so
+<code>match_method</code> is <code>rnf_ambiguous</code>,
+<code>n_matches</code> says how many were in contention, and no
+coordinate comes back. That is where this file’s gross errors live —
+ambiguous rows run a 90th percentile of 1.7 km against 108 m for the
+rest — and the refusal costs 7 rows in 5,000.</p>
+<p>It is a coarse tier and says so. <code>uncertainty_m</code> is
+<code>max(95, 0.35 × len_m)</code> and is never 0: the position is a
+fraction along a centreline, offset 13 m to the correct side, not a
+building. Against 200,000 NAR building points it lands a median 24.3 m
+away — about six times worse than <code>nar_interpolate</code>, which is
+why it sits below it — with a 90th percentile of 93.3 m. Filter on
+<code>uncertainty_m</code> rather than treating every row alike; the
+second row above is a township road long enough that the tier admits to
+414 m.</p>
+<p>One caution the file itself cannot give you: its ranges carry
+<strong>no provenance flag</strong>, so an observed range and one the
+file imputed are the same bytes. Everything quoted here comes from
+measuring the file against NAR, which is also why the tier is worth less
+than the overlap suggests — checked against the filer’s own postal code,
+rows the tier recovers sit a median 149 m from their urban FSA centroid
+against 60 m for rows NAR also placed. The addresses NAR cannot place
+are genuinely harder.</p>
+</div>
+<div class="section level2">
 <h2 id="the-national-geolocator">The national geolocator<a class="anchor" aria-label="anchor" href="#the-national-geolocator"></a>
 </h2>
 <p><code>"nrcan"</code> is the other online tier, backed by NRCan’s <a href="https://geolocator.api.geo.ca/" class="external-link">geolocator</a>. Unlike
@@ -513,7 +579,7 @@ returns.</p>
 database at all — which makes it the only tier that can answer before a
 NAR release has been imported, and the one that covers provinces a
 single-province import does not hold.</p>
-<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"nrcan"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span></code></pre></div>
 <p>It has the same trap as the BC service, in a sharper form: <strong>it
 always answers, and it gives you no score to disbelieve.</strong> Asked
@@ -556,7 +622,7 @@ deliberately not something <code>method</code> can name.
 the Government of Canada hosts — not the volunteer-funded
 <code>nominatim.openstreetmap.org</code>, whose usage policy forbids
 bulk geocoding.</p>
-<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/osm_geocode.html">osm_geocode</a></span><span class="op">(</span><span class="st">"990 Bute St, Vancouver, BC"</span><span class="op">)</span></span></code></pre></div>
 <p>The reason it is a separate call rather than a tier is the licence,
 not the accuracy. OpenStreetMap data is ODbL: attribution plus
@@ -575,24 +641,30 @@ concentrated in cities with municipal open-data imports, and no national
 comparison has been run, which is why an <code>osm</code> row reports
 <code>uncertainty_m</code> as <code>NA</code> rather than a number
 someone made up. See <code><a href="../reference/osm_geocode.html">?osm_geocode</a></code>.</p>
-<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu">DBI</span><span class="fu">::</span><span class="fu"><a href="https://dbi.r-dbi.org/reference/dbDisconnect.html" class="external-link">dbDisconnect</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="where-this-falls-short">Where this falls short<a class="anchor" aria-label="anchor" href="#where-this-falls-short"></a>
 </h2>
 <p>Measured on 5,000 Corporations Canada registered offices,
-<code><a href="../reference/geocode.html">geocode()</a></code> places 89.1% with the default methods. The 10.8%
-that does not resolve breaks down roughly as: 3.7% whose street is not
-in NAR anywhere in the province, 3.8% where the street exists but the
-civic number could not be reached even by interpolation, 1.4% that never
-parsed, and a remainder where the street exists under a municipality
-that did not match. The ceiling for a NAR-only pathway is therefore
-around 93%.</p>
-<p>Two notes ship with the package and carry the measurements behind
+<code><a href="../reference/geocode.html">geocode()</a></code> places 92.4% with the default methods, and 94.3%
+with <code>"rnf"</code> appended. The ceiling for a NAR-only pathway was
+put at around 93% and is essentially met, so what headroom is left is in
+the tiers that reach outside NAR rather than in NAR itself.</p>
+<p>When the residual was last decomposed it stood at 10.8%, and it broke
+down roughly as: 3.7% whose street is not in NAR anywhere in the
+province, 3.8% where the street exists but the civic number could not be
+reached even by interpolation, 1.4% that never parsed, and a remainder
+where the street exists under a municipality that did not match. The
+parser has since removed a third of that residual and the road network
+file eats into the first bucket by construction, so read the ranking
+rather than the shares.</p>
+<p>The notes that ship with the package carry the measurements behind
 every figure quoted here, along with what is not built yet:</p>
-<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"geocoding-status.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"road-network-file.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"address-normalization-status.md"</span>,</span>
 <span>                      package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 </div>

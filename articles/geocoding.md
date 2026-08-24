@@ -165,8 +165,8 @@ geocode(addr, method = c("nar", "nar_interpolate"), con = con)$match_method
 `"nar"` alone keeps only the addresses NAR actually carries, which is
 the right choice when a false position is worse than no position. The
 default pair adds interpolation, and on a 5,000-address sample of real
-Corporations Canada registered offices that lifts coverage from 84.9% to
-89.1%.
+Corporations Canada registered offices that lifts coverage from 87.9% to
+92.4%.
 
 Interpolation is deliberately conservative. It uses the **same side of
 the street only** — pooling both sides costs a median 35.2 m against 4.2
@@ -175,8 +175,13 @@ on a side rather than continuing the run’s spacing, which scores a
 respectable 15.1 m median but a 237 m 90th percentile. Those rows come
 back `none`.
 
-There are further tiers below: `"rqa"`, which is offline and
-Quebec-only, and `"bc"` and `"nrcan"`, which call online services.
+There are further tiers below: `"rqa"`, offline and Quebec-only;
+`"rnf"`, offline and national, which interpolates along the road network
+instead of along NAR’s own addresses; and `"bc"`, `"nrcan"` and `"qc"`,
+which call online services. `"rqa"` and `"rnf"` both need an import of
+their own first, and
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+says so up front if you name one that is not there.
 
 ## Constraining the search
 
@@ -478,6 +483,76 @@ the attribution, which
 [`rqa_attribution()`](https://mountainmath.github.io/cangeocode/reference/rqa_attribution.md)
 returns.
 
+## The road network file
+
+The single largest thing left unplaced is an address whose street is not
+in NAR at all — a subdivision built since the last release, a road NAR
+never carried. Statistics Canada’s **Road Network File** has every
+street in the country, with an address range on each side of each
+segment, and
+[`rnf_import()`](https://mountainmath.github.io/cangeocode/reference/rnf_import.md)
+loads it into the same database in tables of its own:
+
+``` r
+
+rnf_import()   # a ~340 MB download, once
+```
+
+Once imported, `"rnf"` is available as a tier. It is offline and
+national, and it belongs **after** interpolation — a point placed
+between two known civic numbers beats one placed along a range:
+
+``` r
+
+geocode(addresses, method = c("nar", "nar_interpolate", "rnf"))
+```
+
+On the 5,000 filings above that takes coverage from 92.4% to **94.3%**:
+93 of the 379 the offline pair gives up on, a quarter of the residual
+and the largest recovery any tier here offers.
+
+``` r
+
+new_streets <- c("1435 Celebration Dr, Pickering, ON L1W 0C4",
+                 "192037A TWP RD 665, Athabasca County, AB T0A 0M0",
+                 "1545 Maley Dr, Sudbury, ON P3A 4R7")
+
+geocode(new_streets, method = c("nar", "nar_interpolate"), con = con)$match_method
+#> [1] "none" "none" "none"
+
+geocode(new_streets, method = c("nar", "nar_interpolate", "rnf"), con = con) |>
+  select(match_method, n_matches, uncertainty_m, lon, lat)
+#>       match_method n_matches uncertainty_m        lon      lat
+#> 1 rnf_interpolated         1       95.0000  -79.07905 43.83198
+#> 2 rnf_interpolated         1      413.7086 -112.78776 54.74719
+#> 3    rnf_ambiguous         3            NA         NA       NA
+```
+
+The third row is the tier **refusing**. When more than one segment of
+that name in that municipality has a range containing the number, there
+is no way to tell which one was meant, so `match_method` is
+`rnf_ambiguous`, `n_matches` says how many were in contention, and no
+coordinate comes back. That is where this file’s gross errors live —
+ambiguous rows run a 90th percentile of 1.7 km against 108 m for the
+rest — and the refusal costs 7 rows in 5,000.
+
+It is a coarse tier and says so. `uncertainty_m` is
+`max(95, 0.35 × len_m)` and is never 0: the position is a fraction along
+a centreline, offset 13 m to the correct side, not a building. Against
+200,000 NAR building points it lands a median 24.3 m away — about six
+times worse than `nar_interpolate`, which is why it sits below it — with
+a 90th percentile of 93.3 m. Filter on `uncertainty_m` rather than
+treating every row alike; the second row above is a township road long
+enough that the tier admits to 414 m.
+
+One caution the file itself cannot give you: its ranges carry **no
+provenance flag**, so an observed range and one the file imputed are the
+same bytes. Everything quoted here comes from measuring the file against
+NAR, which is also why the tier is worth less than the overlap suggests
+— checked against the filer’s own postal code, rows the tier recovers
+sit a median 149 m from their urban FSA centroid against 60 m for rows
+NAR also placed. The addresses NAR cannot place are genuinely harder.
+
 ## The national geolocator
 
 `"nrcan"` is the other online tier, backed by NRCan’s
@@ -572,19 +647,27 @@ DBI::dbDisconnect(con)
 
 Measured on 5,000 Corporations Canada registered offices,
 [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
-places 89.1% with the default methods. The 10.8% that does not resolve
-breaks down roughly as: 3.7% whose street is not in NAR anywhere in the
+places 92.4% with the default methods, and 94.3% with `"rnf"` appended.
+The ceiling for a NAR-only pathway was put at around 93% and is
+essentially met, so what headroom is left is in the tiers that reach
+outside NAR rather than in NAR itself.
+
+When the residual was last decomposed it stood at 10.8%, and it broke
+down roughly as: 3.7% whose street is not in NAR anywhere in the
 province, 3.8% where the street exists but the civic number could not be
 reached even by interpolation, 1.4% that never parsed, and a remainder
 where the street exists under a municipality that did not match. The
-ceiling for a NAR-only pathway is therefore around 93%.
+parser has since removed a third of that residual and the road network
+file eats into the first bucket by construction, so read the ranking
+rather than the shares.
 
-Two notes ship with the package and carry the measurements behind every
+The notes that ship with the package carry the measurements behind every
 figure quoted here, along with what is not built yet:
 
 ``` r
 
 file.show(system.file("notes", "geocoding-status.md", package = "cangeocode"))
+file.show(system.file("notes", "road-network-file.md", package = "cangeocode"))
 file.show(system.file("notes", "address-normalization-status.md",
                       package = "cangeocode"))
 ```

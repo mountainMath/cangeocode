@@ -25,19 +25,24 @@ con <- nar_connection()
 ``` r
 
 DBI::dbListTables(con)
-#> [1] "Addresses"    "Locations"    "MunAlias"     "PostalMun"    "RqaAddresses"
-#> [6] "RqaStreets"   "Streets"      "nar_metadata"
+#>  [1] "Addresses"    "Locations"    "MunAlias"     "PostalMun"    "RnfSegments" 
+#>  [6] "RnfStreets"   "RqaAddresses" "RqaStreets"   "Streets"      "nar_metadata"
 ```
 
 Two of those are NAR’s addresses and locations; `MunAlias`, `PostalMun`
 and `Streets` are gazetteers
 [`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
-builds at import. `RqaAddresses` and `RqaStreets` appear only if
-[`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md)
-has been run — they are Quebec’s own register, kept beside NAR rather
-than merged into it, and
+builds at import. The rest are companion sources, present only if their
+own import has been run and kept beside NAR rather than merged into it:
+`RqaAddresses` and `RqaStreets` are Quebec’s own register
+([`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md)),
+and `RnfSegments` and `RnfStreets` are Statistics Canada’s road network
+file
+([`rnf_import()`](https://mountainmath.github.io/cangeocode/reference/rnf_import.md)),
+which carries street centrelines with an address range on each side
+rather than addresses.
 [`vignette("geocoding")`](https://mountainmath.github.io/cangeocode/articles/geocoding.md)
-covers what they are for.
+covers what each is for.
 
 **`Addresses`** has one row per civic address — the street name and
 number, the mailing address, the municipality, the postal code, and the
