@@ -252,3 +252,59 @@ test_that("an authoritative constraint must be length 1 or length(x)", {
 test_that("within rejects a shape it cannot read", {
   expect_error(nar_geocode_bounds("somewhere", 4326, NULL), "length-4 numeric")
 })
+
+test_that("a matched record reports its own postal code, not the input's", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  g <- geocode("4001 King Edward Ave W, Vancouver, BC", con = con)
+
+  # The string carried no postal code, so the parsed column stays empty. The
+  # two columns are not two attempts at the same thing: POSTAL_CODE is what was
+  # said and match_postal_code is what was found.
+  expect_true(is.na(g$POSTAL_CODE))
+  expect_equal(g$match_postal_code, "V6S1N3")
+
+  # An address NAR holds without coordinates still has a postal code, so the
+  # tier that reports nar_no_geometry reports one too.
+  g3 <- geocode("4003 Musqueam Dr, Southlands, BC", con = con,
+                method = "nar")
+  expect_equal(g3$match_method, "nar_no_geometry")
+  expect_equal(g3$match_postal_code, "V6N3T7")
+})
+
+test_that("only a tier that matched a record fills the postal code", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # Interpolation places the address between two records rather than resolving
+  # to one, and the flanks need not share a postal code, so it reports none.
+  g <- geocode("150 Grant St, Vancouver, BC", con = con)
+  expect_equal(g$match_method, "nar_interpolated")
+  expect_true(is.na(g$match_postal_code))
+
+  expect_true(is.na(geocode("1 Nowhere Rd, Vancouver, BC", con = con)$match_postal_code))
+})
+
+test_that("candidates that disagree on the postal code report none", {
+  skip_if_no_duckdb_spatial()
+  # The fixture's `units` knob adds a second unit at addr1's civic number, at
+  # the same point but in a different postal code -- the split-building case.
+  con <- local_nar_connection(units = TRUE)
+
+  # n_matches still says 1, because there is only one *point*; the postal code
+  # is a separate question, and nothing in the query says which unit was meant.
+  g <- geocode("4001 King Edward Ave W, Vancouver, BC", con = con)
+  expect_equal(g$match_method, "nar_building")
+  expect_equal(g$n_matches, 1L)
+  expect_true(is.na(g$match_postal_code))
+})
+
+test_that("the postal-code aggregate folds a missing value into the agreement", {
+  # count(DISTINCT) skips NULLs, so without the coalesce a set of one value and
+  # one NULL would report the value as agreed.
+  sql <- nar_geocode_postal_sql("c.PC")
+  expect_match(sql, "count\\(DISTINCT coalesce\\(c\\.PC, ''\\)\\)")
+  expect_match(sql, "nullif\\(min\\(coalesce\\(c\\.PC, ''\\)\\), ''\\)")
+  expect_match(sql, "AS match_postal_code$")
+})

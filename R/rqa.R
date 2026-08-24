@@ -396,6 +396,7 @@ nar_geocode_tier_rqa <- function(res, out, probe, todo, con, bounds = "") {
   i <- hit$row_id
   out$match_method[i] <- rqa_method_label(hit$POS_QUALITY)
   out$n_matches[i]    <- as.integer(hit$n_points)
+  out$match_postal_code[i] <- hit$match_postal_code
   out$x[i]            <- hit$x
   out$y[i]            <- hit$y
   base <- ifelse(out$match_method[i] == "rqa_building", 0, NA_real_)
@@ -448,7 +449,7 @@ rqa_geocode_sql <- function(probe, bounds = "") {
   borough <- "replace(strip_accents(upper(coalesce(a.BOROUGH, ''))), '.', '')"
   sprintf("
     WITH cand AS (
-      SELECT p.row_id, a.RQA_ID, a.POS_QUALITY, a.x, a.y
+      SELECT p.row_id, a.RQA_ID, a.POS_QUALITY, a.POSTAL_CODE, a.x, a.y
         FROM %1$s p
         JOIN RqaAddresses a
           ON a.MATCH_FOLD = p.match_fold
@@ -472,8 +473,10 @@ rqa_geocode_sql <- function(probe, bounds = "") {
     )
     SELECT b.row_id, b.POS_QUALITY, b.x, b.y,
            count(DISTINCT c.x::VARCHAR || ',' || c.y::VARCHAR) AS n_points,
-           max(sqrt((c.x - b.x)^2 + (c.y - b.y)^2)) AS spread_m
+           max(sqrt((c.x - b.x)^2 + (c.y - b.y)^2)) AS spread_m,
+           %5$s
       FROM best b
       JOIN cand c USING (row_id)
-     GROUP BY ALL", probe, mun, borough, bounds)
+     GROUP BY ALL", probe, mun, borough, bounds,
+          nar_geocode_postal_sql("c.POSTAL_CODE"))
 }

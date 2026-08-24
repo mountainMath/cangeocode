@@ -32,7 +32,8 @@ outside the database}
 }
 \value{
 A data frame with one row per row of `res`, carrying `ADDR_GUID`,
-`match_method`, `uncertainty_m`, `n_matches`, `x` and `y`
+`match_method`, `uncertainty_m`, `n_matches`, `match_postal_code`, `x` and
+`y`
 }
 \description{
 Each tier is offered only the rows its predecessors left

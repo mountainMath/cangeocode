@@ -92,6 +92,38 @@ hands back the `OFFICIAL_*` spelling — without the fold, `24 Sussex Dr, Ottawa
 (The type and direction columns are uppercase in both families, so the fold is redundant there
 and kept for uniformity.)
 
+**`match_postal_code` is an aggregate over the candidate set, not a column read off the row
+that was returned**, and that distinction is the whole of it. NAR carries one row per address,
+so a civic number with units contributes many rows to `cand`; the tier already picks one of
+them for its coordinates, and picking one of them for a postal code as well would be a coin
+flip wherever a building's units do not share one. Measured: 98.6% of civic numbers carry a
+single postal code, but the 1.4% that do not are **4.2% of addresses**, because a building
+large enough to split across postal codes is large. So `nar_geocode_postal_sql()` reports the
+value only when every candidate agrees and `NULL` otherwise, and it folds `NULL` to `''`
+first — `count(DISTINCT)` skips nulls, so without the fold a set that is half missing would
+report the half that had a value as unanimous.
+
+The column is deliberately **separate from `POSTAL_CODE`** rather than filling it. `POSTAL_CODE`
+is `normalize_address()`'s output — what the input string said — and normalization is a
+first-class objective here, so a parsed field that silently acquires values from the database
+would stop being a parse. Coalescing the two would be worse than either: the result would be
+provenance-free.
+
+Only the tiers that resolve to a record fill it: `nar` (all three of its labels, including
+`nar_no_geometry` — an address NAR holds without coordinates still has a postal code) and
+`rqa`. **It then survives whichever tier ends up placing the row, exactly as `ADDR_GUID` does**,
+which is the same "unplaced is `is.na(x)`" rule read from the other end: `5491 Route 11,
+Brantville NB` comes back `nar_interpolated` *and* carries `E9H2A8`, because the exact tier
+matched the record and NAR had no coordinates for it. A row interpolated with no such hit, an
+`rnf` row and every online answer leave it `NA` **on purpose** — the interpolation flanks are
+two different civic numbers that need not share a postal code, and a value copied from one of
+them would be indistinguishable in the output from a looked-up one.
+
+A postal code in the *input* is not allowed to break a tie either. `100 Queen St W, Toronto,
+ON M5H 2N2` reports nothing, though the string names one of the two NAR carries (`M5H2N1` and
+`M5H2N2`): the input is what the address claims, and letting it select among candidates would
+turn `match_postal_code` into a confirmation of the input rather than a lookup.
+
 Coordinates are built in `sf` from the returned `x`/`y` rather than through `collect_nar()`,
 because these are freshly computed values rather than a stored geometry column; the storage
 CRS is still read from the database with `nar_crs()`, and `sf` handles the axis order that

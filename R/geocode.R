@@ -184,6 +184,35 @@ nar_blockface_uncertainty_m <- function() 176
 #' did not pin to a municipality -- and `uncertainty_m` is then widened to the
 #' distance from the point returned to the furthest rejected candidate.
 #'
+#' @section Two postal codes: the result carries two postal-code columns and
+#' they answer different questions. `POSTAL_CODE` comes from
+#' [normalize_address()] and is **what the input string said** -- `NA` when it
+#' said nothing, which is the usual case for an address typed without one.
+#' `match_postal_code` is **what the matched record carries**, and it is filled
+#' in from the source rather than from the input.
+#'
+#' Only the tiers that match a record can fill it: the `nar` tier
+#' (`nar_building`, `nar_blockface` and `nar_no_geometry` alike -- an address
+#' NAR holds without coordinates still has a postal code) and the `rqa` tier.
+#' It then **survives whichever tier ends up placing the row**, exactly as
+#' `ADDR_GUID` does, so a `nar_interpolated` row carries a postal code when the
+#' exact tier found the record first and NAR simply had no coordinates for it.
+#' A row interpolated without such a hit, an `rnf_interpolated` row and every
+#' online answer leave it `NA`: none of them resolve to a record with a postal
+#' code of its own, an interpolated point sits between two addresses that may
+#' not share one, and guessing which flank to copy would produce a value
+#' indistinguishable from a looked-up one.
+#'
+#' It is also `NA` when the candidates disagree. NAR holds one row per address,
+#' so a civic number with units contributes many rows, and 1.4% of civic numbers
+#' -- 4.2% of addresses, since the buildings this happens to are large -- span
+#' more than one postal code. The tier does not match on unit, so where those
+#' rows disagree there is nothing in the query that says which of them was
+#' meant, and reporting one of them would be a coin flip. `100 Queen St W,
+#' Toronto` is one: NAR carries it as `M5H2N1` and `M5H2N2` both. A postal code
+#' in the *input* does not break the tie either, since it is what the address
+#' claims rather than something the query established.
+#'
 #' @param x A character vector of address strings, or a data frame of already
 #' parsed components as returned by [normalize_address()]. Passing the data
 #' frame lets you parse once and geocode repeatedly, or edit a parse before
@@ -225,8 +254,11 @@ nar_blockface_uncertainty_m <- function() 176
 #' Unused when `method` names no online tier.
 #' @return A data frame with one row per input, carrying every column
 #' [normalize_address()] returns plus `ADDR_GUID`, `match_method`,
-#' `uncertainty_m`, `n_matches`, and either `lon`/`lat` or an `sf` geometry
-#' column.
+#' `uncertainty_m`, `n_matches`, `match_postal_code`, and either `lon`/`lat` or
+#' an `sf` geometry column. `POSTAL_CODE` is the *parsed input* -- what the
+#' address string itself said, or `NA` when it said nothing --  while
+#' `match_postal_code` is what the matched record carries; see the section
+#' below.
 #' @export
 #' @examples
 #' \dontrun{
@@ -305,7 +337,7 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
                             bounds = nar_geocode_bounds_sql(bounds),
                             bounds_geom = bounds, auth_mun = !is.null(mun), ...)
   out <- cbind(res, hits[, c("ADDR_GUID", "match_method", "uncertainty_m",
-                             "n_matches")])
+                             "n_matches", "match_postal_code")])
 
   nar_geocode_geometry(out, hits$x, hits$y, con, crs = crs, geometry = geometry)
 }
@@ -375,7 +407,8 @@ nar_geocode_geometry <- function(out, x, y, con, crs = 4326, geometry = FALSE) {
 #' @param auth_mun Whether `MUN_NAME` is the caller's authoritative value
 #' @param ... Passed to the online tiers; see [geocode()] on how they are split
 #' @return A data frame with one row per row of `res`, carrying `ADDR_GUID`,
-#' `match_method`, `uncertainty_m`, `n_matches`, `x` and `y`
+#' `match_method`, `uncertainty_m`, `n_matches`, `match_postal_code`, `x` and
+#' `y`
 #' @keywords internal
 nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
                               bounds = "", bounds_geom = NULL,
@@ -385,6 +418,7 @@ nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
                     match_method  = rep("none", n),
                     uncertainty_m = rep(NA_real_, n),
                     n_matches     = rep(0L, n),
+                    match_postal_code = rep(NA_character_, n),
                     x             = rep(NA_real_, n),
                     y             = rep(NA_real_, n),
                     stringsAsFactors = FALSE)
@@ -498,6 +532,7 @@ nar_geocode_tier_nar <- function(out, probe, todo, con, bounds = "") {
   out$match_method[i] <- ifelse(located, paste0("nar_", exact$geom_source),
                                 "nar_no_geometry")
   out$n_matches[i]    <- as.integer(exact$n_points)
+  out$match_postal_code[i] <- exact$match_postal_code
   out$x[i]            <- exact$x
   out$y[i]            <- exact$y
   # The ambiguity widening: pmax, so a blockface match that is also ambiguous
@@ -666,19 +701,45 @@ nar_geocode_exact_sql <- function(probe, bounds = "") {
     )
     SELECT b.row_id, b.ADDR_GUID, b.geom_source, b.x, b.y,
            count(DISTINCT c.x::VARCHAR || ',' || c.y::VARCHAR) AS n_points,
-           max(sqrt((c.x - b.x)^2 + (c.y - b.y)^2)) AS spread_m
+           max(sqrt((c.x - b.x)^2 + (c.y - b.y)^2)) AS spread_m,
+           %2$s
       FROM best b
       JOIN cand c USING (row_id)
      GROUP BY ALL",
     nar_geocode_candidates(
       probe,
-      "p.row_id, a.ADDR_GUID, a.geom_source, a.x, a.y",
+      "p.row_id, a.ADDR_GUID, a.geom_source, a.x, a.y, a.MAIL_POSTAL_CODE",
       "\n         AND a.CIVIC_NO = p.civic
          -- A suffix that was written has to be honoured -- 990A and 990 are
          -- different addresses -- but one that was not is left unconstrained,
          -- since the great majority of NAR rows carry no suffix at all.
          AND (p.suffix = '' OR upper(coalesce(a.CIVIC_NO_SUFFIX, '')) = p.suffix)",
-      bounds))
+      bounds),
+    nar_geocode_postal_sql("c.MAIL_POSTAL_CODE"))
+}
+
+#' The postal code of the record that was matched
+#'
+#' @description An aggregate over the *candidate* set rather than a column read
+#' off the row that was returned, and that is the whole point of it. NAR carries
+#' one row per address, so a civic number with units contributes many rows to
+#' `cand`; the tier picks one of them for its coordinates, and picking one of
+#' them for a postal code as well would be a coin flip wherever the units of a
+#' building do not share one. They usually do -- 98.6% of civic numbers in NAR
+#' carry a single postal code -- but the 1.4% that do not are 4.2% of addresses,
+#' since a building large enough to split across postal codes is large.
+#'
+#' So the value is reported only when every candidate agrees, and is `NULL`
+#' otherwise. The empty-string fold makes a missing postal code participate in
+#' that agreement rather than being skipped by `count(DISTINCT)`: a set that is
+#' half `NULL` reports nothing, not the half that had a value.
+#' @param col The postal-code column, qualified with the candidate alias
+#' @return A SQL fragment, aliased `match_postal_code`
+#' @keywords internal
+nar_geocode_postal_sql <- function(col) {
+  sprintf("CASE WHEN count(DISTINCT coalesce(%1$s, '')) = 1
+                THEN nullif(min(coalesce(%1$s, '')), '') END AS match_postal_code",
+          col)
 }
 
 #' The interpolation query
