@@ -30,11 +30,15 @@ nar_address_header <- function(blockface = FALSE) {
 # offset from the even one. It is opt-in because every other test in the suite
 # counts the rows in this table.
 nar_address_rows <- function(blockface = FALSE, run = FALSE, qc = FALSE) {
+  # PROV_CODE is the SGC code, as it is in the release: it is what MUN_KEY is
+  # built from, and the road network file spells its own municipality key with
+  # the same code, so a fixture that said "BC" here would make the two
+  # unjoinable in exactly the place the join has to be tested.
   base <- function(guid, civic, x, y,
                    street = "KING EDWARD", type = "AVE", dir = "W",
                    mail_mun = "VANCOUVER", postal = "V6S1N3") {
     c(sub("addr", "loc", guid), guid, "", civic, "", street, type, dir,
-      "BC", "Vancouver", "Vancouver", "CY", "CV", street, type, dir,
+      "59", "Vancouver", "Vancouver", "CY", "CV", street, type, dir,
       mail_mun, "BC", postal, "", "", "", "", "", "", x, y, "1", "1")
   }
   rows <- list(base("addr1", "4001", "4012046.46456561", "2006868.65510961"),

@@ -70,6 +70,16 @@ reference:
   - rqa_import
   - rqa_attribution
 
+- title: The road network file
+  desc: >
+    Import Statistics Canada's Road Network File into the same database
+    alongside NAR, in tables of its own. Optional, national, and what the
+    `"rnf"` tier of `geocode()` reads: it places a civic number along the street
+    segment whose address range contains it, which reaches streets NAR does not
+    carry at all.
+  contents:
+  - rnf_import
+
 articles:
 - title: Geocoding
   navbar: Geocoding

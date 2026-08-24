@@ -546,30 +546,69 @@ geolocator README names for bulk use, and asking is the honest step before any l
 
 ## Not built yet, in the order the measurements justify
 
-### 1. Statistics Canada Road Network File (RNF)
+### 1. Statistics Canada Road Network File (RNF) — **built, 2026-08-23**
 
-Product **92-500-X**, annual, reference date 2025-01-01, latest release 2025-06-18,
-available as shp/gml/gdb/gpkg under the Statistics Canada Open Licence. Its CRS is
-**EPSG:3347 — identical to this package's storage CRS**, so no reprojection is needed at
-import.
+`rnf_import()` and the `"rnf"` tier ship in `R/rnf.R`. Everything below is the measurement
+that justified building it and the shape the recommendation took; the tier implements both
+conditions. **What has not been done is re-measuring the shipped tier end to end** — the
+figures below come from `data-raw/probe_rnf.R`'s own interpolation, not from `geocode()`,
+so treat them as the design target rather than as a report on what the tier returns. Rerun
+stage 4 against the tier before quoting any of them as delivered.
 
-The address-range fields are `AFL_VAL`/`ATL_VAL` (from/to, left) and `AFR_VAL`/`ATR_VAL`
-(right), alongside `NGD_UID, NAME, TYPE, DIR, CSDUID_L/R, CSDNAME_L/R, PRUID_L/R, RANK,
-CLASS`. This would address the 3.7% of addresses whose street is absent from NAR entirely.
+Product **92-500-X**, annual, reference date 2025-01-01, latest release 2025-06-18, under the
+Statistics Canada Open Licence. Its CRS is **EPSG:3347 — identical to this package's storage
+CRS**, so no reprojection is needed at import. The address-range fields are `AFL_VAL`/`ATL_VAL`
+(from/to, left) and `AFR_VAL`/`ATR_VAL` (right). This is the pathway for the 3.7% of addresses
+whose street is absent from NAR entirely.
 
-**The catch, and it is the design problem:** the ranges are partial — observed for some
-segments, imputed for others, absent for the rest — and **the record layout carries no
-provenance flag**, so a range cannot be told apart from a guess by reading the file. The
-proposed remedy is to validate RNF ranges against NAR building points at import time and
-store the outcome, which turns an unknowable into a measured one and gives the tier an
-uncertainty figure comparable to the ones above. DuckDB's spatial extension has
-`ST_LineInterpolatePoint`, `ST_LineSubstring`, `ST_LineLocatePoint`, `ST_Length`, `ST_Read`
-and `ST_Azimuth`; `ST_OffsetCurve` is absent, so the left/right offset from the centreline
-has to be done with azimuth plus trigonometry.
+The catch was that the ranges are partial — observed for some segments, imputed for others,
+absent for the rest — and **the record layout carries no provenance flag**, so a range cannot be
+told apart from a guess by reading the file. **That has now been measured against NAR rather
+than reasoned about**, and the file, the tier's coverage, its accuracy and its uncertainty figure
+are all written up in
+[`road-network-file.md`](road-network-file.md) with `data-raw/probe_rnf.R` to reproduce them.
+The headline numbers:
 
-Version discovery would need an `rvest` scraper of the same shape as
-`available_nar_versions()`. Guessing the download URL does not work — both
-`lrnf000r25a_e.zip` and the `.gpkg.zip` form redirect to an HTML landing page.
+* **89.7%** of NAR civic numbers fall inside the range RNF claims for the side the house is
+  actually on — the provenance proxy the flag does not provide. The geometrically derived side
+  agrees with the range's parity 94.2% of the time against 7% for the other side, so RNF's
+  `L`/`R` and its digitizing direction need no flip.
+* **71.7% of named segments carry a range**, from NS at 89.2% down to SK at 36.6%.
+* Interpolating with a 5% end setback and a 13 m side offset lands **p50 24.3 m / p90 93.3 m**
+  from NAR's own building point — about six times worse than `nar_interpolate` at the median, so
+  the tier belongs below it and above `nar_blockface`. The setback and offset are worth ~10 m at
+  the median, which is the correction `nrcan-geolocator.md` predicted would be most of the
+  geolocator's own 33 m.
+* On the same 5,000-filing draw the residual above is decomposed from, **the pathway places 96 of
+  the 379 unplaced filings — 25.3% of the residual, 92.4% → 94.3%**, against the `"nrcan"` tier's
+  8.1%. The largest recovery any tier has offered.
+* **But accuracy on the overlap does not transfer to the residual.** Checked against the filing's
+  own postal code — which the pathway never reads — the recovered rows sit p50 151 m from their
+  FSA centroid against 41 m for rows NAR also placed, 85% within 500 m against 97%, and three of
+  those 46 urban-FSA rows are placed >2 km wrong. (Rural FSAs are excluded from that comparison,
+  and the *baseline* is why: rows NAR placed itself sit p50 2,503 m from a rural centroid, so the
+  measure has no resolution there.) The cause is **ambiguity, not imputation**:
+  rows where more than one same-named segment in the CSD contains the number run p90 1678 m with
+  11.7% over 1 km, against p90 108 m and 0.1% for the rest.
+
+**It was built with two conditions**, both of which the measurement forced: refuse when
+`n_matches > 1` (which costs 9 of the 96 rows and removes the entire gross-error tail — the tier
+labels those `rnf_ambiguous` and returns the count without a coordinate),
+and report `uncertainty_m = max(95, 0.35 × len_m)`, which covers 91.7% overall and 93.1% of
+segments over 600 m where a flat 110 m covers 90.4% and 67.2%. Per-segment validation against NAR
+stored at import time — the original proposal — remains the better filter than any global rate.
+
+Two import facts that cost time to establish: the download URL *can* be constructed, as
+`…/2011/geo/RNF-FRR/files-fichiers/lrnf000r<YY><t>_e.zip`, but **only the shapefile (`a`) is
+published for every release** — the GeoPackage resolves for 2025 alone, so an importer that
+prefers it breaks on the archive. And **13 features are CircularStrings in the GeoPackage**,
+which DuckDB's spatial extension refuses in a way that fails the whole read — but the shapefile
+format cannot express one, so it spells the same 2,251,726 features as plain LINESTRINGs and no
+WKB-dropping workaround is needed. Two independent reasons for the same choice. Version
+discovery was expected to want an `rvest` scraper of
+`www150.statcan.gc.ca/n1/en/catalogue/92-500-X`, which lists the issues as `92-500-X<year>001`;
+`rnf_latest_release()` HEAD-probes the constructed URLs backwards from the current year instead,
+which needs no HTML and cannot be broken by a page redesign.
 
 ### 2. Street or municipality centroid as a last resort
 

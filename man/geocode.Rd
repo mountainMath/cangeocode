@@ -40,7 +40,7 @@ length-4 numeric `c(xmin, ymin, xmax, ymax)`, interpreted in `crs` unless it
 carries its own. **Authoritative**, and applied to every tier.}
 
 \item{method}{Tiers to try, in priority order: any of `"nar"`, `"rqa"`,
-`"nar_interpolate"`, `"bc"`, `"nrcan"` and `"qc"`. Default
+`"nar_interpolate"`, `"rnf"`, `"bc"`, `"nrcan"` and `"qc"`. Default
 `c("nar", "nar_interpolate")`, which is the offline pair. See the section
 below.}
 
@@ -95,6 +95,15 @@ one answered:
   positional-quality class rather than one label. Only `rqa_building` is a
   building placement, and it is the only one that reports an
   `uncertainty_m`. See [rqa_import()].
+* **`rnf_interpolated`** -- answered by the `rnf` tier: the civic number
+  fell inside the address range Statistics Canada's road network file gives
+  for one side of one street segment, and the address is placed along that
+  segment. See [rnf_import()].
+* **`rnf_ambiguous`** -- the `rnf` tier found the civic number in the ranges
+  of **several** segments and refused to choose between them. No coordinates,
+  and `n_matches` says how many were in contention. It is reported rather
+  than silently dropped because the whole of that tier's gross-error tail is
+  these rows; see the tier description below.
 * **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
   **`bc_locality`** -- answered by the `bc` tier. See [bc_geocode()].
 * **`nrcan`** -- answered by the `nrcan` tier. One value rather than several,
@@ -127,6 +136,17 @@ position, so the order is what decides which answer wins:
   with 7% of them more than 500 m out -- for most of the rest.
 * **`"nar_interpolate"`** -- place a civic number NAR does not carry between
   its known neighbours. Answers `nar_interpolated`.
+* **`"rnf"`** -- interpolate along Statistics Canada's **Road Network
+  File**, which has to be imported once with [rnf_import()] and lives beside
+  `Addresses` rather than in it. Offline, national, and it answers for
+  streets NAR does not carry at all -- which is what separates it from
+  `"nar_interpolate"`, whose flanking civics have to come from NAR itself. It
+  belongs **after `"nar_interpolate"`**: where both can answer, NAR's own
+  neighbours are about six times more accurate. On a 5,000-address sample of
+  business filings it placed a quarter of what the offline pair left
+  unplaced, the largest recovery any tier here has offered, and **it refuses
+  whenever more than one segment matches**, which is where its accuracy comes
+  from rather than a nicety.
 * **`"bc"`** -- ask the Province of BC's [Address Geocoder][bc_geocode()].
   British Columbia only, and **this makes one network request per unplaced BC
   row**; nothing contacts it unless the tier is named. The constraints are
@@ -206,6 +226,11 @@ positional error this package's method introduces, relative to NAR's own
 building point.** It is 0 for `nar_building`, 176 for `nar_blockface`, and
 half the distance between the two flanking civics for `nar_interpolated`.
 
+For `rnf_interpolated` it is `max(95, 0.35 * len_m)` in the segment's length,
+which is two-part because the error is: a short block is dominated by the
+setback and the side offset, which do not shrink with it, and a long one by
+how far along the block the range put the house, which does scale.
+
 That last figure is measured, and it holds across scales: the ratio of error
 to flanking span has a 90th percentile of 0.50 in every span bucket from
 under 50 m to over 2 km (0.496--0.522). So a 40 m gap between neighbours
@@ -237,6 +262,10 @@ geocode(addresses, method = c("nar", "nar_interpolate", "bc"))
 
 # Quebec's own register, offline, after one rqa_import().
 geocode(addresses, method = c("nar", "rqa", "nar_interpolate"))
+
+# The road network file reaches streets NAR does not carry, after one
+# rnf_import().
+geocode(addresses, method = c("nar", "nar_interpolate", "rnf"))
 
 # NRCan's geolocator is national, so it can back up the whole country.
 geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"))

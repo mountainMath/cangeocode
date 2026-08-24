@@ -113,7 +113,9 @@ test_that("`method` is validated, deduplicated, and order-preserving", {
   expect_equal(nar_geocode_methods(c("nar", "nar_i")),
                c("nar", "nar_interpolate"))
 
-  expect_error(nar_geocode_methods("rnf"), 'Unknown geocoding method "rnf"')
+  expect_equal(nar_geocode_methods(c("nar", "rnf")), c("nar", "rnf"))
+
+  expect_error(nar_geocode_methods("osm"), 'Unknown geocoding method "osm"')
   expect_error(nar_geocode_methods(character()), "must be one or more of")
   expect_error(nar_geocode_methods(1), "must be one or more of")
 })
