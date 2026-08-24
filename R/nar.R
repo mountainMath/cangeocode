@@ -87,6 +87,7 @@ nar_connection <- function(version="latest", provinces=NULL, refresh=FALSE) {
       message("Using cached NAR data version ",version," from ",exdir,".")
     }
 
+    nar_session_release(nar_path)
     nar_import_release(nar_path, exdir, version, plan)
 
     if (downloaded) unlink(exdir, recursive=TRUE)

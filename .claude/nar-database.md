@@ -183,3 +183,40 @@ returned without contacting StatCan at all. If lookup fails while offline and `v
 it warns and falls back to the newest cached database rather than erroring. `refresh = TRUE` always
 goes to the network.
 
+
+## `R/nar_session.R` — the parked connection
+
+`geocode()` and `reverse_geocode()` used to open a connection when `con` was `NULL` and close it
+again on the way out, which charged every call ~0.5 s for the file open, the `LOAD spatial` and the
+TEMP macro definitions. They now call `nar_session_use()`, which **parks the connection in
+`.nar_session` and never closes it**. `open_nar()` / `close_nar()` are the explicit ends of the same
+mechanism; neither is required, and `nar_connection()` still hands out a connection the caller owns.
+
+Four things are load-bearing:
+
+- **Validity is asked, not remembered.** `nar_session_state()` calls `DBI::dbIsValid()` on every
+  read and clears the slot when it fails. A caller can `dbDisconnect()` the object `open_nar()`
+  returned, and the duckdb driver can be finalized, neither of which this package hears about. A
+  dead handle must be indistinguishable from no handle, or the next call errors instead of
+  reopening.
+- **The stored version key is read back out of `nar_metadata`, not taken from the request.** A
+  connection opened as `"latest"` is stored as `2026-06`, so a later call naming that release
+  explicitly matches it. Without this, `version = "2026-06"` would re-resolve and reopen a database
+  that is already open.
+- **`"latest"` matches whatever is parked, deliberately.** The point of parking is to stop asking
+  StatCan what "latest" means; a release published mid-session must not swap the database out from
+  under a running script. Moving releases requires naming one or calling `close_nar()` — this is a
+  documented behaviour, not an optimization detail, and `nar_session_matches()` is where it lives.
+- **Every write path must call `nar_session_release()` first.** The parked connection is read-only,
+  which coexists with other readers and blocks writers — including the package's own imports. It is
+  called in `nar_connection()` before `nar_import_release()`, and in `rqa_import()` and
+  `rnf_import()` immediately before each opens the file read-write. A new import path that forgets
+  it will deadlock against a connection the same session opened implicitly, which is a failure that
+  only appears after a `geocode()` call and so does not show up in a fresh session.
+
+Package state is not test state: `local_nar_env()` calls `close_nar()` on entry and defers another,
+or a connection parked against a `withr` temp database outlives the directory it points at.
+
+`normalize_address()` and `address_key()` are deliberately **not** session-aware. Their `con` is not
+a cost knob — it is what switches the street gazetteer on — so picking up a parked connection would
+make the parse depend on whether something else had geocoded earlier in the session.

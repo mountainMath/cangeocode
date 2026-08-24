@@ -132,6 +132,11 @@ local_nar_env <- function(exdir, env = parent.frame()) {
   withr::local_options(list(nar_exdir = exdir), .local_envir = env)
   testthat::local_mocked_bindings(available_nar_versions = nar_fake_versions,
                                   .package = "cangeocode", .env = env)
+  # The session connection is package state, not test state: one left parked
+  # against a temp database would be handed to the next test after that
+  # directory is gone.
+  close_nar()
+  withr::defer(close_nar(), envir = env)
   cache
 }
 

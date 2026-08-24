@@ -52,8 +52,12 @@ reference:
 - title: The NAR database
   desc: >
     Download and open a National Address Repository release, and get query
-    results back as `sf`.
+    results back as `sf`. `geocode()` and `reverse_geocode()` open a connection
+    themselves when they are not given one, so these are for naming a release,
+    querying the database directly, or controlling when the connection is held.
   contents:
+  - open_nar
+  - close_nar
   - nar_connection
   - nar_provinces
   - available_nar_versions

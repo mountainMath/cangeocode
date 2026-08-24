@@ -24,13 +24,29 @@ addresses is useful whether or not a coordinate comes out at the end.
 ``` r
 library(cangeocode)
 library(dplyr)
-
-con <- nar_connection()
 ```
 
-Passing `con` is optional — every entry point opens its own connection if you
-do not — but reusing one across several calls saves reopening a 5 GB database
-each time.
+No database connection is opened here, and none of the `geocode()` calls below
+take one. `geocode()` opens its own when `con` is not supplied — and, since
+opening a 5 GB database costs about half a second, keeps it open for the next
+call rather than closing it. So a loop over ten thousand addresses pays for the
+connection once, and nothing has to be threaded through to make that happen.
+
+`open_nar()` opens that connection up front and `close_nar()` ends it. Neither
+is required; they are there to name a release other than the latest without
+repeating it at every call site, and to control when the database is held —
+an import needs the write lock, so `rqa_import()`, `rnf_import()` and
+`nar_connection(refresh = TRUE)` close the connection themselves and say so.
+
+Once a connection is open, `version = "latest"` means *the release that is
+open*, not whatever StatCan has published since. Name a version to move to a
+different one.
+
+Passing `con` explicitly still does something the implicit connection cannot:
+it says unambiguously which database answered. And for `normalize_address()` it
+is not about cost at all — there `con` is the switch that turns NAR's street
+gazetteer on, so it changes the answer rather than the speed. That is why the
+one example below that opens a connection is a parsing example.
 
 ## The basic call
 
@@ -51,7 +67,7 @@ addresses <- c(
   "PO Box 40, Iqaluit, NU"
 )
 
-g <- geocode(addresses, con = con)
+g <- geocode(addresses)
 
 g |>
   mutate(input = substr(input, 1, 38),
@@ -130,7 +146,7 @@ often a street name that was never pinned to a municipality — and
 
 
 ``` r
-geocode(c("100 Main St", "100 Main St, Moncton, NB"), con = con) |>
+geocode(c("100 Main St", "100 Main St, Moncton, NB")) |>
   select(input, match_method, n_matches, uncertainty_m)
 #>                      input match_method n_matches uncertainty_m
 #> 1              100 Main St nar_building       139       4043776
@@ -153,9 +169,9 @@ offered only the rows the ones before it left without a position, so the order
 ``` r
 addr <- "9999 Jasper Ave, Edmonton, AB"
 
-geocode(addr, method = "nar", con = con)$match_method
+geocode(addr, method = "nar")$match_method
 #> [1] "none"
-geocode(addr, method = c("nar", "nar_interpolate"), con = con)$match_method
+geocode(addr, method = c("nar", "nar_interpolate"))$match_method
 #> [1] "nar_interpolated"
 ```
 
@@ -184,8 +200,7 @@ returned row too.
 
 
 ``` r
-geocode("100 Queen St W, Vancouver, BC", prov = "ON", mun = "Toronto",
-        con = con) |>
+geocode("100 Queen St W, Vancouver, BC", prov = "ON", mun = "Toronto") |>
   select(input, PROV_ABVN, MUN_NAME, match_method, lon, lat)
 #>                           input PROV_ABVN MUN_NAME match_method      lon     lat
 #> 1 100 Queen St W, Vancouver, BC        ON  Toronto nar_building -79.3825 43.6515
@@ -212,7 +227,7 @@ downtown <- c(-123.13, 49.28, -123.11, 49.29)
 
 geocode(c("1055 W Georgia St, Vancouver, BC",
           "4001 W King Edward Ave, Vancouver, BC"),
-        within = downtown, con = con) |>
+        within = downtown) |>
   select(input, match_method)
 #>                                   input match_method
 #> 1      1055 W Georgia St, Vancouver, BC nar_building
@@ -264,12 +279,16 @@ different constraints without paying for the parse each time.
 
 
 ``` r
+con <- nar_connection()
+
 norm <- normalize_address("29 HPCKING AVE, SAULT STE. MARIE, ON", con = con)
 norm$STREET_NAME
 #> [1] "Hocking"
 
-geocode(norm, con = con)$match_method
+geocode(norm)$match_method
 #> [1] "nar_building"
+
+DBI::dbDisconnect(con)
 ```
 
 Normalization is a task in its own right, and `vignette("address-normalization")`
@@ -287,7 +306,7 @@ distances come out in metres.
 
 
 ``` r
-pts <- geocode(addresses[1:4], geometry = TRUE, con = con)
+pts <- geocode(addresses[1:4], geometry = TRUE)
 
 sf::st_geometry(pts)
 #> Geometry set for 4 features 
@@ -308,8 +327,8 @@ check on a coordinate you just derived.
 
 
 ``` r
-geocode("100 Queen St W, Toronto, ON", geometry = TRUE, con = con) |>
-  reverse_geocode(match_radius = 50, con = con) |>
+geocode("100 Queen St W, Toronto, ON", geometry = TRUE) |>
+  reverse_geocode(match_radius = 50) |>
   select(address, dist) |>
   head(3)
 #> # A tibble: 3 × 2
@@ -336,7 +355,7 @@ and nothing reaches it unless you call one of these functions.
 ``` r
 bc <- geocode(c("525 Superior St, Victoria, BC",
                 "800 Robson St, Vancouver, BC",
-                "3800 Finnerty Rd, Victoria, BC"), con = con)
+                "3800 Finnerty Rd, Victoria, BC"))
 
 bc_validate(bc) |>
   mutate(bc_dist_m = round(bc_dist_m, 1)) |>
@@ -365,10 +384,10 @@ hard <- c("2912 West Broadway, Vancouver, BC",
           "1 Nesters Rd, Whistler, BC",
           "7165 Nakiska Dr, Vernon, BC")
 
-geocode(hard, con = con)$match_method
+geocode(hard)$match_method
 #> [1] "none" "none" "none"
 
-geocode(hard, method = c("nar", "nar_interpolate", "bc"), con = con) |>
+geocode(hard, method = c("nar", "nar_interpolate", "bc")) |>
   select(input, match_method, uncertainty_m)
 #>                               input match_method uncertainty_m
 #> 1 2912 West Broadway, Vancouver, BC     bc_civic            20
@@ -435,7 +454,7 @@ is first reached.
 ``` r
 geocode(c("3190 Boulevard Laurier Est, Saint-Hyacinthe QC",
           "1255 Rue Peel, Montreal QC"),
-        method = c("nar", "rqa", "nar_interpolate"), con = con) |>
+        method = c("nar", "rqa", "nar_interpolate")) |>
   select(match_method, uncertainty_m, lon, lat)
 #>   match_method uncertainty_m       lon      lat
 #> 1 rqa_geocoded            NA -72.91517 45.63606
@@ -482,10 +501,10 @@ new_streets <- c("1435 Celebration Dr, Pickering, ON L1W 0C4",
                  "192037A TWP RD 665, Athabasca County, AB T0A 0M0",
                  "1545 Maley Dr, Sudbury, ON P3A 4R7")
 
-geocode(new_streets, method = c("nar", "nar_interpolate"), con = con)$match_method
+geocode(new_streets, method = c("nar", "nar_interpolate"))$match_method
 #> [1] "none" "none" "none"
 
-geocode(new_streets, method = c("nar", "nar_interpolate", "rnf"), con = con) |>
+geocode(new_streets, method = c("nar", "nar_interpolate", "rnf")) |>
   select(match_method, n_matches, uncertainty_m, lon, lat)
 #>       match_method n_matches uncertainty_m        lon      lat
 #> 1 rnf_interpolated         1       95.0000  -79.07905 43.83198
@@ -525,7 +544,7 @@ that can answer before a NAR release has been imported, and the one that covers
 provinces a single-province import does not hold.
 
 ``` r
-geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"), con = con)
+geocode(addresses, method = c("nar", "nar_interpolate", "nrcan"))
 ```
 
 It has the same trap as the BC service, in a sharper form: **it always answers,
@@ -588,11 +607,6 @@ OpenStreetMap's Canadian addresses are concentrated in cities with municipal
 open-data imports, and no national comparison has been run, which is why an
 `osm` row reports `uncertainty_m` as `NA` rather than a number someone made up.
 See `?osm_geocode`.
-
-
-``` r
-DBI::dbDisconnect(con)
-```
 
 ## Where this falls short
 

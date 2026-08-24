@@ -188,7 +188,7 @@ a **building** point two kilometres away, which is not a rounding difference or
 a coarse fallback but a different part of the city:
 
 ```{r andrews_geocode}
-misplaced <- geocode("7 Saint Andrews Gdns, Toronto, ON", con = con)
+misplaced <- geocode("7 Saint Andrews Gdns, Toronto, ON")
 
 misplaced |> select(match_method, n_matches, uncertainty_m, lon, lat)
 ```
@@ -198,7 +198,7 @@ say about this answer says it is good. Asking what is actually at that
 coordinate is what gives it away:
 
 ```{r andrews_reverse}
-reverse_geocode(c(misplaced$lon, misplaced$lat), match_radius = 150, con = con) |>
+reverse_geocode(c(misplaced$lon, misplaced$lat), match_radius = 150) |>
   count(OFFICIAL_STREET_NAME, sort = TRUE)
 ```
 
@@ -264,7 +264,7 @@ register and genuinely absent from NAR:
 gap <- c("5510 Saint-Jacques, Montreal, QC", "1650 Chabanel, Montreal, QC",
          "431 Courtemanche, Montreal-Est, QC", "45 Gamelin, Gatineau, QC")
 
-geocode(gap, method = c("nar", "nar_interpolate"), con = con) |>
+geocode(gap, method = c("nar", "nar_interpolate")) |>
   select(input, match_method, uncertainty_m)
 ```
 
@@ -274,7 +274,7 @@ point for an address NAR has never seen. With Quebec's own register imported,
 all four resolve against the register instead:
 
 ```{r gap_rqa}
-geocode(gap, method = c("nar", "rqa", "nar_interpolate"), con = con) |>
+geocode(gap, method = c("nar", "rqa", "nar_interpolate")) |>
   select(match_method, uncertainty_m, lon, lat)
 ```
 
@@ -308,7 +308,7 @@ Not every bad answer is a bad record. A great many are a question that did not
 identify one address:
 
 ```{r ambiguity}
-geocode(c("100 Main St", "100 Main St, Moncton, NB"), con = con) |>
+geocode(c("100 Main St", "100 Main St, Moncton, NB")) |>
   select(input, match_method, n_matches, uncertainty_m)
 ```
 

@@ -64,10 +64,8 @@ reverse_geocode <- function(x, match_radius = 100, output = "multiple", source =
     stop("Please specify exactly one valid output type.")
   }
   if (source == "nar") {
-    if (is.null(con)) {
-      con <- nar_connection(version = version)
-      on.exit(DBI::dbDisconnect(con), add = TRUE)
-    }
+    # Kept open for the next call; see nar_session_use() and close_nar().
+    if (is.null(con)) con <- nar_session_use(version)
 
     # Reproject straight to the CRS the addresses are stored in. Going via
     # lon/lat would transform twice and pin the intermediate step to a datum the

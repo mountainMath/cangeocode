@@ -258,10 +258,9 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
                     crs = 4326, version = "latest", con = NULL, ...) {
   method <- nar_geocode_methods(method)
 
-  if (is.null(con)) {
-    con <- nar_connection(version = version)
-    on.exit(DBI::dbDisconnect(con), add = TRUE)
-  }
+  # Not closed on the way out: an unsupplied `con` resolves to the session's
+  # connection, which the next call reuses. close_nar() is what ends it.
+  if (is.null(con)) con <- nar_session_use(version)
   # Checked before any parsing, not when the tier is first reached: whether a
   # tier runs at all depends on what its predecessors left unplaced, so a
   # missing import would otherwise surface on one batch and not the next.

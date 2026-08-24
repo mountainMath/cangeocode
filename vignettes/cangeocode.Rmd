@@ -42,12 +42,21 @@ asks whether you want all of it — see below.
 library(cangeocode)
 library(dplyr)
 
-con <- nar_connection()
+con <- open_nar()
 ```
 
 `nar_connection()` is both the installer and the accessor: it downloads and
 imports on first use for a given version, and simply opens the file after that.
-Passing it around beats reopening the database, which matters below.
+`open_nar()` calls it and keeps the connection for the rest of the session, so
+nothing below has to be handed a database. It returns the connection too, which
+is what the direct database queries further down use.
+
+Even that is optional. `reverse_geocode()` and `geocode()` open a connection
+themselves when they are not given one, and keep it open the same way — the
+first call is half a second slower and every call after it is not. `open_nar()`
+is worth calling to do the opening at a moment of your choosing, or to name a
+release other than the latest. `close_nar()` ends it, and every entry point
+still takes an explicit `con` if you would rather own the connection yourself.
 
 ### Downloading one province instead of the country
 
@@ -97,7 +106,7 @@ within the match radius, nearest first.
 
 
 ``` r
-reverse_geocode(c(-123.2, 49.25), match_radius = 100, con = con) |>
+reverse_geocode(c(-123.2, 49.25), match_radius = 100) |>
   select(address, dist, geom_source)
 #> # A tibble: 16 × 3
 #>    address                                        dist geom_source
@@ -130,7 +139,7 @@ are standing on.
 
 
 ``` r
-reverse_geocode(c(-123.2, 49.25), match_radius = 25, con = con) |>
+reverse_geocode(c(-123.2, 49.25), match_radius = 25) |>
   select(address, dist)
 #> # A tibble: 1 × 2
 #>   address                                   dist
@@ -147,7 +156,7 @@ name it with `crs`, or pass an `sf` object and let its own CRS speak for itself.
 
 ``` r
 pt <- sf::st_sfc(sf::st_point(c(-123.2, 49.25)), crs = 4326)
-reverse_geocode(pt, match_radius = 50, con = con) |>
+reverse_geocode(pt, match_radius = 50) |>
   select(address, dist)
 #> # A tibble: 5 × 2
 #>   address                                   dist
@@ -166,14 +175,14 @@ reverse_geocode(pt, match_radius = 50, con = con) |>
 
 ``` r
 # A single formatted string for the closest address
-reverse_geocode(c(-123.2, 49.25), output = "address", con = con)
+reverse_geocode(c(-123.2, 49.25), output = "address")
 #> [1] "4176 W KING EDWARD AVE, VANCOUVER V6S1N3"
 ```
 
 
 ``` r
 # One row, every NAR column, for the closest address
-reverse_geocode(c(-123.2, 49.25), output = "components", con = con) |>
+reverse_geocode(c(-123.2, 49.25), output = "components") |>
   select(CIVIC_NO, MAIL_STREET_NAME, MAIL_MUN_NAME, MAIL_POSTAL_CODE, BU_USE)
 #> # A tibble: 1 × 5
 #>   CIVIC_NO MAIL_STREET_NAME MAIL_MUN_NAME MAIL_POSTAL_CODE BU_USE
@@ -188,9 +197,9 @@ so check for that rather than assuming a data frame comes back.
 
 
 ``` r
-result <- reverse_geocode(c(-135, 65), match_radius = 100, con = con)
-#> Warning in reverse_geocode(c(-135, 65), match_radius = 100, con = con): No
-#> address found within 100 m radius.
+result <- reverse_geocode(c(-135, 65), match_radius = 100)
+#> Warning in reverse_geocode(c(-135, 65), match_radius = 100): No address found
+#> within 100 m radius.
 is.null(result)
 #> [1] TRUE
 ```
@@ -204,7 +213,7 @@ something else.
 
 ``` r
 matches <- reverse_geocode(c(-123.2, 49.25), match_radius = 150,
-                           geometry = TRUE, con = con)
+                           geometry = TRUE)
 sf::st_crs(matches)$input
 #> [1] "EPSG:3347"
 ```
@@ -260,7 +269,7 @@ will do:
 
 
 ``` r
-reverse_geocode(c(-123.2, 49.25), match_radius = 150, con = con) |>
+reverse_geocode(c(-123.2, 49.25), match_radius = 150) |>
   filter(geom_source == "building") |>
   select(address, dist) |>
   head(3)
@@ -277,16 +286,16 @@ all and can never be returned by a radius query.
 
 ## Geocoding many points
 
-`reverse_geocode()` opens its own connection when you do not give it one, which
-is fine once and wasteful in a loop. Open the connection yourself and pass it
-in — the function leaves a caller-supplied connection open, so one `con` serves
-the whole batch.
+Nothing special is needed for a batch. `reverse_geocode()` reuses the session
+connection, so the loop below opens the database once no matter how many points
+go through it — and would do the same with no `open_nar()` above it, opening on
+the first point and holding it for the rest.
 
 
 ``` r
 points <- list(c(-123.2, 49.25), c(-79.4, 43.66), c(-73.58, 45.51))
 
-lapply(points, \(p) reverse_geocode(p, output = "address", con = con)) |>
+lapply(points, \(p) reverse_geocode(p, output = "address")) |>
   unlist()
 #> [1] "4176 W KING EDWARD AVE, VANCOUVER V6S1N3"
 #> [2] "563 SPADINA CRES, TORONTO M5S2J7"        
@@ -324,7 +333,7 @@ scratch.
 
 
 ``` r
-DBI::dbDisconnect(con)
+close_nar()
 ```
 
 ## Where to go next

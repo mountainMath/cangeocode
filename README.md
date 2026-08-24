@@ -504,17 +504,28 @@ alternative here, and it covers Quebec only.
 
 ## Querying the database directly
 
-Every entry point takes a `con` argument. Reusing one connection across many
-calls is much faster than letting each call open its own:
+Every entry point takes a `con` argument, and none of them need it.
+`geocode()` and `reverse_geocode()` open a connection when `con` is not
+supplied and keep it open for the next call, so a loop pays for the database
+once rather than once per address:
 
 ``` r
-con <- nar_connection()
-addresses <- lapply(points, \(p) reverse_geocode(p, output = "address", con = con))
-DBI::dbDisconnect(con)
+addresses <- lapply(points, \(p) reverse_geocode(p, output = "address"))
 ```
 
-That same connection is a plain DBI connection, so the full address table is
-open to dplyr — filtered, joined, and aggregated inside DuckDB:
+`open_nar()` does that up front — worth it to name a release other than the
+latest, or a province subset, without repeating it at every call site — and
+`close_nar()` ends it. Neither is required, and an import that needs to write
+to the database closes the connection itself.
+
+``` r
+open_nar(version = "2025-12")
+geocode("100 Queen St W, Toronto, ON")
+close_nar()
+```
+
+A connection you open yourself is a plain DBI connection, so the full address
+table is open to dplyr — filtered, joined, and aggregated inside DuckDB:
 
 ``` r
 library(dplyr)

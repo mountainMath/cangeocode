@@ -188,6 +188,7 @@ rnf_import <- function(version = "latest", release = "latest", refresh = FALSE,
   src <- rnf_resolve_shp(shp, release)
   on.exit(if (src$temporary) unlink(src$dir, recursive = TRUE), add = TRUE)
 
+  nar_session_release(nar_path)
   con <- DBI::dbConnect(duckdb::duckdb(dbdir = nar_path))
   on.exit(try(DBI::dbDisconnect(con, shutdown = TRUE), silent = TRUE), add = TRUE)
   nar_load_spatial(con)
