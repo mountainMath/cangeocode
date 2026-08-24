@@ -100,7 +100,7 @@
       </dl></div><div class="section level2">
       <h2 id="external-geocoders">External geocoders<a class="anchor" aria-label="anchor" href="#external-geocoders"></a></h2>
 
-      <div class="section-desc"><p>Online services that place an address without a local database: NRCan’s national geolocator, and the Province of British Columbia’s Address Geocoder, the latter also a second source to check a result against. Both make network requests.</p></div>
+      <div class="section-desc"><p>Online services that place an address without a local database: NRCan’s national geolocator, the Province of British Columbia’s Address Geocoder, Quebec’s geocoder over the Repertoire quebecois des adresses, the two provincial ones also a second source to check a result against, and the OpenStreetMap geocoder the Government of Canada hosts. All make network requests, and the OpenStreetMap one returns data under a share-alike licence – read <code><a href="../reference/osm_geocode.html">osm_geocode()</a></code> before using its results.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -127,10 +127,31 @@
 
         </dt>
         <dd>Check NAR geocoding results against the BC Address Geocoder</dd>
+
+        <dt>
+
+          <code><a href="qc_geocode.html">qc_geocode()</a></code>
+
+        </dt>
+        <dd>Geocode Quebec addresses with the Quebec government geocoder</dd>
+
+        <dt>
+
+          <code><a href="qc_validate.html">qc_validate()</a></code>
+
+        </dt>
+        <dd>Check NAR geocoding results against the Quebec government geocoder</dd>
+
+        <dt>
+
+          <code><a href="osm_geocode.html">osm_geocode()</a></code>
+
+        </dt>
+        <dd>Geocode Canadian addresses with OpenStreetMap data</dd>
       </dl></div><div class="section level2">
       <h2 id="reverse-geocoding">Reverse geocoding<a class="anchor" aria-label="anchor" href="#reverse-geocoding"></a></h2>
 
-      <div class="section-desc"><p>Find the addresses nearest a coordinate.</p></div>
+      <div class="section-desc"><p>Find the addresses nearest a coordinate. <code><a href="../reference/reverse_geocode.html">reverse_geocode()</a></code> is NAR-backed and local; <code><a href="../reference/qc_reverse_geocode.html">qc_reverse_geocode()</a></code> is the one online reverse geocoder here, and it covers Quebec only.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -143,6 +164,13 @@
 
         </dt>
         <dd>Reverse Geocode Coordinates to Address</dd>
+
+        <dt>
+
+          <code><a href="qc_reverse_geocode.html">qc_reverse_geocode()</a></code>
+
+        </dt>
+        <dd>Reverse geocode Quebec coordinates with the Quebec government geocoder</dd>
       </dl></div><div class="section level2">
       <h2 id="the-nar-database">The NAR database<a class="anchor" aria-label="anchor" href="#the-nar-database"></a></h2>
 
@@ -180,6 +208,45 @@
 
         </dt>
         <dd>Collect a NAR table as an sf object</dd>
+      </dl></div><div class="section level2">
+      <h2 id="the-quebec-address-register">The Quebec address register<a class="anchor" aria-label="anchor" href="#the-quebec-address-register"></a></h2>
+
+      <div class="section-desc"><p>Import the Repertoire quebecois des adresses into the same database alongside NAR, in tables of its own. Optional, Quebec only, and what the <code>"rqa"</code> tier of <code><a href="../reference/geocode.html">geocode()</a></code> reads. The register is CC-BY 4.0 where the rest of this package’s data is OGL, so anything published from it has to carry <code><a href="../reference/rqa_attribution.html">rqa_attribution()</a></code>.</p></div>
+
+      <dl></dl></div><div class="section level2">
+
+
+
+
+      <dl><dt>
+
+          <code><a href="rqa_import.html">rqa_import()</a></code>
+
+        </dt>
+        <dd>Import Quebec's address register beside NAR</dd>
+
+        <dt>
+
+          <code><a href="rqa_attribution.html">rqa_attribution()</a></code>
+
+        </dt>
+        <dd>Attribution required by the RQA licence</dd>
+      </dl></div><div class="section level2">
+      <h2 id="the-road-network-file">The road network file<a class="anchor" aria-label="anchor" href="#the-road-network-file"></a></h2>
+
+      <div class="section-desc"><p>Import Statistics Canada’s Road Network File into the same database alongside NAR, in tables of its own. Optional, national, and what the <code>"rnf"</code> tier of <code><a href="../reference/geocode.html">geocode()</a></code> reads: it places a civic number along the street segment whose address range contains it, which reaches streets NAR does not carry at all.</p></div>
+
+      <dl></dl></div><div class="section level2">
+
+
+
+
+      <dl><dt>
+
+          <code><a href="rnf_import.html">rnf_import()</a></code>
+
+        </dt>
+        <dd>Import Statistics Canada's Road Network File beside NAR</dd>
       </dl></div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>

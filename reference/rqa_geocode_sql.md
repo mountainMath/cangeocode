@@ -1,0 +1,38 @@
+# The RQA exact-match query
+
+The same shape as \[nar_geocode_exact_sql()\] and for the same reasons,
+with two differences that are not cosmetic.
+
+It joins on \`MATCH_FOLD\`, not on the plain name fold. The NAR tiers
+can afford the stricter key because \[normalize_address()\] has already
+resolved the name against NAR's own gazetteer and handed back NAR's
+spelling; RQA spells the same street its own way, and the addresses this
+tier exists for are precisely the ones the gazetteer could not resolve,
+because NAR does not carry them. Folding \`ST-\` to \`SAINT\`, the
+hyphen to a space and the particule into the name is what lets those
+still join.
+
+There is no \`MunAlias\` route. RQA has no alias set, so an
+authoritative \`mun\` is compared directly against the municipality and
+the borough both – \`Montreal\` has to reach \`Ville-Marie\`, and in RQA
+those are different columns rather than different names for one place.
+
+## Usage
+
+``` r
+rqa_geocode_sql(probe, bounds = "")
+```
+
+## Arguments
+
+- probe:
+
+  Name of the temp table holding the parsed components
+
+- bounds:
+
+  A spatial restriction from \[nar_geocode_bounds_sql()\], or \`""\`
+
+## Value
+
+A single SQL string

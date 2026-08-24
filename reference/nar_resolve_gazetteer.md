@@ -33,6 +33,13 @@ own: \`MAIL_STREET_NAME\` is empty for 957k addresses,
 \`OFFICIAL_STREET_NAME\` for 95, and where both exist they differ beyond
 case for a further 530k.
 
+When \[rqa_import()\] has been run, a \*\*second pass\*\* offers
+Quebec's own register the rows NAR could not resolve – and only those,
+so no answer that already worked can change. A match there comes back
+with \`parse_source = \\rqa\\\` rather than \`\\gazetteer\\\`, because
+the street was canonicalized against a register NAR does not carry it
+in, and a join against \`Addresses\` will still not find it.
+
 ## Usage
 
 ``` r
@@ -63,6 +70,6 @@ nar_resolve_gazetteer(res, con, threshold = 0.85, name_threshold = 0.9)
 
 ## Value
 
-\`res\` with matched rows replaced by their canonical NAR values,
+\`res\` with matched rows replaced by their canonical values,
 \`confidence\` set to the match score and \`parse_source\` set to
-\`"gazetteer"\`
+\`"gazetteer"\` or \`"rqa"\` according to which register answered

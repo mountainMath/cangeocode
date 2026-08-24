@@ -1,0 +1,36 @@
+# Is this response a transient failure worth re-sending?
+
+\*\*Precautionary, and not measured against this instance.\*\* The NRCan
+geolocator loses about one request in twelve to a clean HTTP 500 – see
+\[nar_nrcan_transient()\], where the measurement is – and eight probe
+requests against this host all came back 200, which establishes nothing
+either way at that sample size. The predicate is cheap and the failure
+mode it covers is the one every Lambda-fronted service has, so it is on
+by default and the note stays here rather than in a claim of
+reliability.
+
+Nominatim reports a bad request as a JSON \*\*object\*\* carrying
+\`error\`, where a successful search is an array. An object is therefore
+retried, which for a genuinely malformed query costs \`retries\`
+requests and settles it; a \`400\` status is not retried, because that
+is the same thing already labelled.
+
+An empty array is \*\*not\*\* transient, and here that matters more than
+it does for the geolocator: this service genuinely answers "nothing" –
+see \[nar_osm_candidates()\].
+
+## Usage
+
+``` r
+nar_osm_transient(resp)
+```
+
+## Arguments
+
+- resp:
+
+  A response object
+
+## Value
+
+\`TRUE\` if the request is worth re-sending

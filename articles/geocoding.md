@@ -175,7 +175,8 @@ on a side rather than continuing the run’s spacing, which scores a
 respectable 15.1 m median but a 237 m 90th percentile. Those rows come
 back `none`.
 
-There are two further tiers, `"bc"` and `"nrcan"`, further down.
+There are further tiers below: `"rqa"`, which is offline and
+Quebec-only, and `"bc"` and `"nrcan"`, which call online services.
 
 ## Constraining the search
 
@@ -415,6 +416,68 @@ not an address. Either way a rejected row keeps its score and its
 vanishing. See
 [`?bc_geocode`](https://mountainmath.github.io/cangeocode/reference/bc_geocode.md).
 
+## Quebec’s own register
+
+Quebec publishes its address register, the *Répertoire québécois des
+adresses*, in full — and it carries about 750,000 certified addresses
+more than NAR’s Quebec extract does.
+[`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md)
+loads it into the same database, in tables of its own:
+
+``` r
+
+rqa_import()   # a ~780 MB download, once
+```
+
+Once imported, `"rqa"` is available as a tier. It is offline, it only
+ever looks at rows that parsed to Quebec, and it belongs **before**
+interpolation:
+
+``` r
+
+geocode(addresses, method = c("nar", "rqa", "nar_interpolate"))
+```
+
+On 4,000 Corporations Canada filings with a Quebec address, that takes
+coverage from 88.5% to 90.1% — but the number to look at is a different
+one. The share placed on a *register* point rather than an interpolated
+one goes from 82.7% to **89.1%**. Of the 258 filings the tier places,
+only 62 were unplaced before; the other 196 were being interpolated
+between two neighbours and now carry the register’s own coordinate, a
+median of 26 m away. It costs nothing measurable, because the tier only
+ever sees the rows NAR left behind.
+
+It is not in the default `method`, because the tables only exist if you
+ran the import — and
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+will tell you so, up front, rather than when the tier is first reached.
+
+`match_method` reports the register’s own positional class, not one flat
+label:
+
+``` r
+
+geocode(c("3190 Boulevard Laurier Est, Saint-Hyacinthe QC",
+          "1255 Rue Peel, Montreal QC"),
+        method = c("nar", "rqa", "nar_interpolate"), con = con) |>
+  select(match_method, uncertainty_m, lon, lat)
+#>   match_method uncertainty_m       lon      lat
+#> 1 rqa_geocoded            NA -72.91517 45.63606
+#> 2 nar_building             0 -73.57239 45.49992
+```
+
+`rqa_building` means a building point, and gets `uncertainty_m = 0` for
+the same reason `nar_building` does. `rqa_geocoded`, `rqa_uncertain` and
+`rqa_lot` get `NA` — the register places 30% of these rows by a method
+it labels *incertaine* itself, and nothing here has measured what that
+is worth on the ground. The class is reported so you can filter on it.
+
+One condition: the register is **CC-BY 4.0**, where NAR is an open
+government licence. Anything published from these points has to carry
+the attribution, which
+[`rqa_attribution()`](https://mountainmath.github.io/cangeocode/reference/rqa_attribution.md)
+returns.
+
 ## The national geolocator
 
 `"nrcan"` is the other online tier, backed by NRCan’s
@@ -466,6 +529,39 @@ geocode;
 [`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
 is NAR-backed and runs locally. See
 [`?nrcan_geocode`](https://mountainmath.github.io/cangeocode/reference/nrcan_geocode.md).
+
+## OpenStreetMap, and why it is not a tier
+
+There is a third online service bound in this package, and it is
+deliberately not something `method` can name.
+[`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
+queries the [Nominatim](https://maps.canada.ca/nominatim/search)
+instance the Government of Canada hosts — not the volunteer-funded
+`nominatim.openstreetmap.org`, whose usage policy forbids bulk
+geocoding.
+
+``` r
+
+osm_geocode("990 Bute St, Vancouver, BC")
+```
+
+The reason it is a separate call rather than a tier is the licence, not
+the accuracy. OpenStreetMap data is ODbL: attribution plus share-alike,
+with obligations that attach to a derived database. Every other source
+here is under an Open Government Licence, and a default tier would fold
+a handful of ODbL rows into your result table and quietly change what
+you may do with the whole of it. So the choice is yours to make, and
+every row carries the service’s own `osm_licence` string.
+
+It behaves unlike the other two in one welcome respect: **it refuses.**
+Given an address it does not have, it returns nothing rather than a
+plausible substitution, and where it knows the street but not the civic
+number it says so rather than offering a point. What is not yet known is
+its coverage — OpenStreetMap’s Canadian addresses are concentrated in
+cities with municipal open-data imports, and no national comparison has
+been run, which is why an `osm` row reports `uncertainty_m` as `NA`
+rather than a number someone made up. See
+[`?osm_geocode`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md).
 
 ``` r
 

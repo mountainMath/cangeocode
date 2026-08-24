@@ -9,13 +9,21 @@ matching them to each other, not putting them on a map.
 Both are built on Statistics Canada’s [National Address
 Repository](https://www.statcan.gc.ca/en/lode/databases/nar) (NAR), a
 national list of civic addresses with coordinates, which the package
-imports into a local [DuckDB](https://duckdb.org) database.
+imports into a local [DuckDB](https://duckdb.org) database. Quebec’s own
+[Répertoire québécois des
+adresses](https://www.donneesquebec.ca/recherche/dataset/adresses-quebec)
+can be imported into the same database alongside it, in tables of its
+own.
 
 Everything runs on your own machine: no API keys, no rate limits, and no
 address ever leaves it. The exceptions are opt-in —
 `geocode(method = c(..., "bc"))` calls the Province of British
-Columbia’s public geocoder and `geocode(method = c(..., "nrcan"))` calls
-NRCan’s national one. Nothing contacts either unless you name it.
+Columbia’s public geocoder, `geocode(method = c(..., "qc"))` calls
+Quebec’s, `geocode(method = c(..., "nrcan"))` calls NRCan’s national
+one, and
+[`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
+calls the OpenStreetMap geocoder the Government of Canada hosts. Nothing
+contacts any of them unless you ask for it.
 
 ## Installation
 
@@ -96,11 +104,13 @@ Full reference and articles:
   — using the database with dplyr and `sf`
 - [Changelog](https://mountainmath.github.io/cangeocode/news/index.html)
 
-Two longer notes ship with the package and say what does *not* work yet,
-with the measurements behind each claim:
-`system.file("notes", "geocoding-status.md", package = "cangeocode")`
-and
-`system.file("notes", "address-normalization-status.md", package = "cangeocode")`.
+Longer notes ship with the package and say what does *not* work yet,
+with the measurements behind each claim.
+`system.file("notes", package = "cangeocode")` lists them; the two to
+start with are `geocoding-status.md` and
+`address-normalization-status.md`. `deepparse.md` measures the address
+parser against a purpose-built neural tagger, and is where the case for
+a trained model is made and rejected.
 
 ## Geocoding
 
@@ -164,10 +174,11 @@ geocode(addresses, method = c("bc", "nar"))             # prefer BC where it ans
 ```
 
 `"nar"` looks the civic number up directly and `"nar_interpolate"`
-places the ones NAR does not carry; `"bc"` asks the Province of BC’s
-geocoder and `"nrcan"` NRCan’s national one. The default is the offline
-pair; nothing reaches the network unless `"bc"` or `"nrcan"` is named,
-and both belong last in the list.
+places the ones NAR does not carry; `"rqa"` reads Quebec’s own address
+register, if you imported it; `"bc"` asks the Province of BC’s geocoder
+and `"nrcan"` NRCan’s national one. The default is the offline pair;
+nothing reaches the network unless `"bc"`, `"nrcan"` or `"qc"` is named,
+and those belong last in the list.
 
 ### Constraining the search
 
@@ -241,8 +252,13 @@ unparseable rows cannot all join to each other.
 is the readable counterpart, for writing a cleaned column back out.
 
 Measured on 5,000 real filings nobody cleaned, the parser extracts a
-civic number and street name from 98.8% and resolves 86.5% to an address
-NAR actually holds.
+civic number and street name from 98.9% and resolves 88.8% to an address
+NAR actually holds. In Quebec, running
+[`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md)
+adds a second gazetteer pass over the rows NAR could not settle, and
+gives the answer a second register to be confirmed against: 77.5% of
+Quebec filings resolve to a NAR address, 83.0% to one in NAR or Quebec’s
+own register.
 [`vignette("address-normalization")`](https://mountainmath.github.io/cangeocode/articles/address-normalization.md)
 has the rest of the numbers and the known limits.
 
@@ -312,9 +328,141 @@ and `min_score` (default 60) rejects what it scored badly. Rejected rows
 keep their `bc_score` and `bc_faults`, so you can see what was thrown
 away and why.
 
-This is the one path on which addresses leave your machine. Requests are
-throttled to be a good citizen of a free public service; register for an
-API key and pass it as `api_key` for anything large.
+Like the geolocator, this is a path on which addresses leave your
+machine. Requests are throttled to be a good citizen of a free public
+service; register for an API key and pass it as `api_key` for anything
+large.
+
+## Quebec: importing the address register
+
+Quebec’s own *Répertoire québécois des adresses* (RQA) carries about
+750,000 certified addresses more than NAR’s Quebec extract does.
+[`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md)
+loads it into the same DuckDB file, **in tables of its own** rather than
+into `Addresses`:
+
+``` r
+
+rqa_import()                                   # ~780 MB download, once
+geocode(addresses, method = c("nar", "rqa", "nar_interpolate"))
+```
+
+The `"rqa"` tier is offline, Quebec-only, and belongs *before*
+interpolation — a register point, however coarse, beats a point
+interpolated between two neighbours. It is not in the default `method`,
+because the tables only exist if you ran the import.
+
+On 4,000 Quebec business filings:
+
+|  | placed | placed on a *register* point |
+|----|---:|---:|
+| `c("nar", "nar_interpolate")` | 88.5% | 82.7% |
+| `c("nar", "rqa", "nar_interpolate")` | **90.1%** | **89.1%** |
+
+The second column is the point. Of the 258 filings the tier places, only
+62 were unplaced before — the other 196 were being interpolated between
+two neighbours, and now carry the register’s own coordinate instead, a
+median of 26 m away. It costs nothing measurable, since it only ever
+sees the rows NAR left behind.
+
+They stay separate on purpose. Keeping the two registers separately
+readable is the only reason any of the coverage above is measurable at
+all, and the rows RQA adds are positionally weaker than what NAR carries
+— 20.3% of them are building points against 26.9% register-wide, and
+30.0% are flagged `Incertaine`. So `match_method` reports the register’s
+own class (`rqa_building`, `rqa_geocoded`, `rqa_uncertain`, `rqa_lot`)
+and `uncertainty_m` is filled in only for `rqa_building`, where 0 means
+the same thing it means for NAR. Every imported row carries `IN_NAR`,
+and `RqaStreets` counts the addresses per street that NAR has no row
+for.
+
+**The register is CC-BY 4.0**, where everything else here is an open
+government licence. Anything published from these points has to carry
+the attribution, which
+[`rqa_attribution()`](https://mountainmath.github.io/cangeocode/reference/rqa_attribution.md)
+returns.
+
+See
+[`vignette("geocoding")`](https://mountainmath.github.io/cangeocode/articles/geocoding.md)
+and `inst/notes/quebec-addresses.md` for what the gap is made of and
+what importing it does and does not buy.
+
+## Quebec: a second geocoder, and reverse geocoding
+
+[`qc_geocode()`](https://mountainmath.github.io/cangeocode/reference/qc_geocode.md)
+binds the Ministère des Ressources naturelles et des Forêts’
+[geocoder](https://servicescarto.mrnf.gouv.qc.ca/pes/rest/services/Territoire/Adresse_Geocodage/GeocodeServer)
+over the *Répertoire québécois des adresses*. It covers Quebec only,
+needs no API key, and batches up to 1000 addresses per request.
+
+As a **last-resort tier**, for the Quebec addresses NAR cannot place:
+
+``` r
+
+geocode(addresses, method = c("nar", "nar_interpolate", "qc"))
+```
+
+On 600 Quebec addresses the NAR pathway placed 81.0%; the fallback took
+that to 83.3%, all of it at civic level.
+
+It also does **reverse geocoding**, which none of the other online
+services here do:
+
+``` r
+
+qc_reverse_geocode(-73.5672, 45.5017)
+#>                                    qc_address qc_postal  qc_city qc_dist_m
+#> 1 706 Boulevard René-Lévesque Ouest, Montréal    H3H2S1 Montréal       2.8
+#>         lon      lat
+#> 1 -73.56718 45.50168
+```
+
+**Treat
+[`qc_validate()`](https://mountainmath.github.io/cangeocode/reference/qc_validate.md)
+as a fallback check, not an independent one.** The service’s locators
+are named `RQA_Adresse` and `RQA_Rue`: it serves the Répertoire, which
+is also what NAR’s Quebec records are built from. Over 400 NAR Quebec
+addresses the median disagreement is 0.9 m — evidence that the two share
+an upstream, not that either is accurate.
+
+**A response from this service is not a match either**, and its
+`qc_score` is not a quality ranking: street-level answers score *higher*
+than civic ones, and the correlation between score and positional error
+is nil. `match_method` comes from which locator answered, and the
+returned address is re-parsed and compared against what you asked for
+before the row is accepted. Rejected rows keep `qc_locator`, `qc_score`
+and `qc_reject`, so you can see what was thrown away and why.
+
+## OpenStreetMap: Canada’s own Nominatim
+
+[`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
+binds the [Nominatim](https://maps.canada.ca/nominatim/search) instance
+the Government of Canada hosts — not the volunteer-funded
+`nominatim.openstreetmap.org`, whose usage policy forbids bulk
+geocoding. It needs no API key and no local database.
+
+``` r
+
+osm_geocode("990 Bute St, Vancouver, BC")
+```
+
+It is **not** one of
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)’s
+tiers, and the reason is the licence rather than the accuracy:
+OpenStreetMap data is ODbL, which carries attribution and share-alike
+obligations that attach to a derived database, where every other source
+in this package is under an Open Government Licence. Folding a few ODbL
+rows into a result table by default would quietly change what you may do
+with the whole table, so this one is an explicit call and each row
+carries the service’s own `osm_licence` string.
+
+The pleasant surprise is that it **refuses**. Where the other two
+services always answer, this one returns nothing for an address it does
+not have, and the street rather than a point when it has the street but
+not the number — so a result is far more likely to mean what it says.
+What is unmeasured is coverage: OpenStreetMap’s Canadian addresses are
+concentrated in cities with municipal open-data imports, and no national
+comparison has been run yet.
 
 ## Reverse geocoding
 
@@ -336,6 +484,10 @@ and other CRSs work too. `match_radius` and `dist` are in **metres**.
 `output` picks between all matches, the components of the closest one,
 or a single formatted address string, and `geometry = TRUE` returns an
 `sf` object.
+
+This is local and NAR-backed.
+[`qc_reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/qc_reverse_geocode.md)
+is the one online alternative here, and it covers Quebec only.
 
 ## Querying the database directly
 
@@ -388,8 +540,17 @@ publishes no accuracy figure. That is why `uncertainty_m = 0` means
 NAR is published by Statistics Canada under the [Statistics Canada Open
 Licence](https://www.statcan.gc.ca/en/reference/licence). The BC Address
 Geocoder is a service of the Province of British Columbia and carries
-its own terms, which its responses link to. This package is not
-affiliated with or endorsed by either.
+its own terms, which its responses link to. The *Répertoire québécois
+des adresses*, which
+[`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md)
+loads and
+[`qc_geocode()`](https://mountainmath.github.io/cangeocode/reference/qc_geocode.md)
+queries, is published by the Ministère des Ressources naturelles et des
+Forêts under [CC-BY 4.0](https://creativecommons.org/licenses/by/4.0/) —
+a different licence from the rest, and one that requires attribution;
+[`rqa_attribution()`](https://mountainmath.github.io/cangeocode/reference/rqa_attribution.md)
+returns it. This package is not affiliated with or endorsed by any of
+them.
 
 # Package index
 
@@ -420,9 +581,14 @@ deduplicating address lists, not only as a step towards a coordinate.
 ## External geocoders
 
 Online services that place an address without a local database: NRCan’s
-national geolocator, and the Province of British Columbia’s Address
-Geocoder, the latter also a second source to check a result against.
-Both make network requests.
+national geolocator, the Province of British Columbia’s Address
+Geocoder, Quebec’s geocoder over the Repertoire quebecois des adresses,
+the two provincial ones also a second source to check a result against,
+and the OpenStreetMap geocoder the Government of Canada hosts. All make
+network requests, and the OpenStreetMap one returns data under a
+share-alike licence – read
+[`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
+before using its results.
 
 - [`nrcan_geocode()`](https://mountainmath.github.io/cangeocode/reference/nrcan_geocode.md)
   : Geocode Canadian addresses with NRCan's geolocator
@@ -430,13 +596,26 @@ Both make network requests.
   : Geocode British Columbia addresses with the BC Address Geocoder
 - [`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md)
   : Check NAR geocoding results against the BC Address Geocoder
+- [`qc_geocode()`](https://mountainmath.github.io/cangeocode/reference/qc_geocode.md)
+  : Geocode Quebec addresses with the Quebec government geocoder
+- [`qc_validate()`](https://mountainmath.github.io/cangeocode/reference/qc_validate.md)
+  : Check NAR geocoding results against the Quebec government geocoder
+- [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
+  : Geocode Canadian addresses with OpenStreetMap data
 
 ## Reverse geocoding
 
 Find the addresses nearest a coordinate.
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+is NAR-backed and local;
+[`qc_reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/qc_reverse_geocode.md)
+is the one online reverse geocoder here, and it covers Quebec only.
 
 - [`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
   : Reverse Geocode Coordinates to Address
+- [`qc_reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/qc_reverse_geocode.md)
+  : Reverse geocode Quebec coordinates with the Quebec government
+  geocoder
 
 ## The NAR database
 
@@ -451,6 +630,33 @@ results back as `sf`.
   : Scrape availabe NAR versions from the StatCan website
 - [`collect_nar()`](https://mountainmath.github.io/cangeocode/reference/collect_nar.md)
   : Collect a NAR table as an sf object
+
+## The Quebec address register
+
+Import the Repertoire quebecois des adresses into the same database
+alongside NAR, in tables of its own. Optional, Quebec only, and what the
+`"rqa"` tier of
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+reads. The register is CC-BY 4.0 where the rest of this package’s data
+is OGL, so anything published from it has to carry
+[`rqa_attribution()`](https://mountainmath.github.io/cangeocode/reference/rqa_attribution.md).
+
+- [`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md)
+  : Import Quebec's address register beside NAR
+- [`rqa_attribution()`](https://mountainmath.github.io/cangeocode/reference/rqa_attribution.md)
+  : Attribution required by the RQA licence
+
+## The road network file
+
+Import Statistics Canada’s Road Network File into the same database
+alongside NAR, in tables of its own. Optional, national, and what the
+`"rnf"` tier of
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+reads: it places a civic number along the street segment whose address
+range contains it, which reaches streets NAR does not carry at all.
+
+- [`rnf_import()`](https://mountainmath.github.io/cangeocode/reference/rnf_import.md)
+  : Import Statistics Canada's Road Network File beside NAR
 
 # Articles
 

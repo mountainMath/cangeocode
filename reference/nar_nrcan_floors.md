@@ -10,7 +10,7 @@ type means "found the street, not the civic number" and is measurably
 worthless (p50 499 m, p90 11 km); \`Geoname\` answers are the service
 degrading to a populated place and are catastrophic (p50 133 km). 2. Its
 title must agree with the query, component by component – see
-\[nar_nrcan_agreement()\].
+\[nar_address_agreement()\].
 
 ## Usage
 

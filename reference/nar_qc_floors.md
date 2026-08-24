@@ -1,0 +1,44 @@
+# Apply the floors to the Quebec geocoder's answers
+
+Two floors, in the order they are cheapest to apply. First the locator:
+only \`RQA_Adresse\` resolved a civic number, so only it can be an
+address match – see \[nar_qc_precision()\]. Then the shared agreement
+test, \[nar_address_agreement()\], because the service answers with the
+address it matched and that answer can be put back into components and
+compared to the ones that were sent.
+
+## Usage
+
+``` r
+nar_qc_floors(loc, q)
+```
+
+## Arguments
+
+- loc:
+
+  Rows as \[nar_qc_locations()\] returns them
+
+- q:
+
+  Parsed components of the addresses that were sent
+
+## Value
+
+\`loc\` with \`match_method\`, \`uncertainty_m\` and \`qc_reject\` added
+
+## Why the answer is parsed without the gazetteer
+
+the same reason \[nar_nrcan_floors()\] does it, and it is not an
+oversight. The gazetteer exists to canonicalize a \*caller's\* loose
+input; letting it near the \*service's\* answer lets it rewrite that
+answer into the address that was asked for, which launders exactly the
+error the floor exists to catch.
+
+## What this service does that the others do not
+
+it \*\*refuses\*\*. Asked for \`Montreal\` alone, or for a street that
+does not exist, it returns \`Status = "U"\` and no point rather than
+degrading to a locality centroid the way the BC geocoder and the
+geolocator both do. So an answer here is already evidence, and the
+floors reject far less than they do for \`nrcan\`.

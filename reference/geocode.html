@@ -14,11 +14,28 @@ one answered:
 * **`nar_interpolated`** – the civic number is *not* in NAR, so the position
   is interpolated between the nearest known civic numbers of the same parity
   on either side of it. See the section below.
+* **`rqa_building`**, **`rqa_geocoded`**, **`rqa_uncertain`**, **`rqa_lot`**,
+  **`rqa_other`** – answered by the `rqa` tier, which carries Quebec's own
+  positional-quality class rather than one label. Only `rqa_building` is a
+  building placement, and it is the only one that reports an
+  `uncertainty_m`. See [rqa_import()].
+* **`rnf_interpolated`** – answered by the `rnf` tier: the civic number
+  fell inside the address range Statistics Canada's road network file gives
+  for one side of one street segment, and the address is placed along that
+  segment. See [rnf_import()].
+* **`rnf_ambiguous`** – the `rnf` tier found the civic number in the ranges
+  of **several** segments and refused to choose between them. No coordinates,
+  and `n_matches` says how many were in contention. It is reported rather
+  than silently dropped because the whole of that tier's gross-error tail is
+  these rows; see the tier description below.
 * **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
   **`bc_locality`** – answered by the `bc` tier. See [bc_geocode()].
 * **`nrcan`** – answered by the `nrcan` tier. One value rather than several,
   because only one class of geolocator answer survives its floors at all.
   See [nrcan_geocode()].
+* **`qc_address`** – answered by the `qc` tier. Also one value: the
+  service's other locator resolves a street rather than an address, and the
+  tier does not place a row from it. See [qc_geocode()].
 * **`not_covered`** – the address parsed to a province this database does
   not hold, so no tier could have matched it. Only a partial import (see the
   `provinces` argument of [nar_connection()]) ever produces this, and it is
@@ -38,11 +55,28 @@ one answered:
 * **`nar_interpolated`** – the civic number is *not* in NAR, so the position
   is interpolated between the nearest known civic numbers of the same parity
   on either side of it. See the section below.
+* **`rqa_building`**, **`rqa_geocoded`**, **`rqa_uncertain`**, **`rqa_lot`**,
+  **`rqa_other`** – answered by the `rqa` tier, which carries Quebec's own
+  positional-quality class rather than one label. Only `rqa_building` is a
+  building placement, and it is the only one that reports an
+  `uncertainty_m`. See [rqa_import()].
+* **`rnf_interpolated`** – answered by the `rnf` tier: the civic number
+  fell inside the address range Statistics Canada's road network file gives
+  for one side of one street segment, and the address is placed along that
+  segment. See [rnf_import()].
+* **`rnf_ambiguous`** – the `rnf` tier found the civic number in the ranges
+  of **several** segments and refused to choose between them. No coordinates,
+  and `n_matches` says how many were in contention. It is reported rather
+  than silently dropped because the whole of that tier's gross-error tail is
+  these rows; see the tier description below.
 * **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
   **`bc_locality`** – answered by the `bc` tier. See [bc_geocode()].
 * **`nrcan`** – answered by the `nrcan` tier. One value rather than several,
   because only one class of geolocator answer survives its floors at all.
   See [nrcan_geocode()].
+* **`qc_address`** – answered by the `qc` tier. Also one value: the
+  service's other locator resolves a street rather than an address, and the
+  tier does not place a row from it. See [qc_geocode()].
 * **`not_covered`** – the address parsed to a province this database does
   not hold, so no tier could have matched it. Only a partial import (see the
   `provinces` argument of [nar_connection()]) ever produces this, and it is
@@ -110,11 +144,28 @@ one answered:</p>
 * **`nar_interpolated`** – the civic number is *not* in NAR, so the position
   is interpolated between the nearest known civic numbers of the same parity
   on either side of it. See the section below.
+* **`rqa_building`**, **`rqa_geocoded`**, **`rqa_uncertain`**, **`rqa_lot`**,
+  **`rqa_other`** – answered by the `rqa` tier, which carries Quebec's own
+  positional-quality class rather than one label. Only `rqa_building` is a
+  building placement, and it is the only one that reports an
+  `uncertainty_m`. See [rqa_import()].
+* **`rnf_interpolated`** – answered by the `rnf` tier: the civic number
+  fell inside the address range Statistics Canada's road network file gives
+  for one side of one street segment, and the address is placed along that
+  segment. See [rnf_import()].
+* **`rnf_ambiguous`** – the `rnf` tier found the civic number in the ranges
+  of **several** segments and refused to choose between them. No coordinates,
+  and `n_matches` says how many were in contention. It is reported rather
+  than silently dropped because the whole of that tier's gross-error tail is
+  these rows; see the tier description below.
 * **`bc_site`**, **`bc_civic`**, **`bc_block`**, **`bc_street`**,
   **`bc_locality`** – answered by the `bc` tier. See [bc_geocode()].
 * **`nrcan`** – answered by the `nrcan` tier. One value rather than several,
   because only one class of geolocator answer survives its floors at all.
   See [nrcan_geocode()].
+* **`qc_address`** – answered by the `qc` tier. Also one value: the
+  service's other locator resolves a street rather than an address, and the
+  tier does not place a row from it. See [qc_geocode()].
 * **`not_covered`** – the address parsed to a province this database does
   not hold, so no tier could have matched it. Only a partial import (see the
   `provinces` argument of [nar_connection()]) ever produces this, and it is
@@ -172,8 +223,8 @@ carries its own. **Authoritative**, and applied to every tier.</p></dd>
 
 
 <dt id="arg-method">method<a class="anchor" aria-label="anchor" href="#arg-method"></a></dt>
-<dd><p>Tiers to try, in priority order: any of `"nar"`,
-`"nar_interpolate"`, `"bc"` and `"nrcan"`. Default
+<dd><p>Tiers to try, in priority order: any of `"nar"`, `"rqa"`,
+`"nar_interpolate"`, `"rnf"`, `"bc"`, `"nrcan"` and `"qc"`. Default
 `c("nar", "nar_interpolate")`, which is the offline pair. See the section
 below.</p></dd>
 
@@ -201,11 +252,14 @@ again before returning.</p></dd>
 
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>
 <dd><p>Passed to the online tiers named in `method`. `rate` is
-understood by both of them; `min_score` and `api_key` are [bc_geocode()]'s,
-as is anything else, which it forwards to its own service as a query
-parameter. [nrcan_geocode()] is given only the arguments it declares, so a
-BC-only argument passed alongside `"nrcan"` reaches the BC tier alone rather
-than erroring. Unused when `method` names no online tier.</p></dd>
+understood by all of them; `api_key` is [bc_geocode()]'s, as is anything
+else it does not recognize, which it forwards to its own service as a query
+parameter. [nrcan_geocode()] and [qc_geocode()] are each given only the
+arguments they declare, so a BC-only argument passed alongside `"nrcan"`
+reaches the BC tier alone rather than erroring. Note that `min_score` is
+understood by [bc_geocode()] and [qc_geocode()] both, and means different
+things to them – see [qc_geocode()] on why its score is not a ranking.
+Unused when `method` names no online tier.</p></dd>
 
 </dl></div>
     <div class="section level2">
@@ -222,29 +276,60 @@ order. Each tier is offered only the rows its predecessors left without a
 position, so the order is what decides which answer wins:</p>
 <p>* **`"nar"`** – look the civic number up in NAR directly. Answers
   `nar_building`, `nar_blockface` or `nar_no_geometry`.
+* **`"rqa"`** – look the civic number up in the **Repertoire quebecois des
+  adresses**, Quebec's own register, which has to be imported once with
+  [rqa_import()] and lives beside `Addresses` rather than in it. Quebec only,
+  offline, and it holds roughly 308,000 civic addresses NAR does not. It
+  belongs **after `"nar"` and before `"nar_interpolate"`**: a register point
+  beats an interpolated one, and NAR's own building point beats both. Placed
+  there it is worth about a third of Quebec's unplaceable tail outright and
+  replaces an interpolated guess – median 23 m from RQA's own coordinate,
+  with 7<!-- % of them more than 500 m out -- for most of the rest. -->
 * **`"nar_interpolate"`** – place a civic number NAR does not carry between
   its known neighbours. Answers `nar_interpolated`.
+* **`"rnf"`** – interpolate along Statistics Canada's **Road Network
+  File**, which has to be imported once with [rnf_import()] and lives beside
+  `Addresses` rather than in it. Offline, national, and it answers for
+  streets NAR does not carry at all – which is what separates it from
+  `"nar_interpolate"`, whose flanking civics have to come from NAR itself. It
+  belongs **after `"nar_interpolate"`**: where both can answer, NAR's own
+  neighbours are about six times more accurate. On a 5,000-address sample of
+  business filings it placed a quarter of what the offline pair left
+  unplaced, the largest recovery any tier here has offered, and **it refuses
+  whenever more than one segment matches**, which is where its accuracy comes
+  from rather than a nicety.
 * **`"bc"`** – ask the Province of BC's [Address Geocoder][bc_geocode()].
   British Columbia only, and **this makes one network request per unplaced BC
   row**; nothing contacts it unless the tier is named. The constraints are
   honoured: what is sent is rebuilt from the components after any
   `prov`/`mun` override, and a point outside `within` is discarded rather
   than returned.
+* **`"qc"`** – ask the Quebec government's [geocoder][qc_geocode()].
+  Answers `qc_address`. Quebec only, and the one online tier that does
+  **not** cost a request per row: it batches 1000 addresses per request, so
+  naming it is cheap even on a large unplaced tail. It is also the only one
+  that refuses – it returns no point rather than a locality centroid when
+  it cannot match – so its answers need less rejecting than the others'.
 * **`"nrcan"`** – ask NRCan's national [geolocator][nrcan_geocode()].
-  Answers `nrcan`. Also one network request per unplaced row, and it covers
-  the whole country, so unlike `"bc"` there is no province that excludes a
-  row from being sent. **It belongs last.** Its surviving answers are
-  roughly interpolation-grade at the median with a much longer tail, and it
-  has no score of its own – everything that separates a hit from a
+  Answers `nrcan`. One network request per unplaced row, and it covers
+  the whole country, so unlike `"bc"` and `"qc"` there is no province that
+  excludes a row from being sent. **It belongs last.** Its surviving answers
+  are roughly interpolation-grade at the median with a much longer tail, and
+  it has no score of its own – everything that separates a hit from a
   confident wrong answer is done by re-parsing the returned title, which is
   strict but not free of false positives.</p>
 <p>The default `c("nar", "nar_interpolate")` is offline and prefers a real NAR
-record over an interpolated one. `method = "nar"` keeps only the addresses
+record over an interpolated one. It does **not** include `"rqa"`, which would
+otherwise appear and disappear depending on whether [rqa_import()] had been
+run; in Quebec, `c("nar", "rqa", "nar_interpolate")` is the recommended
+offline set once it has. `method = "nar"` keeps only the addresses
 NAR actually carries. `c("nar", "nar_interpolate", "bc")` adds the BC
 service as a last resort, and `c("bc", "nar")` prefers it over NAR wherever
-it answers. `"nrcan"` is the national counterpart to `"bc"` and is the only
-tier that answers with no local database at all, which is the case it exists
-for; it should be named after every other tier, never before one.</p>
+it answers. `"qc"` is the same shape as `"bc"` for the other province that
+publishes its own geocoder. `"nrcan"` is the national counterpart to both
+and is the only tier that answers with no local database at all, which is
+the case it exists for; it should be named after every other tier, never
+before one.</p>
 <p>A row NAR holds without coordinates (`nar_no_geometry`) is passed on to the
 next tier: knowing the address exists is worth reporting, but it is not worth
 withholding a position a later tier can supply, and the `ADDR_GUID` found
@@ -287,6 +372,10 @@ per-row-group zonemaps rather than scanning – the same mechanism that makes
 positional error this package's method introduces, relative to NAR's own
 building point.** It is 0 for `nar_building`, 176 for `nar_blockface`, and
 half the distance between the two flanking civics for `nar_interpolated`.</p>
+<p>For `rnf_interpolated` it is `max(95, 0.35 * len_m)` in the segment's length,
+which is two-part because the error is: a short block is dominated by the
+setback and the side offset, which do not shrink with it, and a long one by
+how far along the block the range put the house, which does scale.</p>
 <p>That last figure is measured, and it holds across scales: the ratio of error
 to flanking span has a 90th percentile of 0.50 in every span bucket from
 under 50 m to over 2 km (0.496–0.522). So a 40 m gap between neighbours
@@ -314,6 +403,13 @@ distance from the point returned to the furthest rejected candidate.</p>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># Add the BC service as a last resort. Makes network requests.</span></span></span>
 <span class="r-in"><span><span class="fu">geocode</span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"bc"</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># Quebec's own register, offline, after one rqa_import().</span></span></span>
+<span class="r-in"><span><span class="fu">geocode</span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span></span></span>
+<span class="r-in"><span><span class="co"># The road network file reaches streets NAR does not carry, after one</span></span></span>
+<span class="r-in"><span><span class="co"># rnf_import().</span></span></span>
+<span class="r-in"><span><span class="fu">geocode</span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># NRCan's geolocator is national, so it can back up the whole country.</span></span></span>
 <span class="r-in"><span><span class="fu">geocode</span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"nrcan"</span><span class="op">)</span><span class="op">)</span></span></span>

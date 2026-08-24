@@ -18,9 +18,26 @@ broken, which is two things and no others:
 * the street name it proposes **contains a `#`**, which
   [nar_norm_text()] guarantees introduces a unit and which no street name
   can therefore contain. That is the signature of a string nothing split.
-A baseline that proposes *no* municipality is not defective. The string
-simply did not carry one, `NA` is the right answer, and the status note
-treats recovering it as a gazetteer question rather than a parsing one."><meta property="og:description" content="The gate on generating anchored readings at all, and it is the
+* **a longer trailing run than the one it claimed is also a place.** This
+  is the comma-free case and the only one of the three that can fire on a
+  baseline with nothing visibly wrong with it. `3908 loraine ave north
+  vancouver` reads `NORTH` as the street's direction and leaves `VANCOUVER`,
+  which is a real municipality, so neither of the tests above sees anything;
+  `NORTH VANCOUVER` is a real municipality too, and that is the entire
+  evidence for offering the other reading. It also covers the baselines that
+  proposed *no* municipality because a street type inside the place name ate
+  the boundary – `maple ridge`, `bowen island`, `brentwood bay`, `qualicum
+  beach` all end in a NAR street type, and `4830 scott ave terrace` ends in
+  one that is the whole name.
+A baseline that proposes no municipality where the string holds no run that
+names one is still not defective. The string simply did not carry a place,
+`NA` is the right answer, and the status note treats recovering it as a
+gazetteer question rather than a parsing one.
+The run scan is bounded by the same reach anchoring uses, which is one token
+short of the last comma segment, so a comma-delimited municipality can never
+trigger it: what the comma already gave the baseline is longer than anything
+the scan is allowed to propose. That is what confines this third test to
+strings the writer never delimited."><meta property="og:description" content="The gate on generating anchored readings at all, and it is the
 load-bearing part of this file. Measured on the Part A sample, offering an
 alternative unconditionally *cost* rows: `80 rue Albanel, QC` names no
 municipality, Albanel is a real Quebec one, and anchoring it leaves a street
@@ -39,9 +56,26 @@ broken, which is two things and no others:
 * the street name it proposes **contains a `#`**, which
   [nar_norm_text()] guarantees introduces a unit and which no street name
   can therefore contain. That is the signature of a string nothing split.
-A baseline that proposes *no* municipality is not defective. The string
-simply did not carry one, `NA` is the right answer, and the status note
-treats recovering it as a gazetteer question rather than a parsing one."></head><body>
+* **a longer trailing run than the one it claimed is also a place.** This
+  is the comma-free case and the only one of the three that can fire on a
+  baseline with nothing visibly wrong with it. `3908 loraine ave north
+  vancouver` reads `NORTH` as the street's direction and leaves `VANCOUVER`,
+  which is a real municipality, so neither of the tests above sees anything;
+  `NORTH VANCOUVER` is a real municipality too, and that is the entire
+  evidence for offering the other reading. It also covers the baselines that
+  proposed *no* municipality because a street type inside the place name ate
+  the boundary – `maple ridge`, `bowen island`, `brentwood bay`, `qualicum
+  beach` all end in a NAR street type, and `4830 scott ave terrace` ends in
+  one that is the whole name.
+A baseline that proposes no municipality where the string holds no run that
+names one is still not defective. The string simply did not carry a place,
+`NA` is the right answer, and the status note treats recovering it as a
+gazetteer question rather than a parsing one.
+The run scan is bounded by the same reach anchoring uses, which is one token
+short of the last comma segment, so a comma-delimited municipality can never
+trigger it: what the comma already gave the baseline is longer than anything
+the scan is allowed to propose. That is what confines this third test to
+strings the writer never delimited."></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -108,14 +142,31 @@ broken, which is two things and no others:</p>
 * the street name it proposes **contains a `#`**, which
   [nar_norm_text()] guarantees introduces a unit and which no street name
   can therefore contain. That is the signature of a string nothing split.</p>
-<p>A baseline that proposes *no* municipality is not defective. The string
-simply did not carry one, `NA` is the right answer, and the status note
-treats recovering it as a gazetteer question rather than a parsing one.</p>
+<p>* **a longer trailing run than the one it claimed is also a place.** This
+  is the comma-free case and the only one of the three that can fire on a
+  baseline with nothing visibly wrong with it. `3908 loraine ave north
+  vancouver` reads `NORTH` as the street's direction and leaves `VANCOUVER`,
+  which is a real municipality, so neither of the tests above sees anything;
+  `NORTH VANCOUVER` is a real municipality too, and that is the entire
+  evidence for offering the other reading. It also covers the baselines that
+  proposed *no* municipality because a street type inside the place name ate
+  the boundary – `maple ridge`, `bowen island`, `brentwood bay`, `qualicum
+  beach` all end in a NAR street type, and `4830 scott ave terrace` ends in
+  one that is the whole name.</p>
+<p>A baseline that proposes no municipality where the string holds no run that
+names one is still not defective. The string simply did not carry a place,
+`NA` is the right answer, and the status note treats recovering it as a
+gazetteer question rather than a parsing one.</p>
+<p>The run scan is bounded by the same reach anchoring uses, which is one token
+short of the last comma segment, so a comma-delimited municipality can never
+trigger it: what the comma already gave the baseline is longer than anything
+the scan is allowed to propose. That is what confines this third test to
+strings the writer never delimited.</p>
     </div>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_baseline_is_defective</span><span class="op">(</span><span class="va">base</span>, prov <span class="op">=</span> <span class="cn">NA_character_</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_baseline_is_defective</span><span class="op">(</span><span class="va">base</span>, toks <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">0</span><span class="op">)</span>, prov <span class="op">=</span> <span class="cn">NA_character_</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -124,6 +175,10 @@ treats recovering it as a gazetteer question rather than a parsing one.</p>
 
 <dl><dt id="arg-base">base<a class="anchor" aria-label="anchor" href="#arg-base"></a></dt>
 <dd><p>A one-row parse from [nar_parse_one()]</p></dd>
+
+
+<dt id="arg-toks">toks<a class="anchor" aria-label="anchor" href="#arg-toks"></a></dt>
+<dd><p>The token vector the parse was built from</p></dd>
 
 
 <dt id="arg-prov">prov<a class="anchor" aria-label="anchor" href="#arg-prov"></a></dt>

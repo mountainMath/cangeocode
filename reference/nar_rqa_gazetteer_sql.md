@@ -1,0 +1,58 @@
+# The RQA gazetteer scoring query
+
+The second pass's half of \[nar_gazetteer_sql()\], over \`RqaStreets\`
+instead of \`Streets\`. Same weights and the same name evidence, so a
+\`confidence\` means the same thing whichever register produced it –
+what differs is which register the street was found in, and that is
+reported as \`parse_source\` rather than folded into the score.
+
+Two things are deliberately not carried over:
+
+\* \*\*There is no exact branch.\*\* Without a municipality or a postal
+code there is no locality to restrict candidates to, and NAR's exact
+branch earns its keep by canonicalizing a spelling every candidate of
+that name agrees on. RQA covers one province, so an unrestricted match
+there would assert Quebec about a string that never said so. Rows with
+neither locality are left to the rules parse. \* \*\*Only one name
+family\*\*, because RQA publishes one. \`MATCH_FOLD\` is compared
+against, never \`NAME_FOLD\`: the addresses this pass exists for are the
+ones NAR could not resolve, so the probe carries the \*writer's\*
+spelling and not a register's.
+
+## Usage
+
+``` r
+nar_rqa_gazetteer_sql(probe, name_threshold = 0.9)
+```
+
+## Arguments
+
+- probe:
+
+  Name of the temp table holding the parsed components
+
+- name_threshold:
+
+  Minimum name similarity
+
+## Value
+
+A single SQL string
+
+## How the municipality is resolved
+
+Through NAR's \`MunAlias\`, which is the load-bearing part. RQA files an
+address under its \*\*census subdivision\*\* – \`Montréal\`, never
+\`Verdun\` – while people write the postal city, and RQA publishes no
+alias table of its own. But \`MunAlias\` already keys a written name to
+a CSD, and \`MUN_KEY\` carries that CSD's name (\`24:V:Montréal\`),
+which is the name RQA files under. So \`ANJOU\`, \`LASALLE\`,
+\`SAINT-LAURENT\` and \`VERDUN\` all reach Montreal's 4,581 RQA streets
+for free, and the borough column RQA does carry is not needed here at
+all.
+
+The written name is also matched directly, for a municipality NAR has no
+addresses in and therefore no alias for – which is a coverage gap of
+exactly the kind this pass exists for. The two are a \`UNION\` and not
+an \`OR\`: matching two ways with \`OR\` is the 99x pattern recorded in
+\`.claude/geocoding.md\`.

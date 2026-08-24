@@ -89,12 +89,19 @@ than in R.</p>
 <span></span>
 <span><span class="va">con</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/nar_connection.html">nar_connection</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <div class="section level2">
-<h2 id="the-two-tables">The two tables<a class="anchor" aria-label="anchor" href="#the-two-tables"></a>
+<h2 id="the-tables">The tables<a class="anchor" aria-label="anchor" href="#the-tables"></a>
 </h2>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu">DBI</span><span class="fu">::</span><span class="fu"><a href="https://dbi.r-dbi.org/reference/dbListTables.html" class="external-link">dbListTables</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span>
-<span><span class="co">#&gt; [1] "Addresses"    "Locations"    "MunAlias"     "PostalMun"    "Streets"     </span></span>
-<span><span class="co">#&gt; [6] "nar_metadata"</span></span></code></pre></div>
+<span><span class="co">#&gt; [1] "Addresses"    "Locations"    "MunAlias"     "PostalMun"    "RqaAddresses"</span></span>
+<span><span class="co">#&gt; [6] "RqaStreets"   "Streets"      "nar_metadata"</span></span></code></pre></div>
+<p>Two of those are NAR’s addresses and locations;
+<code>MunAlias</code>, <code>PostalMun</code> and <code>Streets</code>
+are gazetteers <code><a href="../reference/normalize_address.html">normalize_address()</a></code> builds at import.
+<code>RqaAddresses</code> and <code>RqaStreets</code> appear only if
+<code><a href="../reference/rqa_import.html">rqa_import()</a></code> has been run — they are Quebec’s own register,
+kept beside NAR rather than merged into it, and
+<code><a href="../articles/geocoding.html">vignette("geocoding")</a></code> covers what they are for.</p>
 <p><strong><code>Addresses</code></strong> has one row per civic address
 — the street name and number, the mailing address, the municipality, the
 postal code, and the point geometry.</p>

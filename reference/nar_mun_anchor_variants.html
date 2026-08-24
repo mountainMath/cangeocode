@@ -8,11 +8,25 @@ This is what makes a trailing comma inconsequential. `"... TH25, Vancouver"`
 parses today only because the comma bounds the municipality, and
 `"... TH25 Vancouver"` fails for want of it; anchoring reaches the same
 remainder from both, and the comma stops carrying the parse.
-Two guards keep this from inventing splits. A run is only considered if it
-lies inside the last comma segment – a municipality never spans a comma the
-writer put in – and a candidate is dropped unless a street name survives in
-the remainder, which is what stops `"123 Kingston"` from resolving to the
-city of Kingston with no street at all.'><meta property="og:description" content='The trailing token run is tested against the municipality
+Four guards keep this from inventing splits, and the last two are what let
+the gate open as wide as it now does.
+* A run is only considered if it lies inside the last comma segment – see
+  [nar_mun_anchor_runs()].
+* A candidate is dropped unless a street name survives in the remainder,
+  which is what stops `"123 Kingston"` from resolving to the city of Kingston
+  with no street at all.
+* **A residue that is not a street name counts as no street name.** Every
+  place name that also does duty as a street name fails here rather than at
+  the gate: `135 de Nantes` anchors Nantes and leaves `DE`, `22 avenue de la
+  Durantaye` leaves `DE LA`, `80 rue Albanel` leaves `RUE`. Particules are
+  not a name, and neither is a street type standing alone.
+* **A run that is a street type has to be one the street can spare.** `TRAIL`
+  is a municipality in Ontario and a street type everywhere, and `82
+  Fesroches Trail` is the second; `4830 scott ave terrace` is the first, and
+  the only thing that separates them is that the street in it still names a
+  type of its own once `TERRACE` is taken away. Same for `maple ridge`,
+  `bowen island`, `brentwood bay` and `qualicum beach`, all of which end in a
+  NAR street type.'><meta property="og:description" content='The trailing token run is tested against the municipality
 inventory, longest first, and every run that names a real place becomes a
 candidate whose remainder is parsed with the municipality already decided.
 Both lengths can be real – `NORTH BAY` and `BAY` are each municipalities –
@@ -21,11 +35,25 @@ This is what makes a trailing comma inconsequential. `"... TH25, Vancouver"`
 parses today only because the comma bounds the municipality, and
 `"... TH25 Vancouver"` fails for want of it; anchoring reaches the same
 remainder from both, and the comma stops carrying the parse.
-Two guards keep this from inventing splits. A run is only considered if it
-lies inside the last comma segment – a municipality never spans a comma the
-writer put in – and a candidate is dropped unless a street name survives in
-the remainder, which is what stops `"123 Kingston"` from resolving to the
-city of Kingston with no street at all.'></head><body>
+Four guards keep this from inventing splits, and the last two are what let
+the gate open as wide as it now does.
+* A run is only considered if it lies inside the last comma segment – see
+  [nar_mun_anchor_runs()].
+* A candidate is dropped unless a street name survives in the remainder,
+  which is what stops `"123 Kingston"` from resolving to the city of Kingston
+  with no street at all.
+* **A residue that is not a street name counts as no street name.** Every
+  place name that also does duty as a street name fails here rather than at
+  the gate: `135 de Nantes` anchors Nantes and leaves `DE`, `22 avenue de la
+  Durantaye` leaves `DE LA`, `80 rue Albanel` leaves `RUE`. Particules are
+  not a name, and neither is a street type standing alone.
+* **A run that is a street type has to be one the street can spare.** `TRAIL`
+  is a municipality in Ontario and a street type everywhere, and `82
+  Fesroches Trail` is the second; `4830 scott ave terrace` is the first, and
+  the only thing that separates them is that the street in it still names a
+  type of its own once `TERRACE` is taken away. Same for `maple ridge`,
+  `bowen island`, `brentwood bay` and `qualicum beach`, all of which end in a
+  NAR street type.'></head><body>
     <a href="#main" class="visually-hidden-focusable">Skip to contents</a>
 
 
@@ -82,24 +110,38 @@ so both are offered rather than the longer one being assumed.</p>
 parses today only because the comma bounds the municipality, and
 `"... TH25 Vancouver"` fails for want of it; anchoring reaches the same
 remainder from both, and the comma stops carrying the parse.</p>
-<p>Two guards keep this from inventing splits. A run is only considered if it
-lies inside the last comma segment – a municipality never spans a comma the
-writer put in – and a candidate is dropped unless a street name survives in
-the remainder, which is what stops `"123 Kingston"` from resolving to the
-city of Kingston with no street at all.</p>
+<p>Four guards keep this from inventing splits, and the last two are what let
+the gate open as wide as it now does.</p>
+<p>* A run is only considered if it lies inside the last comma segment – see
+  [nar_mun_anchor_runs()].
+* A candidate is dropped unless a street name survives in the remainder,
+  which is what stops `"123 Kingston"` from resolving to the city of Kingston
+  with no street at all.
+* **A residue that is not a street name counts as no street name.** Every
+  place name that also does duty as a street name fails here rather than at
+  the gate: `135 de Nantes` anchors Nantes and leaves `DE`, `22 avenue de la
+  Durantaye` leaves `DE LA`, `80 rue Albanel` leaves `RUE`. Particules are
+  not a name, and neither is a street type standing alone.
+* **A run that is a street type has to be one the street can spare.** `TRAIL`
+  is a municipality in Ontario and a street type everywhere, and `82
+  Fesroches Trail` is the second; `4830 scott ave terrace` is the first, and
+  the only thing that separates them is that the street in it still names a
+  type of its own once `TERRACE` is taken away. Same for `maple ridge`,
+  `bowen island`, `brentwood bay` and `qualicum beach`, all of which end in a
+  NAR street type.</p>
     </div>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_mun_anchor_variants</span><span class="op">(</span><span class="va">s</span>, lang <span class="op">=</span> <span class="st">"en"</span>, prov <span class="op">=</span> <span class="cn">NA_character_</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_mun_anchor_variants</span><span class="op">(</span><span class="va">toks</span>, lang <span class="op">=</span> <span class="st">"en"</span>, prov <span class="op">=</span> <span class="cn">NA_character_</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
     <h2 id="arguments">Arguments<a class="anchor" aria-label="anchor" href="#arguments"></a></h2>
 
 
-<dl><dt id="arg-s">s<a class="anchor" aria-label="anchor" href="#arg-s"></a></dt>
-<dd><p>A single normalized string, province and postal code already removed</p></dd>
+<dl><dt id="arg-toks">toks<a class="anchor" aria-label="anchor" href="#arg-toks"></a></dt>
+<dd><p>A token vector, as [nar_tokens()] produces</p></dd>
 
 
 <dt id="arg-lang">lang<a class="anchor" aria-label="anchor" href="#arg-lang"></a></dt>

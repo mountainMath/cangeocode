@@ -25,15 +25,34 @@ shapes tells them apart. \* the street name it proposes \*\*contains a
 which no street name can therefore contain. That is the signature of a
 string nothing split.
 
-A baseline that proposes \*no\* municipality is not defective. The
-string simply did not carry one, \`NA\` is the right answer, and the
-status note treats recovering it as a gazetteer question rather than a
-parsing one.
+\* \*\*a longer trailing run than the one it claimed is also a
+place.\*\* This is the comma-free case and the only one of the three
+that can fire on a baseline with nothing visibly wrong with it. \`3908
+loraine ave north vancouver\` reads \`NORTH\` as the street's direction
+and leaves \`VANCOUVER\`, which is a real municipality, so neither of
+the tests above sees anything; \`NORTH VANCOUVER\` is a real
+municipality too, and that is the entire evidence for offering the other
+reading. It also covers the baselines that proposed \*no\* municipality
+because a street type inside the place name ate the boundary – \`maple
+ridge\`, \`bowen island\`, \`brentwood bay\`, \`qualicum beach\` all end
+in a NAR street type, and \`4830 scott ave terrace\` ends in one that is
+the whole name.
+
+A baseline that proposes no municipality where the string holds no run
+that names one is still not defective. The string simply did not carry a
+place, \`NA\` is the right answer, and the status note treats recovering
+it as a gazetteer question rather than a parsing one.
+
+The run scan is bounded by the same reach anchoring uses, which is one
+token short of the last comma segment, so a comma-delimited municipality
+can never trigger it: what the comma already gave the baseline is longer
+than anything the scan is allowed to propose. That is what confines this
+third test to strings the writer never delimited.
 
 ## Usage
 
 ``` r
-nar_baseline_is_defective(base, prov = NA_character_)
+nar_baseline_is_defective(base, toks = character(0), prov = NA_character_)
 ```
 
 ## Arguments
@@ -41,6 +60,10 @@ nar_baseline_is_defective(base, prov = NA_character_)
 - base:
 
   A one-row parse from \[nar_parse_one()\]
+
+- toks:
+
+  The token vector the parse was built from
 
 - prov:
 
