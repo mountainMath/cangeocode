@@ -185,6 +185,33 @@ record the design.
   the 81.8% -> 88.3% normalization figure was a *confirmation-set* effect and not a parser gain,
   which is the standing warning against reading a coverage share off NAR's residual. Read it
   before trusting any Quebec comparison, `qc_validate()` included.
+- **[`inst/notes/nova-scotia-pvsc.md`](../inst/notes/nova-scotia-pvsc.md)**
+  -- Nova Scotia's PVSC assessment addresses measured against the package, and the first
+  reference here established by measurement to be **independent of NAR** rather than NAR
+  checked against itself: two separately produced building points for the same house agree to
+  p50 10.3 m and are within 50 m 88.2% of the time, the strongest accuracy result here. That
+  independence is *earned in stage 0 and cannot be assumed* -- StatCan's Statistical Building
+  Register, which NAR is extracted from, names property assessment rolls among its inputs, so
+  the suspicion that PVSC is upstream of NAR is correct in mechanism and wrong in target:
+  assessment rolls feed NAR's **attributes** (`BU_USE`, `BU_N_CIVIC_ADD`, 100% populated in
+  every province) while the universe and the geocoding come from Canada Post Point-of-Call and
+  the provincial **911 file**. In NS that is NSCAF, and NAR sits **1.04 m** from it with 95.2%
+  of 361K pairs in one 1--2 m bucket and a 3.5 cm residual once a single vector is removed --
+  the same coordinate re-datumed, which is the Quebec/RQA result with a different donor. So
+  **NSCAF cannot check NAR in NS and PVSC can**, and the general trap is that the more
+  authoritative a provincial address file is, the more likely NAR already contains it. It is also
+  where `n_matches == 1` is shown *not* to be a safety guarantee -- one exact unambiguous match
+  in 180 is over a kilometre wrong, 85% of everything past 5 km is the gazetteer having
+  **remapped** the community name, and `uncertainty_m` reports 0 m for every one of them
+  because it describes the spread of the candidates found and not whether the search looked in
+  the right place. Carries the two parser defects PVSC's split components expose -- a spurious
+  `STREET_DIR` stripped off a name that genuinely starts with a compass word (1.14% of rows,
+  82% of them unplaced) and a truncated multi-word municipality (2.32%) -- together 13.0% of
+  everything the pipeline fails to place in NS, and the correction that both cost *matches* and
+  not metres, which the vivid 165 km examples made easy to get backwards. The licence is an OGL
+  variant that would permit a tier; the note argues for an `ns_validate()` instead, which must
+  be built on PVSC and not on the larger, more authoritative NSCAF for the provenance reason
+  above. `data-raw/probe_pvsc.R` reproduces all of it, stage 0 being the provenance test.
 - **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
   — where address normalization currently falls short: the measured failure modes, the things
   tried and rejected, and the ranked next steps. Read it before changing the parser or the

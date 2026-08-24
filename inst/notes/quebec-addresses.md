@@ -122,6 +122,18 @@ The practical consequence is the one that matters here:
 > not whether the coordinate is right. There is no second opinion available for
 > Quebec inside this package.
 
+This is not a Quebec peculiarity, and the reason is now documented rather than
+inferred. StatCan's Statistical Building Register — which NAR is extracted from
+— takes its **universe** from Canada Post Point-of-Call plus the provincial 911
+files, and RQA is Quebec's. The same test run on Nova Scotia in
+[`nova-scotia-pvsc.md`](nova-scotia-pvsc.md) finds NAR sitting **1.04 m** from
+that province's civic address file, 95.2% of pairs inside one 1–2 m bucket and a
+3.5 cm residual once a single constant vector is removed — the identical result
+with a different donor. The general rule to carry forward: **the more
+authoritative a provincial address file is, the more likely NAR already contains
+it**, so a file collected for some other purpose entirely is the only kind that
+can check NAR. Nova Scotia's is its property assessment roll.
+
 `qc_validate()` says this in its own documentation, and
 [`geocoding.md`](../../.claude/geocoding.md) records it for the tier. The
 250,000-address BC comparison in

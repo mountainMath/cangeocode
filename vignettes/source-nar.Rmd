@@ -57,6 +57,65 @@ what lets `geocode()` mix all three tiers into one result table by default, and
 why the ODbL data behind `osm_geocode()` is deliberately excluded from that. See
 `vignette("source-osm")`.
 
+## How NAR is built, and what it is built from
+
+NAR is not collected. It is **extracted from Statistics Canada's Statistical
+Building Register** (SBgR) — the internal register of every building and
+building unit in the country — and its User Guide adds that the addresses "were
+validated by two independent data sources" before release. So the question of
+what NAR is made of is really a question about the SBgR, and StatCan
+[documents its inputs](https://www23.statcan.gc.ca/imdb/p2SV.pl?Function=getSurvey&SDDS=5380)
+in two distinct roles:
+
+- **The universe** — which addresses exist at all, and where they are — comes
+  from the national **Canada Post Point-of-Call** file together with the
+  **provincial 911 emergency files**. In Nova Scotia that is the Nova Scotia
+  Civic Address File; in Quebec, the Répertoire québécois des adresses that
+  `vignette("source-rqa")` covers.
+- **The attributes** are complemented from **property assessment rolls and land
+  registries, hydro-electricity company files, and provincial driver's licence
+  files**, which populate "building type, building name and building unit
+  usage". Those are NAR's `BU_USE` and `BU_N_CIVIC_ADD` columns, and they are
+  populated on every row in every province.
+
+Each source is standardised and then **geocoded by StatCan to its own spatial
+data infrastructure** — though "geocoded" turns out to mean less than it sounds
+like, since where this has been checked the resulting coordinate is the
+contributor's own, transformed onto StatCan's frame rather than re-derived. On
+top of that, the register is maintained by listing and
+profiling activities, the Canadian Housing Statistics Program, survey feedback,
+and — every five years — a reconciliation against the Census of Population, so
+that dwellings found on the ground during collection get added.
+
+Two things follow that matter when reading the rest of this vignette.
+
+First, **the vintage of a record is the vintage of its contributor's file**, not
+of the NAR release. A subdivision registered after a province's last 911 extract
+is absent from NAR no matter how recent the release is, which is most of what the
+section on missing addresses below is describing.
+
+Second, and less obvious: **NAR is not independent of the provincial address
+authority.** It is largely a re-geocoded, standardised assembly of those files.
+That has been measured in two provinces, and in both the provincial file turns
+out to be inside NAR rather than beside it:
+
+| province | authority file | NAR's distance from it |
+| --- | --- | ---: |
+| Quebec | Répertoire québécois des adresses | median **0.21 m** over 2.5 M addresses |
+| Nova Scotia | NS Civic Address File | median **1.04 m**, a single constant re-datum |
+
+In Nova Scotia the entire distribution sits in one 1–2 m band, and subtracting a
+single vector leaves a residual of about three centimetres — it is the same
+coordinate in a different NAD83 realization. Comparing NAR to either file
+measures how well an address *parsed*, not whether its coordinate is right.
+
+The practical rule this gives, for anyone reaching for a provincial file to
+check NAR with: **the more authoritative a provincial address file is, the more
+likely NAR already contains it.** A useful check has to come from somebody who
+collected the addresses for a different reason — which is why the Nova Scotia
+comparison in `inst/notes/nova-scotia-pvsc.md` is built on the province's
+*property assessment* file rather than its addressing one.
+
 ## A reference is not ground truth
 
 NAR is a *compilation*. Statistics Canada assembles it from what provinces,
@@ -76,9 +135,10 @@ NAR and again through the BC Address Geocoder, which is a parcel-level
 provincial authority: on `nar_building` matches the two answers sit a median
 **19.8 m** apart, p90 118.8 m. That is disagreement rather than error — it
 contains both sources' error plus their definitional difference — and the two
-are not independent, since BC's records and NAR's BC records plausibly share
-upstream data. It is best read as a lower bound on how far apart two genuinely
-independent sources would be.
+are not independent, for the reason the previous section gives: NAR's BC records
+are assembled from BC's own files. That is no longer a guess about this
+particular pair, it is how the register is built. Read the 19.8 m as a lower
+bound on how far apart two genuinely independent sources would be.
 
 ## Not every point is the same kind of point
 
@@ -374,7 +434,10 @@ file.show(system.file("notes", "nar-consistency.md", package = "cangeocode"))
 file.show(system.file("notes", "quebec-addresses.md", package = "cangeocode"))
 file.show(system.file("notes", "road-network-file.md", package = "cangeocode"))
 file.show(system.file("notes", "geocoding-status.md", package = "cangeocode"))
+file.show(system.file("notes", "nova-scotia-pvsc.md", package = "cangeocode"))
 ```
 
 `data-raw/probe_consistency.R` reproduces the misplacement analysis in about six
-minutes, and `data-raw/probe_rnf.R` the road network measurements.
+minutes, `data-raw/probe_rnf.R` the road network measurements, and
+`data-raw/probe_pvsc.R` the Nova Scotia comparison — including the provenance
+test behind the table above, which is its stage 0.
