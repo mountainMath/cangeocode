@@ -102,7 +102,7 @@ tier for Quebec.</p>
 <span></span>
 <span><span class="va">con</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/nar_connection.html">nar_connection</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/rqa_import.html">rqa_import</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span></code></pre></div>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/rqa_import.html">rqa_import</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <div class="section level2">
 <h2 id="what-this-adds-to-the-package">What this adds to the package<a class="anchor" aria-label="anchor" href="#what-this-adds-to-the-package"></a>
 </h2>
@@ -165,7 +165,7 @@ a register coordinate beats an interpolated one:</p>
 <code class="sourceCode R"><span><span class="va">gap</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"5510 Saint-Jacques, Montreal, QC"</span>, <span class="st">"1650 Chabanel, Montreal, QC"</span>,</span>
 <span>         <span class="st">"431 Courtemanche, Montreal-Est, QC"</span>, <span class="st">"45 Gamelin, Gatineau, QC"</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">gap</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">gap</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">match_method</span>, <span class="va">uncertainty_m</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                                input     match_method uncertainty_m</span></span>
 <span><span class="co">#&gt; 1   5510 Saint-Jacques, Montreal, QC nar_interpolated      58.76047</span></span>
@@ -173,7 +173,7 @@ a register coordinate beats an interpolated one:</p>
 <span><span class="co">#&gt; 3 431 Courtemanche, Montreal-Est, QC             none            NA</span></span>
 <span><span class="co">#&gt; 4           45 Gamelin, Gatineau, QC nar_interpolated      14.25068</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">gap</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">gap</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">uncertainty_m</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
 <span><span class="co">#&gt;   match_method uncertainty_m       lon      lat</span></span>
 <span><span class="co">#&gt; 1 rqa_geocoded            NA -73.60463 45.46885</span></span>

@@ -26,7 +26,7 @@ con <- nar_connection()
 
 ``` r
 
-rnf_import(con)   # ~340 MB, once
+rnf_import()   # ~340 MB, once
 ```
 
 ## What this adds to the package
@@ -79,7 +79,7 @@ hard <- c("185 Deerfield Rd, Newmarket, ON",
           "1435 Celebration Dr, Pickering, ON",
           "1545 Maley Dr, Sudbury, ON")
 
-geocode(hard, method = c("nar", "nar_interpolate", "rnf"), con = con) |>
+geocode(hard, method = c("nar", "nar_interpolate", "rnf")) |>
   select(input, match_method, n_matches, uncertainty_m, lon, lat)
 #>                                input     match_method n_matches uncertainty_m       lon      lat
 #> 1    185 Deerfield Rd, Newmarket, ON rnf_interpolated         1            95 -79.47162 44.05564

@@ -230,7 +230,7 @@ the city:
 
 ``` r
 
-misplaced <- geocode("7 Saint Andrews Gdns, Toronto, ON", con = con)
+misplaced <- geocode("7 Saint Andrews Gdns, Toronto, ON")
 
 misplaced |> select(match_method, n_matches, uncertainty_m, lon, lat)
 #>   match_method n_matches uncertainty_m       lon      lat
@@ -243,7 +243,7 @@ that coordinate is what gives it away:
 
 ``` r
 
-reverse_geocode(c(misplaced$lon, misplaced$lat), match_radius = 150, con = con) |>
+reverse_geocode(c(misplaced$lon, misplaced$lat), match_radius = 150) |>
   count(OFFICIAL_STREET_NAME, sort = TRUE)
 #> # A tibble: 7 × 2
 #>   OFFICIAL_STREET_NAME     n
@@ -329,7 +329,7 @@ NAR:
 gap <- c("5510 Saint-Jacques, Montreal, QC", "1650 Chabanel, Montreal, QC",
          "431 Courtemanche, Montreal-Est, QC", "45 Gamelin, Gatineau, QC")
 
-geocode(gap, method = c("nar", "nar_interpolate"), con = con) |>
+geocode(gap, method = c("nar", "nar_interpolate")) |>
   select(input, match_method, uncertainty_m)
 #>                                input     match_method uncertainty_m
 #> 1   5510 Saint-Jacques, Montreal, QC nar_interpolated      58.76047
@@ -345,7 +345,7 @@ register imported, all four resolve against the register instead:
 
 ``` r
 
-geocode(gap, method = c("nar", "rqa", "nar_interpolate"), con = con) |>
+geocode(gap, method = c("nar", "rqa", "nar_interpolate")) |>
   select(match_method, uncertainty_m, lon, lat)
 #>   match_method uncertainty_m       lon      lat
 #> 1 rqa_geocoded            NA -73.60463 45.46885
@@ -392,7 +392,7 @@ did not identify one address:
 
 ``` r
 
-geocode(c("100 Main St", "100 Main St, Moncton, NB"), con = con) |>
+geocode(c("100 Main St", "100 Main St, Moncton, NB")) |>
   select(input, match_method, n_matches, uncertainty_m)
 #>                      input match_method n_matches uncertainty_m
 #> 1              100 Main St nar_building       139       4043776

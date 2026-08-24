@@ -103,7 +103,7 @@ lives in, as its own tables, and that adds the offline
 <span></span>
 <span><span class="va">con</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/nar_connection.html">nar_connection</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/rnf_import.html">rnf_import</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span>   <span class="co"># ~340 MB, once</span></span></code></pre></div>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/rnf_import.html">rnf_import</a></span><span class="op">(</span><span class="op">)</span>   <span class="co"># ~340 MB, once</span></span></code></pre></div>
 <div class="section level2">
 <h2 id="what-this-adds-to-the-package">What this adds to the package<a class="anchor" aria-label="anchor" href="#what-this-adds-to-the-package"></a>
 </h2>
@@ -151,7 +151,7 @@ but it interpolates where the NAR tiers match:</p>
 <span>          <span class="st">"1435 Celebration Dr, Pickering, ON"</span>,</span>
 <span>          <span class="st">"1545 Maley Dr, Sudbury, ON"</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">match_method</span>, <span class="va">n_matches</span>, <span class="va">uncertainty_m</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                                input     match_method n_matches uncertainty_m       lon      lat</span></span>
 <span><span class="co">#&gt; 1    185 Deerfield Rd, Newmarket, ON rnf_interpolated         1            95 -79.47162 44.05564</span></span>

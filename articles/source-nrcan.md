@@ -24,8 +24,6 @@ answers, and here it was read from the code that produces them.
 
 library(cangeocode)
 library(dplyr)
-
-con <- nar_connection()
 ```
 
 ## What this adds to the package
@@ -85,7 +83,7 @@ hard <- c("1435 Celebration Dr, Pickering, ON L1W 0C4",
           "1545 Maley Dr, Sudbury, ON P3A 4R7",
           "192037A TWP RD 665, Athabasca County, AB T0A 0M0")
 
-geocode(hard, method = c("nar", "nar_interpolate", "nrcan"), con = con) |>
+geocode(hard, method = c("nar", "nar_interpolate", "nrcan")) |>
   select(input, match_method, n_matches, uncertainty_m)
 #>                                              input match_method n_matches uncertainty_m
 #> 1       1435 Celebration Dr, Pickering, ON L1W 0C4         none         0            NA
@@ -186,11 +184,6 @@ is smaller.** A blockface error is bounded by the length of a blockface.
 This one is a percentile on a long tail: p95 212 m, p99 648 m, worst
 survivor 2.7 km. Half the survivors land inside 33 m and a few land in
 the wrong part of town.
-
-``` r
-
-DBI::dbDisconnect(con)
-```
 
 ## Where the measurements live
 

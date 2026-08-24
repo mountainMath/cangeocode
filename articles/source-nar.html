@@ -314,7 +314,7 @@ address — number 7 — carries a <strong>building</strong> point two
 kilometres away, which is not a rounding difference or a coarse fallback
 but a different part of the city:</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">misplaced</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"7 Saint Andrews Gdns, Toronto, ON"</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="va">misplaced</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"7 Saint Andrews Gdns, Toronto, ON"</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">misplaced</span> <span class="op">|&gt;</span> <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">n_matches</span>, <span class="va">uncertainty_m</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
 <span><span class="co">#&gt;   match_method n_matches uncertainty_m       lon      lat</span></span>
@@ -323,7 +323,7 @@ but a different part of the city:</p>
 0. Everything the package can say about this answer says it is good.
 Asking what is actually at that coordinate is what gives it away:</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">misplaced</span><span class="op">$</span><span class="va">lon</span>, <span class="va">misplaced</span><span class="op">$</span><span class="va">lat</span><span class="op">)</span>, match_radius <span class="op">=</span> <span class="fl">150</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">misplaced</span><span class="op">$</span><span class="va">lon</span>, <span class="va">misplaced</span><span class="op">$</span><span class="va">lat</span><span class="op">)</span>, match_radius <span class="op">=</span> <span class="fl">150</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/count.html" class="external-link">count</a></span><span class="op">(</span><span class="va">OFFICIAL_STREET_NAME</span>, sort <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span><span class="co">#&gt; # A tibble: 7 × 2</span></span>
 <span><span class="co">#&gt;   OFFICIAL_STREET_NAME     n</span></span>
@@ -433,7 +433,7 @@ genuinely absent from NAR:</p>
 <code class="sourceCode R"><span><span class="va">gap</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"5510 Saint-Jacques, Montreal, QC"</span>, <span class="st">"1650 Chabanel, Montreal, QC"</span>,</span>
 <span>         <span class="st">"431 Courtemanche, Montreal-Est, QC"</span>, <span class="st">"45 Gamelin, Gatineau, QC"</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">gap</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">gap</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">match_method</span>, <span class="va">uncertainty_m</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                                input     match_method uncertainty_m</span></span>
 <span><span class="co">#&gt; 1   5510 Saint-Jacques, Montreal, QC nar_interpolated      58.76047</span></span>
@@ -446,7 +446,7 @@ does carry — a plausible point for an address NAR has never seen. With
 Quebec’s own register imported, all four resolve against the register
 instead:</p>
 <div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">gap</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">gap</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">uncertainty_m</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
 <span><span class="co">#&gt;   match_method uncertainty_m       lon      lat</span></span>
 <span><span class="co">#&gt; 1 rqa_geocoded            NA -73.60463 45.46885</span></span>
@@ -486,7 +486,7 @@ sample of the ones it has.</p>
 <p>Not every bad answer is a bad record. A great many are a question
 that did not identify one address:</p>
 <div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"100 Main St"</span>, <span class="st">"100 Main St, Moncton, NB"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"100 Main St"</span>, <span class="st">"100 Main St, Moncton, NB"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">match_method</span>, <span class="va">n_matches</span>, <span class="va">uncertainty_m</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                      input match_method n_matches uncertainty_m</span></span>
 <span><span class="co">#&gt; 1              100 Main St nar_building       139       4043776</span></span>

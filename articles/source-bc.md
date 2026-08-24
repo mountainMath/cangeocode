@@ -22,8 +22,6 @@ re-asks it about an answer you already have.
 
 library(cangeocode)
 library(dplyr)
-
-con <- nar_connection()
 ```
 
 ## What this adds to the package
@@ -80,7 +78,7 @@ As a tier, and as a validator:
 ``` r
 
 g <- geocode(c("525 Superior St, Victoria, BC", "800 Robson St, Vancouver, BC"),
-             method = c("nar", "bc"), con = con)
+             method = c("nar", "bc"))
 
 bc_validate(g) |>
   select(input, match_method, bc_match_method, bc_precision, bc_dist_m)
@@ -209,11 +207,6 @@ more honest field of the two.
 [`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md)
 skips rows outside BC rather than sending them, because the service
 would answer about a BC place of the same name.
-
-``` r
-
-DBI::dbDisconnect(con)
-```
 
 ## Where the measurements live
 

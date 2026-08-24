@@ -23,7 +23,9 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/available_nar_versions.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/bc_geocode.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/bc_validate.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/close_nar.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/collect_nar.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/dot-nar_session.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/format_address.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/geocode.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/index.html</loc></url>
@@ -163,6 +165,11 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_rqa_gazetteer_sql.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_rules_confidence.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_schema_version.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_session_matches.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_session_release.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_session_state.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_session_store.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_session_use.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_set_coverage.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_split_commas.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_split_unit_civic.html</loc></url>
@@ -188,6 +195,7 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/normalize_address.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/normalized_nar_version.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nrcan_geocode.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/open_nar.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/osm_geocode.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/qc_geocode.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/qc_reverse_geocode.html</loc></url>

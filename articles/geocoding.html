@@ -99,12 +99,30 @@ addresses is useful whether or not a coordinate comes out at the
 end.</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mountainmath.github.io/cangeocode/">cangeocode</a></span><span class="op">)</span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://dplyr.tidyverse.org" class="external-link">dplyr</a></span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">con</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/nar_connection.html">nar_connection</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
-<p>Passing <code>con</code> is optional — every entry point opens its
-own connection if you do not — but reusing one across several calls
-saves reopening a 5 GB database each time.</p>
+<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://dplyr.tidyverse.org" class="external-link">dplyr</a></span><span class="op">)</span></span></code></pre></div>
+<p>No database connection is opened here, and none of the
+<code><a href="../reference/geocode.html">geocode()</a></code> calls below take one. <code><a href="../reference/geocode.html">geocode()</a></code>
+opens its own when <code>con</code> is not supplied — and, since opening
+a 5 GB database costs about half a second, keeps it open for the next
+call rather than closing it. So a loop over ten thousand addresses pays
+for the connection once, and nothing has to be threaded through to make
+that happen.</p>
+<p><code><a href="../reference/open_nar.html">open_nar()</a></code> opens that connection up front and
+<code><a href="../reference/close_nar.html">close_nar()</a></code> ends it. Neither is required; they are there to
+name a release other than the latest without repeating it at every call
+site, and to control when the database is held — an import needs the
+write lock, so <code><a href="../reference/rqa_import.html">rqa_import()</a></code>, <code><a href="../reference/rnf_import.html">rnf_import()</a></code> and
+<code>nar_connection(refresh = TRUE)</code> close the connection
+themselves and say so.</p>
+<p>Once a connection is open, <code>version = "latest"</code> means
+<em>the release that is open</em>, not whatever StatCan has published
+since. Name a version to move to a different one.</p>
+<p>Passing <code>con</code> explicitly still does something the implicit
+connection cannot: it says unambiguously which database answered. And
+for <code><a href="../reference/normalize_address.html">normalize_address()</a></code> it is not about cost at all — there
+<code>con</code> is the switch that turns NAR’s street gazetteer on, so
+it changes the answer rather than the speed. That is why the one example
+below that opens a connection is a parsing example.</p>
 <div class="section level2">
 <h2 id="the-basic-call">The basic call<a class="anchor" aria-label="anchor" href="#the-basic-call"></a>
 </h2>
@@ -123,7 +141,7 @@ a New Brunswick route, a typo, and a post office box.</p>
 <span>  <span class="st">"PO Box 40, Iqaluit, NU"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">g</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
+<span><span class="va">g</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">g</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html" class="external-link">mutate</a></span><span class="op">(</span>input <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/substr.html" class="external-link">substr</a></span><span class="op">(</span><span class="va">input</span>, <span class="fl">1</span>, <span class="fl">38</span><span class="op">)</span>,</span>
@@ -228,7 +246,7 @@ ambiguous — most often a street name that was never pinned to a
 municipality — and <code>uncertainty_m</code> widens to the distance out
 to the furthest rejected candidate.</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"100 Main St"</span>, <span class="st">"100 Main St, Moncton, NB"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"100 Main St"</span>, <span class="st">"100 Main St, Moncton, NB"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">match_method</span>, <span class="va">n_matches</span>, <span class="va">uncertainty_m</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                      input match_method n_matches uncertainty_m</span></span>
 <span><span class="co">#&gt; 1              100 Main St nar_building       139       4043776</span></span>
@@ -249,9 +267,9 @@ position, so the order <em>is</em> the priority.</p>
 <div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">addr</span> <span class="op">&lt;-</span> <span class="st">"9999 Jasper Ave, Edmonton, AB"</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addr</span>, method <span class="op">=</span> <span class="st">"nar"</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addr</span>, method <span class="op">=</span> <span class="st">"nar"</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
 <span><span class="co">#&gt; [1] "none"</span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addr</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addr</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
 <span><span class="co">#&gt; [1] "nar_interpolated"</span></span></code></pre></div>
 <p><code>"nar"</code> alone keeps only the addresses NAR actually
 carries, which is the right choice when a false position is worse than
@@ -280,8 +298,7 @@ there.</p>
 assertions about where the address is, not hints. They override whatever
 the string said, and the override lands on the returned row too.</p>
 <div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"100 Queen St W, Vancouver, BC"</span>, prov <span class="op">=</span> <span class="st">"ON"</span>, mun <span class="op">=</span> <span class="st">"Toronto"</span>,</span>
-<span>        con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"100 Queen St W, Vancouver, BC"</span>, prov <span class="op">=</span> <span class="st">"ON"</span>, mun <span class="op">=</span> <span class="st">"Toronto"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">PROV_ABVN</span>, <span class="va">MUN_NAME</span>, <span class="va">match_method</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                           input PROV_ABVN MUN_NAME match_method      lon     lat</span></span>
 <span><span class="co">#&gt; 1 100 Queen St W, Vancouver, BC        ON  Toronto nar_building -79.3825 43.6515</span></span></code></pre></div>
@@ -304,7 +321,7 @@ than scanning.</p>
 <span></span>
 <span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"1055 W Georgia St, Vancouver, BC"</span>,</span>
 <span>          <span class="st">"4001 W King Edward Ave, Vancouver, BC"</span><span class="op">)</span>,</span>
-<span>        within <span class="op">=</span> <span class="va">downtown</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>        within <span class="op">=</span> <span class="va">downtown</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">match_method</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                                   input match_method</span></span>
 <span><span class="co">#&gt; 1      1055 W Georgia St, Vancouver, BC nar_building</span></span>
@@ -351,12 +368,16 @@ you want to correct a parse before resolving it, or to try the same
 addresses under different constraints without paying for the parse each
 time.</p>
 <div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">norm</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/normalize_address.html">normalize_address</a></span><span class="op">(</span><span class="st">"29 HPCKING AVE, SAULT STE. MARIE, ON"</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="va">con</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/nar_connection.html">nar_connection</a></span><span class="op">(</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">norm</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/normalize_address.html">normalize_address</a></span><span class="op">(</span><span class="st">"29 HPCKING AVE, SAULT STE. MARIE, ON"</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
 <span><span class="va">norm</span><span class="op">$</span><span class="va">STREET_NAME</span></span>
 <span><span class="co">#&gt; [1] "Hocking"</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">norm</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
-<span><span class="co">#&gt; [1] "nar_building"</span></span></code></pre></div>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">norm</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
+<span><span class="co">#&gt; [1] "nar_building"</span></span>
+<span></span>
+<span><span class="fu">DBI</span><span class="fu">::</span><span class="fu"><a href="https://dbi.r-dbi.org/reference/dbDisconnect.html" class="external-link">dbDisconnect</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span></code></pre></div>
 <p>Normalization is a task in its own right, and
 <code><a href="../articles/address-normalization.html">vignette("address-normalization")</a></code> covers it properly: what
 the gazetteer fixes, why canonical forms depend on the province, using
@@ -373,7 +394,7 @@ point for the rows that did not resolve. <code>crs</code> picks the CRS
 — EPSG:4326 by default, or <code>NULL</code> to keep NAR’s own projected
 storage CRS, in which case distances come out in metres.</p>
 <div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">pts</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">4</span><span class="op">]</span>, geometry <span class="op">=</span> <span class="cn">TRUE</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="va">pts</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">4</span><span class="op">]</span>, geometry <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu">sf</span><span class="fu">::</span><span class="fu"><a href="https://r-spatial.github.io/sf/reference/st_geometry.html" class="external-link">st_geometry</a></span><span class="op">(</span><span class="va">pts</span><span class="op">)</span></span>
 <span><span class="co">#&gt; Geometry set for 4 features </span></span>
@@ -392,8 +413,8 @@ storage CRS, in which case distances come out in metres.</p>
 <p><code><a href="../reference/reverse_geocode.html">reverse_geocode()</a></code> runs the other direction, which makes
 it a cheap sanity check on a coordinate you just derived.</p>
 <div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"100 Queen St W, Toronto, ON"</span>, geometry <span class="op">=</span> <span class="cn">TRUE</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
-<span>  <span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span>match_radius <span class="op">=</span> <span class="fl">50</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"100 Queen St W, Toronto, ON"</span>, geometry <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span>match_radius <span class="op">=</span> <span class="fl">50</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">address</span>, <span class="va">dist</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fl">3</span><span class="op">)</span></span>
 <span><span class="co">#&gt; # A tibble: 3 × 2</span></span>
@@ -417,7 +438,7 @@ these functions.</p>
 <div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">bc</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"525 Superior St, Victoria, BC"</span>,</span>
 <span>                <span class="st">"800 Robson St, Vancouver, BC"</span>,</span>
-<span>                <span class="st">"3800 Finnerty Rd, Victoria, BC"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
+<span>                <span class="st">"3800 Finnerty Rd, Victoria, BC"</span><span class="op">)</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="../reference/bc_validate.html">bc_validate</a></span><span class="op">(</span><span class="va">bc</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html" class="external-link">mutate</a></span><span class="op">(</span>bc_dist_m <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/Round.html" class="external-link">round</a></span><span class="op">(</span><span class="va">bc_dist_m</span>, <span class="fl">1</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
@@ -443,10 +464,10 @@ addresses NAR cannot place at all:</p>
 <span>          <span class="st">"1 Nesters Rd, Whistler, BC"</span>,</span>
 <span>          <span class="st">"7165 Nakiska Dr, Vernon, BC"</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
 <span><span class="co">#&gt; [1] "none" "none" "none"</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"bc"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"bc"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">match_method</span>, <span class="va">uncertainty_m</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                               input match_method uncertainty_m</span></span>
 <span><span class="co">#&gt; 1 2912 West Broadway, Vancouver, BC     bc_civic            20</span></span>
@@ -503,7 +524,7 @@ class, not one flat label:</p>
 <div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"3190 Boulevard Laurier Est, Saint-Hyacinthe QC"</span>,</span>
 <span>          <span class="st">"1255 Rue Peel, Montreal QC"</span><span class="op">)</span>,</span>
-<span>        method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>        method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">uncertainty_m</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
 <span><span class="co">#&gt;   match_method uncertainty_m       lon      lat</span></span>
 <span><span class="co">#&gt; 1 rqa_geocoded            NA -72.91517 45.63606</span></span>
@@ -546,10 +567,10 @@ offers.</p>
 <span>                 <span class="st">"192037A TWP RD 665, Athabasca County, AB T0A 0M0"</span>,</span>
 <span>                 <span class="st">"1545 Maley Dr, Sudbury, ON P3A 4R7"</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">new_streets</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">new_streets</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span><span class="op">$</span><span class="va">match_method</span></span>
 <span><span class="co">#&gt; [1] "none" "none" "none"</span></span>
 <span></span>
-<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">new_streets</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">new_streets</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">n_matches</span>, <span class="va">uncertainty_m</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
 <span><span class="co">#&gt;       match_method n_matches uncertainty_m        lon      lat</span></span>
 <span><span class="co">#&gt; 1 rnf_interpolated         1       95.0000  -79.07905 43.83198</span></span>
@@ -590,7 +611,7 @@ database at all — which makes it the only tier that can answer before a
 NAR release has been imported, and the one that covers provinces a
 single-province import does not hold.</p>
 <div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"nrcan"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span></code></pre></div>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"nrcan"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>It has the same trap as the BC service, in a sharper form: <strong>it
 always answers, and it gives you no score to disbelieve.</strong> Asked
 for <code>1 Rue Notre-Dame Ouest, Montreal, QC</code> its top-ranked
@@ -651,8 +672,6 @@ concentrated in cities with municipal open-data imports, and no national
 comparison has been run, which is why an <code>osm</code> row reports
 <code>uncertainty_m</code> as <code>NA</code> rather than a number
 someone made up. See <code><a href="../reference/osm_geocode.html">?osm_geocode</a></code>.</p>
-<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu">DBI</span><span class="fu">::</span><span class="fu"><a href="https://dbi.r-dbi.org/reference/dbDisconnect.html" class="external-link">dbDisconnect</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="where-this-falls-short">Where this falls short<a class="anchor" aria-label="anchor" href="#where-this-falls-short"></a>
@@ -672,7 +691,7 @@ file eats into the first bucket by construction, so read the ranking
 rather than the shares.</p>
 <p>The notes that ship with the package carry the measurements behind
 every figure quoted here, along with what is not built yet:</p>
-<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"geocoding-status.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"road-network-file.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"address-normalization-status.md"</span>,</span>

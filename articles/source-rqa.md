@@ -25,7 +25,7 @@ con <- nar_connection()
 
 ``` r
 
-rqa_import(con)
+rqa_import()
 ```
 
 ## What this adds to the package
@@ -82,7 +82,7 @@ of the tier — a register coordinate beats an interpolated one:
 gap <- c("5510 Saint-Jacques, Montreal, QC", "1650 Chabanel, Montreal, QC",
          "431 Courtemanche, Montreal-Est, QC", "45 Gamelin, Gatineau, QC")
 
-geocode(gap, method = c("nar", "nar_interpolate"), con = con) |>
+geocode(gap, method = c("nar", "nar_interpolate")) |>
   select(input, match_method, uncertainty_m)
 #>                                input     match_method uncertainty_m
 #> 1   5510 Saint-Jacques, Montreal, QC nar_interpolated      58.76047
@@ -90,7 +90,7 @@ geocode(gap, method = c("nar", "nar_interpolate"), con = con) |>
 #> 3 431 Courtemanche, Montreal-Est, QC             none            NA
 #> 4           45 Gamelin, Gatineau, QC nar_interpolated      14.25068
 
-geocode(gap, method = c("nar", "rqa", "nar_interpolate"), con = con) |>
+geocode(gap, method = c("nar", "rqa", "nar_interpolate")) |>
   select(match_method, uncertainty_m, lon, lat)
 #>   match_method uncertainty_m       lon      lat
 #> 1 rqa_geocoded            NA -73.60463 45.46885

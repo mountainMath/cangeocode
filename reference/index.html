@@ -184,7 +184,7 @@
       </dl></div><div class="section level2">
       <h2 id="the-nar-database">The NAR database<a class="anchor" aria-label="anchor" href="#the-nar-database"></a></h2>
 
-      <div class="section-desc"><p>Download and open a National Address Repository release, and get query results back as <code>sf</code>.</p></div>
+      <div class="section-desc"><p>Download and open a National Address Repository release, and get query results back as <code>sf</code>. <code><a href="../reference/geocode.html">geocode()</a></code> and <code><a href="../reference/reverse_geocode.html">reverse_geocode()</a></code> open a connection themselves when they are not given one, so these are for naming a release, querying the database directly, or controlling when the connection is held.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -192,6 +192,20 @@
 
 
       <dl><dt>
+
+          <code><a href="open_nar.html">open_nar()</a></code>
+
+        </dt>
+        <dd>Open a NAR connection for the session to reuse</dd>
+
+        <dt>
+
+          <code><a href="close_nar.html">close_nar()</a></code>
+
+        </dt>
+        <dd>Close the session's NAR connection</dd>
+
+        <dt>
 
           <code><a href="nar_connection.html">nar_connection()</a></code>
 

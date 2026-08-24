@@ -10,8 +10,6 @@ This one is the map.
 
 library(cangeocode)
 library(dplyr)
-
-con <- nar_connection()
 ```
 
 ## The seven
@@ -77,10 +75,9 @@ addr <- c("7 Saint Andrews Gdns, Toronto, ON",
           "1545 Maley Dr, Sudbury, ON",
           "3510 Rue Somerled, Montreal, QC")
 
-offline <- geocode(addr, method = c("nar", "rqa", "nar_interpolate", "rnf"),
-                   con = con)
+offline <- geocode(addr, method = c("nar", "rqa", "nar_interpolate", "rnf"))
 online  <- geocode(addr, method = c("nar", "rqa", "nar_interpolate", "rnf",
-                                    "bc", "nrcan", "qc"), con = con)
+                                    "bc", "nrcan", "qc"))
 
 data.frame(input = addr,
            offline = offline$match_method,
@@ -223,7 +220,7 @@ converging.
 ``` r
 
 g <- geocode(c("20460 Douglas Cres, Langley, BC", "1188 Bidwell St, Vancouver, BC"),
-             method = c("nar", "nar_interpolate"), con = con)
+             method = c("nar", "nar_interpolate"))
 
 bc_validate(g) |>
   select(input, match_method, bc_match_method, bc_precision, bc_dist_m)
@@ -289,9 +286,4 @@ that have not been fixed, and what to do next:
 ``` r
 
 list.files(system.file("notes", package = "cangeocode"))
-```
-
-``` r
-
-DBI::dbDisconnect(con)
 ```

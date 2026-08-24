@@ -26,8 +26,6 @@ three services do forward only.
 
 library(cangeocode)
 library(dplyr)
-
-con <- nar_connection()
 ```
 
 ## What this adds to the package
@@ -103,7 +101,7 @@ g <- geocode(c("1 Rue Notre-Dame Ouest, Montreal, QC",
                "1020 Rue Bleury, Montreal, QC",
                "2 Cote du Palais, Quebec, QC",
                "150 Boulevard Rene-Levesque Est, Quebec, QC"),
-             method = c("nar", "nar_interpolate"), con = con)
+             method = c("nar", "nar_interpolate"))
 
 qc_validate(g) |>
   select(input, match_method, qc_match_method, qc_score, qc_address, qc_dist_m)
@@ -220,11 +218,6 @@ It earns its keep. `12 RUE SAINT-JEAN, GATINEAU` comes back as
 `12 Rue Saint-Jean-Bosco, Gatineau` under `RQA_Adresse`: right
 municipality, right civic number, wrong street, and nothing in the
 service’s own fields says so.
-
-``` r
-
-DBI::dbDisconnect(con)
-```
 
 ## Where the measurements live
 

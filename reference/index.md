@@ -67,7 +67,17 @@ is the one online reverse geocoder here, and it covers Quebec only.
 
 Download and open a National Address Repository release, and get query
 results back as `sf`.
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+and
+[`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+open a connection themselves when they are not given one, so these are
+for naming a release, querying the database directly, or controlling
+when the connection is held.
 
+- [`open_nar()`](https://mountainmath.github.io/cangeocode/reference/open_nar.md)
+  : Open a NAR connection for the session to reuse
+- [`close_nar()`](https://mountainmath.github.io/cangeocode/reference/close_nar.md)
+  : Close the session's NAR connection
 - [`nar_connection()`](https://mountainmath.github.io/cangeocode/reference/nar_connection.md)
   : Get NAR data
 - [`nar_provinces()`](https://mountainmath.github.io/cangeocode/reference/nar_provinces.md)
