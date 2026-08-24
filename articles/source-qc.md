@@ -1,5 +1,10 @@
 # Source: the Quebec MRNF geocoder
 
+*One of this package’s seven data sources — one of the four online
+services.
+[`vignette("data-sources")`](https://mountainmath.github.io/cangeocode/articles/data-sources.md)
+is the overview and puts it in context.*
+
 Quebec’s Ministère des Ressources naturelles et des Forêts runs an Esri
 `GeocodeServer` over the *Répertoire québécois des adresses* — the same
 register

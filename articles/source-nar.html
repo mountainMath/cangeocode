@@ -45,6 +45,7 @@
     <li><a class="dropdown-item" href="../articles/querying-nar.html">Querying the NAR database directly</a></li>
     <li><hr class="dropdown-divider"></li>
     <li><h6 class="dropdown-header" data-toc-skip>Data sources</h6></li>
+    <li><a class="dropdown-item" href="../articles/data-sources.html">The data sources</a></li>
     <li><a class="dropdown-item" href="../articles/source-nar.html">Source: the National Address Repository</a></li>
     <li><a class="dropdown-item" href="../articles/source-rqa.html">Source: the Répertoire québécois des adresses</a></li>
     <li><a class="dropdown-item" href="../articles/source-rnf.html">Source: the Road Network File</a></li>
@@ -83,6 +84,9 @@
 
     
     
+<p><em>One of this package’s seven data sources — the base every other
+source here is measured against. <code><a href="../articles/data-sources.html">vignette("data-sources")</a></code>
+is the overview and puts it in context.</em></p>
 <p>Almost everything in this package reads Statistics Canada’s
 <strong>National Address Repository</strong>.
 <code><a href="../reference/reverse_geocode.html">reverse_geocode()</a></code> is NAR and nothing else. The first two
@@ -422,6 +426,7 @@ postal city names:</p>
 <code class="sourceCode R"><span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/tbl.html" class="external-link">tbl</a></span><span class="op">(</span><span class="va">con</span>, <span class="st">"MunAlias"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">NAME_FOLD</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"SCARBOROUGH"</span>, <span class="st">"TORONTO"</span>, <span class="st">"PRINCE RUPERT"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/count.html" class="external-link">count</a></span><span class="op">(</span><span class="va">NAME_FOLD</span>, name <span class="op">=</span> <span class="st">"csds_named"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/arrange.html" class="external-link">arrange</a></span><span class="op">(</span><span class="va">csds_named</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="co">#&gt; # A tibble: 3 × 2</span></span>
 <span><span class="co">#&gt;   NAME_FOLD     csds_named</span></span>

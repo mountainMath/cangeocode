@@ -1,5 +1,10 @@
 # Source: the Répertoire québécois des adresses
 
+*One of this package’s seven data sources — one of the two sources that
+can be imported beside NAR.
+[`vignette("data-sources")`](https://mountainmath.github.io/cangeocode/articles/data-sources.md)
+is the overview and puts it in context.*
+
 Quebec’s ministry of natural resources publishes the **Répertoire
 québécois des adresses** (RQA), the province’s own address register. It
 is where NAR’s Quebec rows come from — a 2.5-million-address point

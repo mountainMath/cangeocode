@@ -1,5 +1,10 @@
 # Source: the National Address Repository
 
+*One of this package’s seven data sources — the base every other source
+here is measured against.
+[`vignette("data-sources")`](https://mountainmath.github.io/cangeocode/articles/data-sources.md)
+is the overview and puts it in context.*
+
 Almost everything in this package reads Statistics Canada’s **National
 Address Repository**.
 [`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
@@ -350,6 +355,7 @@ city names:
 tbl(con, "MunAlias") |>
   filter(NAME_FOLD %in% c("SCARBOROUGH", "TORONTO", "PRINCE RUPERT")) |>
   count(NAME_FOLD, name = "csds_named") |>
+  arrange(csds_named) |>
   collect()
 #> # A tibble: 3 × 2
 #>   NAME_FOLD     csds_named

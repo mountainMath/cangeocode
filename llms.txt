@@ -105,8 +105,14 @@ Full reference and articles:
   ([`vignette("querying-nar")`](https://mountainmath.github.io/cangeocode/articles/querying-nar.md))
   — using the database with dplyr and `sf`
 
-One vignette per data source, each covering what it adds to the package,
-the licence it comes with, and what to watch out for:
+[The data
+sources](https://mountainmath.github.io/cangeocode/articles/data-sources.html)
+([`vignette("data-sources")`](https://mountainmath.github.io/cangeocode/articles/data-sources.md))
+is the overview: how the seven sources relate, what each layer of the
+tier chain is worth, which of them can be trusted to check another, and
+why one of them is not a tier. Below it sits one vignette per source,
+each covering what it adds to the package, the licence it comes with,
+and what to watch out for:
 
 | vignette | source | role |
 |----|----|----|
@@ -758,6 +764,8 @@ range contains it, which reaches streets NAR does not carry at all.
 
 ### Data sources
 
+- [The data
+  sources](https://mountainmath.github.io/cangeocode/articles/data-sources.md):
 - [Source: the National Address
   Repository](https://mountainmath.github.io/cangeocode/articles/source-nar.md):
 - [Source: the Répertoire québécois des

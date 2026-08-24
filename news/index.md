@@ -269,8 +269,14 @@ Read them with `system.file("notes", "<name>", package = "cangeocode")`.
 
 **A new vignette per data source** is where those measurements reach a
 user. Each one covers what that source adds to the package, the licence
-it comes with, and what to watch out for when using it:
+it comes with, and what to watch out for when using it.
 
+- **[`vignette("data-sources")`](https://mountainmath.github.io/cangeocode/articles/data-sources.md)**
+  is the parent, and the place to start. How the seven sources relate,
+  what each layer of the tier chain is worth, offline against online,
+  why the licence column decides the tier column, and which source can
+  be trusted to check another — only BC, and only in BC, because
+  Quebec’s register is where NAR’s Quebec rows come from.
 - **[`vignette("source-nar")`](https://mountainmath.github.io/cangeocode/articles/source-nar.md)**
   — what reads NAR, and its limits one at a time, each with a live
   example and the package’s answer: the two kinds of positional point

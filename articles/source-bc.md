@@ -1,5 +1,10 @@
 # Source: the BC Address Geocoder
 
+*One of this package’s seven data sources — one of the four online
+services.
+[`vignette("data-sources")`](https://mountainmath.github.io/cangeocode/articles/data-sources.md)
+is the overview and puts it in context.*
+
 The Province of British Columbia runs the [BC Address
 Geocoder](https://geocoder.api.gov.bc.ca/), a public, keyless service
 over the province’s own site and parcel registries. It is the highest

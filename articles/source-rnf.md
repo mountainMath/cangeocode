@@ -1,5 +1,10 @@
 # Source: the Road Network File
 
+*One of this package’s seven data sources — one of the two sources that
+can be imported beside NAR.
+[`vignette("data-sources")`](https://mountainmath.github.io/cangeocode/articles/data-sources.md)
+is the overview and puts it in context.*
+
 Statistics Canada’s **Road Network File** (product 92-500-X) is a
 national street centreline file: 2.25 million segments, 1.17 million
 kilometres, one `LINESTRING` each. What makes it an address source

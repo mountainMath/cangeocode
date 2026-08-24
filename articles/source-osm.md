@@ -1,5 +1,10 @@
 # Source: the Government of Canada Nominatim instance
 
+*One of this package’s seven data sources — the one source bound but not
+wired as a tier.
+[`vignette("data-sources")`](https://mountainmath.github.io/cangeocode/articles/data-sources.md)
+is the overview and puts it in context.*
+
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
 queries **`https://maps.canada.ca/nominatim/search`** — the Nominatim
 instance the Government of Canada hosts over OpenStreetMap data, and the

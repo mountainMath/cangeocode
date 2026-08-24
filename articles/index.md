@@ -19,6 +19,8 @@
 
 ### Data sources
 
+- [The data
+  sources](https://mountainmath.github.io/cangeocode/articles/data-sources.md):
 - [Source: the National Address
   Repository](https://mountainmath.github.io/cangeocode/articles/source-nar.md):
 - [Source: the Répertoire québécois des

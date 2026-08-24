@@ -45,6 +45,7 @@
     <li><a class="dropdown-item" href="../articles/querying-nar.html">Querying the NAR database directly</a></li>
     <li><hr class="dropdown-divider"></li>
     <li><h6 class="dropdown-header" data-toc-skip>Data sources</h6></li>
+    <li><a class="dropdown-item" href="../articles/data-sources.html">The data sources</a></li>
     <li><a class="dropdown-item" href="../articles/source-nar.html">Source: the National Address Repository</a></li>
     <li><a class="dropdown-item" href="../articles/source-rqa.html">Source: the Répertoire québécois des adresses</a></li>
     <li><a class="dropdown-item" href="../articles/source-rnf.html">Source: the Road Network File</a></li>
@@ -83,6 +84,9 @@
 
     
     
+<p><em>One of this package’s seven data sources — one of the four online
+services. <code><a href="../articles/data-sources.html">vignette("data-sources")</a></code> is the overview and puts
+it in context.</em></p>
 <p>Natural Resources Canada runs a national geolocation service on the
 Canadian Geospatial Platform, at
 <code>https://geolocator.api.geo.ca/geolocation/en/locate</code>. It
@@ -140,10 +144,8 @@ strings and returns the same <code>match_method</code> /
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/nrcan_geocode.html">nrcan_geocode</a></span><span class="op">(</span><span class="st">"1 Rue Notre-Dame Ouest, Montreal, QC"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">uncertainty_m</span>, <span class="va">n_matches</span>, <span class="va">nrcan_qualifier</span>, <span class="va">nrcan_title</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
-<span><span class="co">#&gt;   match_method uncertainty_m n_matches       nrcan_qualifier</span></span>
-<span><span class="co">#&gt; 1        nrcan           150         1 INTERPOLATED_POSITION</span></span>
-<span><span class="co">#&gt;                                nrcan_title       lon     lat</span></span>
-<span><span class="co">#&gt; 1 1 Rue Notre-Dame Ouest, Montréal, Quebec -73.55562 45.5062</span></span></code></pre></div>
+<span><span class="co">#&gt;   match_method uncertainty_m n_matches nrcan_qualifier nrcan_title lon lat</span></span>
+<span><span class="co">#&gt; 1         none            NA         0            &lt;NA&gt;        &lt;NA&gt;  NA  NA</span></span></code></pre></div>
 <p>As a tier it is opt-in, because it makes a network request per
 address. These three are addresses the offline tiers cannot place at
 all:</p>
@@ -161,6 +163,13 @@ all:</p>
 <p>One of the three comes back, which is roughly the rate to expect:
 this tier is a thin recovery on a hard residual, not a second opinion on
 everything.</p>
+<p>Re-run that and you may get zero. The service drops roughly
+<strong>one request in twelve</strong> as a clean HTTP 500 —
+<code><a href="../reference/nrcan_geocode.html">nrcan_geocode()</a></code> retries, and a request that fails the
+retries too returns <code>none</code> with nothing to distinguish it
+from an address the service does not hold. That is worth about 8 points
+of coverage, and earlier measurements of this tier silently charged it
+to the geolocator’s accuracy.</p>
 </div>
 <div class="section level2">
 <h2 id="what-to-watch-out-for">What to watch out for<a class="anchor" aria-label="anchor" href="#what-to-watch-out-for"></a>
@@ -175,12 +184,12 @@ you get a confident position somewhere else:</p>
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/nrcan_geocode.html">nrcan_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"99999 Nowhere Rd, Nowhereville, SK"</span>,</span>
 <span>                <span class="st">"28 Silver St, Corner Brook, NL"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">nrcan_qualifier</span>, <span class="va">nrcan_title</span>, <span class="va">nrcan_reject</span><span class="op">)</span></span>
-<span><span class="co">#&gt;   match_method       nrcan_qualifier                                              nrcan_title</span></span>
-<span><span class="co">#&gt; 1         none INTERPOLATED_CENTROID                        Road To Nowhere, Iqaluit, Nunavut</span></span>
-<span><span class="co">#&gt; 2         none INTERPOLATED_POSITION 28 Brook Street, Corner Brook, Newfoundland and Labrador</span></span>
+<span><span class="co">#&gt;   match_method       nrcan_qualifier                       nrcan_title</span></span>
+<span><span class="co">#&gt; 1         none INTERPOLATED_CENTROID Road To Nowhere, Iqaluit, Nunavut</span></span>
+<span><span class="co">#&gt; 2         none                  &lt;NA&gt;                              &lt;NA&gt;</span></span>
 <span><span class="co">#&gt;                                  nrcan_reject</span></span>
 <span><span class="co">#&gt; 1 best result is Street/INTERPOLATED_CENTROID</span></span>
-<span><span class="co">#&gt; 2                 street name SILVER != BROOK</span></span></code></pre></div>
+<span><span class="co">#&gt; 2                              request failed</span></span></code></pre></div>
 <p>Neither is a match, and neither would have been obvious from a
 coordinate. The first degraded to a <em>street centroid</em> — for a
 road in Iqaluit, Nunavut. The second is worse, because it looks
