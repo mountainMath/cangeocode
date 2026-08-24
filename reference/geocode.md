@@ -140,8 +140,11 @@ geocode(
 
 A data frame with one row per input, carrying every column
 \[normalize_address()\] returns plus \`ADDR_GUID\`, \`match_method\`,
-\`uncertainty_m\`, \`n_matches\`, and either \`lon\`/\`lat\` or an
-\`sf\` geometry column.
+\`uncertainty_m\`, \`n_matches\`, \`match_postal_code\`, and either
+\`lon\`/\`lat\` or an \`sf\` geometry column. \`POSTAL_CODE\` is the
+\*parsed input\* – what the address string itself said, or \`NA\` when
+it said nothing – while \`match_postal_code\` is what the matched record
+carries; see the section below.
 
 ## Choosing the tiers
 
@@ -283,6 +286,38 @@ Anything above 1 means the address was ambiguous – most often a street
 name the input did not pin to a municipality – and \`uncertainty_m\` is
 then widened to the distance from the point returned to the furthest
 rejected candidate.
+
+## Two postal codes
+
+the result carries two postal-code columns and they answer different
+questions. \`POSTAL_CODE\` comes from \[normalize_address()\] and is
+\*\*what the input string said\*\* – \`NA\` when it said nothing, which
+is the usual case for an address typed without one.
+\`match_postal_code\` is \*\*what the matched record carries\*\*, and it
+is filled in from the source rather than from the input.
+
+Only the tiers that match a record can fill it: the \`nar\` tier
+(\`nar_building\`, \`nar_blockface\` and \`nar_no_geometry\` alike – an
+address NAR holds without coordinates still has a postal code) and the
+\`rqa\` tier. It then \*\*survives whichever tier ends up placing the
+row\*\*, exactly as \`ADDR_GUID\` does, so a \`nar_interpolated\` row
+carries a postal code when the exact tier found the record first and NAR
+simply had no coordinates for it. A row interpolated without such a hit,
+an \`rnf_interpolated\` row and every online answer leave it \`NA\`:
+none of them resolve to a record with a postal code of its own, an
+interpolated point sits between two addresses that may not share one,
+and guessing which flank to copy would produce a value indistinguishable
+from a looked-up one.
+
+It is also \`NA\` when the candidates disagree. NAR holds one row per
+address, so a civic number with units contributes many rows, and 1.4 –
+4.2 more than one postal code. The tier does not match on unit, so where
+those rows disagree there is nothing in the query that says which of
+them was meant, and reporting one of them would be a coin flip. \`100
+Queen St W, Toronto\` is one: NAR carries it as \`M5H2N1\` and
+\`M5H2N2\` both. A postal code in the \*input\* does not break the tie
+either, since it is what the address claims rather than something the
+query established.
 
 ## Examples
 

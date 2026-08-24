@@ -294,6 +294,52 @@ parsed as. A `none` result is very often a parse worth reading rather
 than a missing address — note row 8 above, where `po_box` says the input
 was never going to resolve, because NAR holds no post office boxes.
 
+### Two postal codes
+
+The result carries two postal-code columns, and they answer different
+questions. `POSTAL_CODE` comes from the parse — it is what the input
+string said, and is empty for the addresses that were typed without one.
+`match_postal_code` is what the *matched record* carries, filled in from
+the database rather than from the input:
+
+``` r
+
+g |>
+  mutate(input = substr(input, 1, 38)) |>
+  select(input, match_method, POSTAL_CODE, match_postal_code)
+#>                                    input     match_method POSTAL_CODE match_postal_code
+#> 1        1055 W Georgia St, Vancouver BC     nar_building        <NA>            V6E0B6
+#> 2 302-1055 west georgia street, vancouve     nar_building        <NA>            V6E0B6
+#> 3    100 Queen St W, Toronto, ON M5H 2N2     nar_building      M5H2N2              <NA>
+#> 4       845, rue de Vernon, Gatineau, QC     nar_building        <NA>            J9J3K4
+#> 5 34221 Range Road 272, Red Deer County,     nar_building        <NA>            T4G0M4
+#> 6          5491 Route 11, Brantville, NB nar_interpolated        <NA>            E9H2A8
+#> 7   29 HPCKING AVE, SAULT STE. MARIE, ON     nar_building        <NA>            P6C2B8
+#> 8                 PO Box 40, Iqaluit, NU             none        <NA>              <NA>
+```
+
+Only the tiers that resolve to a record can fill the second column: the
+`nar` tier and the `rqa` tier. It then survives whichever tier ends up
+placing the row, exactly as `ADDR_GUID` does — which is why row 6 above
+is `nar_interpolated` and still carries a postal code. NAR held that
+address, with no coordinates for it; the exact tier read the record and
+interpolation supplied the position. A row interpolated with no such
+hit, and every answer from an online service, reports nothing rather
+than copying a neighbour’s: an interpolated point sits *between* two
+addresses that need not share a postal code.
+
+The other empty one is more interesting. Row 3 matched exactly, and NAR
+carries `100 Queen St W, Toronto` twice — once as `M5H2N1` and once as
+`M5H2N2`. NAR holds one row per address, so a civic number with units
+contributes many rows, and about one civic number in seventy spans more
+than one postal code — 4.2% of addresses, since the buildings this
+happens to are large ones.
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+does not match on unit, so nothing in the query says which of those rows
+was meant, and the column stays empty rather than reporting a coin flip.
+The postal code in the input string does not break the tie either: that
+is what the address claims, not something the lookup established.
+
 You can also parse once and geocode repeatedly, which is useful when you
 want to correct a parse before resolving it, or to try the same
 addresses under different constraints without paying for the parse each

@@ -178,6 +178,16 @@ span for an interpolated one. It says nothing about NAR’s own error,
 which is a separate quantity — the notes linked above measure that
 separately, for one province.
 
+**Two postal codes, and they are not two attempts at the same thing.**
+`POSTAL_CODE` is what the input string said — usually `NA`, since most
+addresses are typed without one — and `match_postal_code` is what the
+matched record carries. Only the tiers that resolve to a record fill the
+second one, and it is left empty rather than guessed: an interpolated
+point sits between two addresses that need not share a postal code, and
+a building whose units span two reports neither, since
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+does not match on unit.
+
 Interpolation is deliberately conservative: same side of the street
 only, and it **refuses to extrapolate** past the last known civic rather
 than guessing.

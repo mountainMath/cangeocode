@@ -216,6 +216,52 @@ run the import.
   only 58% of the time: NAR’s BC points are a mixture of definitions,
   not one of them. `data-raw/probe_bc.R` reproduces it.
 
+### Forward geocoding
+
+- **[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+  returns the matched record’s postal code**, in a new
+  `match_postal_code` column. The existing `POSTAL_CODE` is unchanged
+  and still means what it always meant — the postal code the *input
+  string* carried, which is `NA` for an address typed without one. The
+  two sit beside each other because they answer different questions:
+  what was said, and what was found.
+
+- Only the tiers that resolve to a record fill it — `nar` (including
+  `nar_no_geometry`, since an address NAR holds without coordinates
+  still has a postal code) and `rqa`. It then survives whichever tier
+  ends up placing the row, as `ADDR_GUID` already did, so an
+  interpolated row carries one when the exact tier found the record
+  first. Everything else leaves it `NA` rather than copying a
+  neighbour’s.
+
+- It is also `NA` when the candidates disagree. NAR holds one row per
+  address, so a civic number with units contributes many, and 1.4% of
+  civic numbers — 4.2% of addresses, since the buildings this happens to
+  are large — span more than one postal code. The tier does not match on
+  unit, so nothing in the query says which of them was meant.
+  `100 Queen St W, Toronto` is one of them, and a postal code in the
+  input does not break the tie: that is what the address claims, not
+  something the lookup established.
+
+### The NAR connection
+
+- **New
+  [`open_nar()`](https://mountainmath.github.io/cangeocode/reference/open_nar.md)
+  and
+  [`close_nar()`](https://mountainmath.github.io/cangeocode/reference/close_nar.md)**,
+  and
+  [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+  and
+  [`reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/reverse_geocode.md)
+  now keep the connection they open. Passing `con` is no longer needed,
+  and no longer costs anything to omit: the first call opens the
+  database and every call after it reuses the same handle. On the real
+  ~5 GB database that is 1.49 s for the first call and 0.38 s for the
+  rest, against ~0.9 s every time before.
+  [`close_nar()`](https://mountainmath.github.io/cangeocode/reference/close_nar.md)
+  ends it; an import closes it for you and says so, since a writer
+  cannot open a database a reader holds.
+
 ### Address normalization
 
 - **The gazetteer compares on a match fold**, which spells `ST` out to
