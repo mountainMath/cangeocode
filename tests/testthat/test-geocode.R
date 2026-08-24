@@ -389,3 +389,94 @@ test_that("an empty input is answered with an empty result", {
   expect_equal(names(norm), names(normalize_address("1 Main St, Vancouver, BC",
                                                     con = con)))
 })
+
+test_that("geocode_matches returns one row per NAR record", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(units = TRUE)
+
+  m <- geocode_matches("4001 King Edward Ave W, Vancouver, BC", con = con)
+
+  # The fixture's two units at one civic number, which geocode() reports as
+  # n_records = 2 and n_matches = 1.
+  expect_equal(nrow(m), 2L)
+  expect_equal(m$input_id, c(1L, 1L))
+  expect_equal(m$match_rank, 1:2)
+  expect_setequal(m$MAIL_POSTAL_CODE, c("V6S1N3", "V6S1N4"))
+  expect_true(all(c("APT_NO_LABEL", "LOC_GUID", "lon", "lat") %in% names(m)))
+})
+
+test_that("the first match is the record geocode() answered with", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(units = TRUE)
+
+  # The invariant the shared rank exists for: both queries collapse the same
+  # candidate set in the same order, so rank 1 is not merely usually the same
+  # record -- it is the same expression that chose it.
+  x <- c("4001 King Edward Ave W, Vancouver, BC",
+         "4003 Musqueam Dr, Southlands, BC")
+  g <- geocode(x, con = con, method = "nar")
+  m <- geocode_matches(x, con = con)
+  first <- m[m$match_rank == 1, ]
+  expect_equal(first$ADDR_GUID, g$ADDR_GUID[first$input_id])
+
+  # And the count agrees with what geocode() reported without enumerating.
+  expect_equal(as.integer(table(factor(m$input_id, levels = seq_along(x)))),
+               g$n_records)
+})
+
+test_that("an address only another tier can place has no matches", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # Interpolation resolves to no record, so there is nothing to enumerate --
+  # zero rows, not one row of NAs, and not an error.
+  g <- geocode("150 Grant St, Vancouver, BC", con = con)
+  expect_equal(g$match_method, "nar_interpolated")
+
+  m <- geocode_matches("150 Grant St, Vancouver, BC", con = con)
+  expect_equal(nrow(m), 0L)
+  # The columns are still the query's own, because the empty probe is run
+  # rather than short-circuited.
+  expect_true(all(nar_geocode_match_cols() %in% names(m)))
+
+  expect_equal(nrow(geocode_matches(character(0), con = con)), 0L)
+  expect_equal(nrow(geocode_matches("49321, BRAZEAU COUNTY, AB", con = con)), 0L)
+})
+
+test_that("geocode_matches takes the same constraints and shapes as geocode", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(units = TRUE)
+
+  # A parsed data frame is a supported way in, and carries no `input` column.
+  m <- geocode_matches(normalize_address("4001 King Edward Ave W, Vancouver, BC")[
+                         , setdiff(names(normalize_address("4001 King Edward Ave W")), "input")],
+                       con = con)
+  expect_equal(nrow(m), 2L)
+  expect_true(all(is.na(m$input)))
+
+  expect_s3_class(geocode_matches("4001 King Edward Ave W, Vancouver, BC",
+                                  con = con, geometry = TRUE), "sf")
+
+  # An authoritative municipality constrains the enumeration exactly as it
+  # constrains the answer -- same probe, same setup.
+  expect_equal(nrow(geocode_matches("4001 King Edward Ave W", mun = "Vancouver",
+                                    prov = "BC", con = con)), 2L)
+  expect_equal(nrow(geocode_matches("4001 King Edward Ave W", mun = "Toronto",
+                                    prov = "ON", con = con)), 0L)
+})
+
+test_that("both readings of the candidate set share their ordering", {
+  # Not a behavioural test -- a textual one, because the point of factoring the
+  # rank out is that it cannot be edited in one query and not the other.
+  rank <- nar_geocode_rank_sql(nar_geocode_nar_rank())
+  expect_true(grepl(rank, nar_geocode_exact_sql("probe"), fixed = TRUE))
+  expect_true(grepl(rank, nar_geocode_matches_sql("probe"), fixed = TRUE))
+
+  civic <- nar_geocode_civic_key()
+  expect_true(grepl(civic, nar_geocode_exact_sql("probe"), fixed = TRUE))
+  expect_true(grepl(civic, nar_geocode_matches_sql("probe"), fixed = TRUE))
+
+  # The enumeration ranks without filtering; the answer filters on the rank.
+  expect_no_match(nar_geocode_matches_sql("probe"), "QUALIFY")
+  expect_match(nar_geocode_exact_sql("probe"), "QUALIFY")
+})

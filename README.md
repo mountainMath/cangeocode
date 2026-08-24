@@ -166,6 +166,23 @@ is not an error, and 47% of NAR's placed addresses share their coordinate with
 another. It matters when the collapsed records disagree about something you were
 using, which today means the postal code.
 
+`geocode_matches()` opens those records up — one row each, ranked so the first
+is the one `geocode()` answered with:
+
+``` r
+geocode_matches("49321 Range Road 72") |>
+  select(match_rank, APT_NO_LABEL, MAIL_MUN_NAME, MAIL_POSTAL_CODE)
+#>    match_rank APT_NO_LABEL  MAIL_MUN_NAME MAIL_POSTAL_CODE
+#> 1           1            9 BRAZEAU COUNTY           T7A2A2
+#> 2           2            7 BRAZEAU COUNTY           T7A2A2
+#> 3           3           25 DRAYTON VALLEY           T7A1R9
+#> ...                                                       
+```
+
+It is the exact NAR tier only: an address that reached a coordinate by
+interpolation or from an online service resolved to no record, so it has no
+matches to show.
+
 **Two postal codes, and they are not two attempts at the same thing.**
 `POSTAL_CODE` is what the input string said — usually `NA`, since most addresses
 are typed without one — and `match_postal_code` is what the matched record

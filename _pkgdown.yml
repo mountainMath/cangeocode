@@ -7,9 +7,12 @@ reference:
 - title: Geocoding
   desc: >
     Resolve free-text Canadian addresses to coordinates, interpolating the
-    civic numbers NAR does not carry.
+    civic numbers NAR does not carry. `geocode()` answers one row per address;
+    `geocode_matches()` opens up the NAR records behind an answer, which is
+    where the units of a multi-unit building are.
   contents:
   - geocode
+  - geocode_matches
 
 - title: Address normalization
   desc: >

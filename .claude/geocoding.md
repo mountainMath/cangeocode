@@ -127,6 +127,44 @@ records **disagree** about a field being read off them, and the one such field t
 `n_records` is `0`, not `NA`, wherever no record was resolved — a bare interpolation, `rnf`,
 every online tier — which keeps it parallel with `n_matches`'s `0` for `none`.
 
+**`geocode_matches()` is the same query read a second way, and the sharing is load-bearing
+rather than tidiness.** `nar_geocode_best_sql()` collapses a candidate set to one row per input
+and measures what it collapsed; `nar_geocode_ranked_sql()` returns the same set with the rank
+as a column instead of a `QUALIFY` filter. Both take the rank from `nar_geocode_nar_rank()`
+and both build their candidates through `nar_geocode_candidates()` + `nar_geocode_civic_key()`,
+so `match_rank == 1` **is** the row `geocode()` answered with, by construction. Written twice
+they would drift, and the drift would be silent in the worst possible way — an enumeration
+quietly describing a different search than the answer it exists to explain. There is a
+*textual* test asserting each shared fragment appears in both queries, because a behavioural
+test only catches drift on the inputs it happens to cover. Quebec's `rqa_geocode_sql()` was
+carrying its own copy of the collapse-and-measure shape and now goes through the same helper,
+differing only in its candidates, its quality order and its column names.
+
+**It takes no `method` argument on purpose.** No other tier has a candidate set: interpolation
+and `rnf` stand *between* records and resolve to none, and the online services return an answer
+rather than a set. An address only those tiers can place has zero rows here, and that is the
+correct answer rather than a gap — nothing was collapsed because nothing was resolved. RQA is
+the one tier that *does* resolve to records, and it is excluded for a different reason: they
+are RQA rows with RQA columns and would not stack with NAR's.
+
+**The result is deliberately not aligned with the input**, unlike everything else the package
+returns — an address matching nothing contributes no rows, and `input_id` indexes back. That is
+what "matches" means, and `geocode()` is the function carrying the one-row-per-input contract.
+Past `match_rank == 1` the order is the `ADDR_GUID` tie-break and means nothing; it exists to
+make the *first* row reproducible across runs, not to rank the rest.
+
+**`nar_geocode_run_tier()` no longer short-circuits an empty probe.** It writes and queries the
+empty temp table like any other, so every caller gets back the query's own columns and types.
+The old `return(data.frame())` was free for the tiers, which only ever ask `if (!nrow(...))`,
+but `geocode_matches()` has to hand back a *shaped* zero-row frame and would otherwise need a
+second, hand-maintained idea of what its columns are.
+
+**`nar_geocode_setup()` holds what both entry points must agree on**: the session connection,
+the tier-availability checks, the parse-or-validate branch, the authoritative `prov`/`mun`
+overrides and the `within` geometry. The overrides are why this is shared rather than merely
+deduplicated — they are applied to `res` and not only to the probe, so an enumeration that
+skipped them would list the records of a different search.
+
 **`match_postal_code` is an aggregate over the candidate set, not a column read off the row
 that was returned**, and that distinction is the whole of it. NAR carries one row per address,
 so a civic number with units contributes many rows to `cand`; the tier already picks one of

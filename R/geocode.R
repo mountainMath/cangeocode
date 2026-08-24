@@ -315,13 +315,123 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
                     method = c("nar", "nar_interpolate"), geometry = FALSE,
                     crs = 4326, version = "latest", con = NULL, ...) {
   method <- nar_geocode_methods(method)
+  q <- nar_geocode_setup(x, prov, mun, within, method, crs, version, con)
 
+  hits <- nar_geocode_match(q$res, q$con, method = method,
+                            bounds = nar_geocode_bounds_sql(q$bounds),
+                            bounds_geom = q$bounds, auth_mun = !is.null(mun), ...)
+  out <- cbind(q$res, hits[, c("ADDR_GUID", "match_method", "uncertainty_m",
+                               "n_matches", "n_records",
+                               "match_postal_code")])
+
+  nar_geocode_geometry(out, hits$x, hits$y, q$con, crs = crs, geometry = geometry)
+}
+
+#' Every NAR record behind a geocoding answer
+#'
+#' @description [geocode()] returns one row per address and reports how many
+#' NAR records stood behind it in `n_records`. This returns those records --
+#' one row each, in the order the tier ranks them, so `match_rank == 1` is by
+#' construction the record `geocode()` answered with.
+#'
+#' It exists because `n_records` is routinely greater than 1 and that is
+#' usually **not** an error. NAR files every unit of a multi-unit building as
+#' its own address at the building's single coordinate, and 47% of the
+#' addresses it places share a coordinate with at least one other, so the
+#' collapse is the normal case rather than the exceptional one. What varies is
+#' whether the collapsed records differ in a way that matters to you, and the
+#' only way to find out is to look at them.
+#'
+#' @section What it does not do: This is the **exact NAR tier only** -- the same
+#' candidate set [geocode()]'s `"nar"` tier collapses, built by the same code.
+#' There is deliberately no `method` argument, because no other tier has a
+#' candidate set to enumerate: interpolation stands between two civic numbers
+#' and resolves to no record at all, `"rnf"` interpolates along a street
+#' segment, and the online services return an answer rather than a set. An
+#' address only those tiers can place therefore has no matches here, which is
+#' the correct answer and not a gap. Quebec's `"rqa"` tier does resolve to
+#' records, but they are RQA rows with RQA columns and would not stack with
+#' NAR's.
+#'
+#' Past `match_rank == 1` the order carries no meaning. It is the tier's
+#' tie-break -- building points before blockface before none, then `ADDR_GUID`
+#' -- which exists to make the *first* row reproducible, not to rank the rest.
+#' Sort on whatever you are actually asking about.
+#'
+#' An address that matched nothing contributes **no rows**, so the result is not
+#' aligned with the input the way [geocode()]'s is; `input_id` indexes back into
+#' it. Use [geocode()] when you need one row per address.
+#'
+#' @inheritParams geocode
+#' @return A data frame with one row per matched NAR record: `input_id` (the
+#' index of the address in `x`), `input`, `match_rank`, the record columns
+#' listed by `nar_geocode_match_cols()`, and either `lon`/`lat` or an `sf`
+#' geometry column. Zero rows if nothing matched anything.
+#' @seealso [geocode()], which collapses this to one row per address.
+#' @export
+#' @examples
+#' \dontrun{
+#' # One point, nineteen addresses: the units of one property, and the four
+#' # postal codes between them are why geocode() reports no match_postal_code.
+#' geocode_matches("49321 Range Road 72")
+#'
+#' # The usual workflow -- resolve first, then look only where it collapsed.
+#' g <- geocode(addresses)
+#' geocode_matches(addresses[g$n_records > 1])
+#' }
+geocode_matches <- function(x, prov = NULL, mun = NULL, within = NULL,
+                            geometry = FALSE, crs = 4326,
+                            version = "latest", con = NULL) {
+  q <- nar_geocode_setup(x, prov, mun, within, "nar", crs, version, con)
+  res <- q$res
+
+  probe <- nar_geocode_probe(res, auth_mun = !is.null(mun))
+  hits <- nar_geocode_run_tier(probe, probe$row_id, q$con,
+                               nar_geocode_matches_sql,
+                               nar_geocode_bounds_sql(q$bounds))
+
+  i <- hits$row_id
+  # Absent when the caller parsed the addresses themselves and handed over a
+  # data frame, which is a supported way in. Tested against `names()` rather
+  # than with `res$input`, which warns on a tibble instead of answering NULL.
+  input <- if ("input" %in% names(res)) res$input
+           else rep(NA_character_, nrow(res))
+  out <- data.frame(input_id   = i,
+                    input      = input[i],
+                    match_rank = as.integer(hits$match_rank),
+                    stringsAsFactors = FALSE)
+  out <- cbind(out, hits[, nar_geocode_match_cols(), drop = FALSE])
+
+  nar_geocode_geometry(out, hits$x, hits$y, q$con, crs = crs,
+                       geometry = geometry)
+}
+
+#' Everything a geocoding call has to settle before it can query
+#'
+#' @description Shared by [geocode()] and [geocode_matches()], which ask the
+#' same question of the same database and differ only in whether they report
+#' the record chosen or all of them. Resolving the connection, checking that
+#' the tiers named have something to run against, parsing, applying the
+#' authoritative overrides and building the spatial restriction are the same
+#' work in both, and drifting apart on any of them -- most of all on the
+#' overrides -- would make the enumeration describe a different search than the
+#' answer it is meant to explain.
+#'
+#' The tier availability checks run **before any parsing** rather than when a
+#' tier is first reached: whether a tier runs at all depends on what its
+#' predecessors left unplaced, so a missing import would otherwise surface on
+#' one batch and stay silent on the next.
+#' @param x Address strings, or a parsed data frame
+#' @param prov,mun,within Constraints, as in [geocode()]
+#' @param method The tiers that will be run, already validated
+#' @param crs The CRS `within` is expressed in
+#' @param version,con Which database to use
+#' @return A list of `con`, the parsed `res`, and `bounds` as an `sfc` or `NULL`
+#' @keywords internal
+nar_geocode_setup <- function(x, prov, mun, within, method, crs, version, con) {
   # Not closed on the way out: an unsupplied `con` resolves to the session's
   # connection, which the next call reuses. close_nar() is what ends it.
   if (is.null(con)) con <- nar_session_use(version)
-  # Checked before any parsing, not when the tier is first reached: whether a
-  # tier runs at all depends on what its predecessors left unplaced, so a
-  # missing import would otherwise surface on one batch and not the next.
   if ("rqa" %in% method && !nar_has_rqa(con)) {
     stop("The \"rqa\" tier needs the Repertoire quebecois des adresses, which ",
          "this database does not carry. Run rqa_import() first.", call. = FALSE)
@@ -358,15 +468,7 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
   if (!is.null(prov)) res$PROV_ABVN <- nar_recycle(prov, nrow(res), "prov")
   if (!is.null(mun))  res$MUN_NAME  <- nar_recycle(mun,  nrow(res), "mun")
 
-  bounds <- nar_geocode_bounds_geom(within, crs, con)
-  hits <- nar_geocode_match(res, con, method = method,
-                            bounds = nar_geocode_bounds_sql(bounds),
-                            bounds_geom = bounds, auth_mun = !is.null(mun), ...)
-  out <- cbind(res, hits[, c("ADDR_GUID", "match_method", "uncertainty_m",
-                             "n_matches", "n_records",
-                             "match_postal_code")])
-
-  nar_geocode_geometry(out, hits$x, hits$y, con, crs = crs, geometry = geometry)
+  list(con = con, res = res, bounds = nar_geocode_bounds_geom(within, crs, con))
 }
 
 #' Attach coordinates to a geocoding result
@@ -523,6 +625,11 @@ nar_geocode_mark_uncovered <- function(out, res, con) {
 #' round trip is shared. The table is dropped on exit rather than left for the
 #' connection to clean up, because a caller-supplied connection outlives the
 #' call and geocoding in a loop would otherwise accumulate them.
+#'
+#' The empty probe is written and queried like any other rather than
+#' short-circuited, so a caller always gets a result with the query's own
+#' columns and types. Skipping it would return a shapeless `data.frame()`, and
+#' every caller would need its own idea of what the columns should have been.
 #' @param probe The full probe table
 #' @param todo Row indices still needing a position
 #' @param con A NAR connection
@@ -532,7 +639,6 @@ nar_geocode_mark_uncovered <- function(out, res, con) {
 #' @keywords internal
 nar_geocode_run_tier <- function(probe, todo, con, sql_fn, bounds) {
   probe <- probe[probe$row_id %in% todo, , drop = FALSE]
-  if (!nrow(probe)) return(data.frame())
 
   tmp <- paste0("nar_geo_", as.integer(stats::runif(1) * 1e9))
   DBI::dbWriteTable(con, tmp, probe, temporary = TRUE)
@@ -709,56 +815,166 @@ nar_geocode_candidates <- function(probe, select, extra = "", bounds = "") {
         branch("MAIL_STREET_NAME"))
 }
 
+#' The rank that decides which candidate a tier answers with
+#'
+#' @description One window expression, defined once, because both readings of a
+#' candidate set are supposed to agree: [nar_geocode_best_sql()] keeps the row
+#' it puts first and [nar_geocode_ranked_sql()] returns them all in that same
+#' order, so `match_rank == 1` in [geocode_matches()] is by construction the
+#' record [geocode()] answered with. Written twice they would drift, and the
+#' drift would be invisible -- an enumeration that quietly disagreed with the
+#' answer it exists to explain.
+#' @param rank The tier's `ORDER BY` expression
+#' @return A SQL fragment
+#' @keywords internal
+nar_geocode_rank_sql <- function(rank) {
+  sprintf("row_number() OVER (PARTITION BY row_id ORDER BY %s)", rank)
+}
+
+#' How the NAR tier ranks the addresses that matched
+#'
+#' @description A building point always outranks a blockface one for the same
+#' address, a record with no point at all comes last, and `ADDR_GUID` breaks
+#' any remaining tie so the answer is stable across runs rather than depending
+#' on scan order.
+#' @return A SQL `ORDER BY` expression
+#' @keywords internal
+nar_geocode_nar_rank <- function() {
+  "CASE WHEN x IS NULL THEN 2 WHEN geom_source = 'building' THEN 0 ELSE 1 END,
+                 ADDR_GUID"
+}
+
+#' The civic-number half of an exact match
+#'
+#' @description Shared by the query that answers and the query that enumerates,
+#' for the same reason the rank is: two spellings of "which addresses count as
+#' this one" would be two different searches.
+#' @return A SQL fragment, appended to the street key
+#' @keywords internal
+nar_geocode_civic_key <- function() {
+  "\n         AND a.CIVIC_NO = p.civic
+         -- A suffix that was written has to be honoured -- 990A and 990 are
+         -- different addresses -- but one that was not is left unconstrained,
+         -- since the great majority of NAR rows carry no suffix at all.
+         AND (p.suffix = '' OR upper(coalesce(a.CIVIC_NO_SUFFIX, '')) = p.suffix)"
+}
+
+#' Pick one candidate per row and measure the set it came from
+#'
+#' @description The shape both record-resolving tiers share -- NAR's and
+#' Quebec's -- with only the candidate set, the rank and the column names
+#' differing. They were written out twice before, which meant the ambiguity
+#' measurements were maintained twice.
+#'
+#' The second aggregation exists only to measure that ambiguity: it rejoins the
+#' chosen point to every candidate that satisfied the query and reports how
+#' many distinct points there were, how many distinct records, and how far the
+#' furthest of the points sits from the one returned. Points and records are
+#' counted separately because they routinely differ: every unit of a
+#' multi-unit building is its own address at the building's one coordinate, so
+#' `n_records` can be 19 where `n_points` is 1 -- see [geocode()].
+#' @param cand SQL producing the candidate set, with a `row_id` and `x`/`y`
+#' @param rank The tier's `ORDER BY` expression
+#' @param cols The select list of chosen-row columns, aliased `b`
+#' @param id The candidate table's record identifier, counted for `n_records`
+#' @param postal The candidate table's postal-code column
+#' @return A single SQL string
+#' @keywords internal
+nar_geocode_best_sql <- function(cand, rank, cols, id, postal) {
+  sprintf("
+    WITH cand AS (
+      %1$s
+    ),
+    best AS (
+      SELECT * FROM cand
+      QUALIFY %2$s = 1
+    )
+    SELECT %3$s,
+           count(DISTINCT c.x::VARCHAR || ',' || c.y::VARCHAR) AS n_points,
+           count(DISTINCT c.%4$s) AS n_records,
+           max(sqrt((c.x - b.x)^2 + (c.y - b.y)^2)) AS spread_m,
+           %5$s
+      FROM best b
+      JOIN cand c USING (row_id)
+     GROUP BY ALL",
+          cand, nar_geocode_rank_sql(rank), cols, id,
+          nar_geocode_postal_sql(paste0("c.", postal)))
+}
+
+#' Return every candidate instead of one, in the order the tier ranks them
+#'
+#' @description The other reading of the same candidate set
+#' [nar_geocode_best_sql()] collapses. No aggregation and no `QUALIFY`: the
+#' rank becomes a column rather than a filter, so row 1 of each `row_id` is the
+#' row the collapsing query would have kept.
+#' @param cand SQL producing the candidate set, with a `row_id`
+#' @param rank The tier's `ORDER BY` expression
+#' @return A single SQL string
+#' @keywords internal
+nar_geocode_ranked_sql <- function(cand, rank) {
+  sprintf("
+    WITH cand AS (
+      %1$s
+    )
+    SELECT *, %2$s AS match_rank
+      FROM cand
+     ORDER BY row_id, match_rank", cand, nar_geocode_rank_sql(rank))
+}
+
 #' The exact-match geocoding query
 #'
 #' @description Kept as its own function, like [nar_gazetteer_sql()], so the SQL
-#' can be read and tested without a database.
-#'
-#' A building point always outranks a blockface one for the same address, and
-#' `ADDR_GUID` breaks any remaining tie so the answer is stable across runs
-#' rather than depending on scan order. The second aggregation exists only to
-#' measure ambiguity: it rejoins the chosen point to every candidate that
-#' satisfied the query and reports how many distinct points there were, how
-#' many distinct addresses, and how far the furthest of the points sits from
-#' the one returned. Points and addresses are counted separately because they
-#' routinely differ: every unit of a multi-unit building is its own NAR address
-#' at the building's one coordinate, so `n_records` can be 19 where `n_points`
-#' is 1 -- see [geocode()].
+#' can be read and tested without a database. The candidate set it collapses is
+#' the same one [nar_geocode_matches_sql()] enumerates.
 #' @param probe Name of the temp table holding the parsed components
 #' @param bounds A spatial restriction from [nar_geocode_bounds()], or `""`
 #' @return A single SQL string
 #' @keywords internal
 nar_geocode_exact_sql <- function(probe, bounds = "") {
-  sprintf("
-    WITH cand AS (
-      %s
-    ),
-    best AS (
-      SELECT * FROM cand
-      QUALIFY row_number() OVER (
-        PARTITION BY row_id
-        ORDER BY CASE WHEN x IS NULL THEN 2
-                      WHEN geom_source = 'building' THEN 0 ELSE 1 END,
-                 ADDR_GUID) = 1
-    )
-    SELECT b.row_id, b.ADDR_GUID, b.geom_source, b.x, b.y,
-           count(DISTINCT c.x::VARCHAR || ',' || c.y::VARCHAR) AS n_points,
-           count(DISTINCT c.ADDR_GUID) AS n_records,
-           max(sqrt((c.x - b.x)^2 + (c.y - b.y)^2)) AS spread_m,
-           %2$s
-      FROM best b
-      JOIN cand c USING (row_id)
-     GROUP BY ALL",
+  nar_geocode_best_sql(
     nar_geocode_candidates(
       probe,
       "p.row_id, a.ADDR_GUID, a.geom_source, a.x, a.y, a.MAIL_POSTAL_CODE",
-      "\n         AND a.CIVIC_NO = p.civic
-         -- A suffix that was written has to be honoured -- 990A and 990 are
-         -- different addresses -- but one that was not is left unconstrained,
-         -- since the great majority of NAR rows carry no suffix at all.
-         AND (p.suffix = '' OR upper(coalesce(a.CIVIC_NO_SUFFIX, '')) = p.suffix)",
-      bounds),
-    nar_geocode_postal_sql("c.MAIL_POSTAL_CODE"))
+      nar_geocode_civic_key(), bounds),
+    nar_geocode_nar_rank(),
+    "b.row_id, b.ADDR_GUID, b.geom_source, b.x, b.y",
+    "ADDR_GUID", "MAIL_POSTAL_CODE")
+}
+
+#' The columns [geocode_matches()] reports for each NAR record
+#'
+#' @description Chosen to answer the question the function exists for -- why
+#' are these separate records, and does the difference matter. `APT_NO_LABEL`,
+#' `MAIL_POSTAL_CODE`, `MAIL_MUN_NAME` and `BU_USE` are what actually
+#' distinguish the units of one building; `LOC_GUID` is what shows they *are*
+#' one building; both street-name families are carried because either may be
+#' the one that matched.
+#' @return A character vector of `Addresses` column names
+#' @keywords internal
+nar_geocode_match_cols <- function() {
+  c("ADDR_GUID", "LOC_GUID", "APT_NO_LABEL", "CIVIC_NO", "CIVIC_NO_SUFFIX",
+    "OFFICIAL_STREET_NAME", "MAIL_STREET_NAME", "MAIL_MUN_NAME",
+    "CSD_ENG_NAME", "MAIL_PROV_ABVN", "MAIL_POSTAL_CODE", "BU_USE",
+    "geom_source")
+}
+
+#' The query behind [geocode_matches()]
+#'
+#' @description Every NAR record that satisfied the query, ranked. The
+#' candidate set is built by the same [nar_geocode_candidates()] and
+#' [nar_geocode_civic_key()] the exact tier uses, so the two cannot disagree
+#' about what matched -- only about how much of it to report.
+#' @param probe Name of the temp table holding the parsed components
+#' @param bounds A spatial restriction from [nar_geocode_bounds()], or `""`
+#' @return A single SQL string
+#' @keywords internal
+nar_geocode_matches_sql <- function(probe, bounds = "") {
+  cols <- paste0("a.", nar_geocode_match_cols(), collapse = ", ")
+  nar_geocode_ranked_sql(
+    nar_geocode_candidates(probe,
+                           paste0("p.row_id, ", cols, ", a.x, a.y"),
+                           nar_geocode_civic_key(), bounds),
+    nar_geocode_nar_rank())
 }
 
 #' The postal code of the record that was matched

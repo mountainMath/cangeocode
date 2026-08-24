@@ -25,5 +25,10 @@ The two NAR tiers differ only in their SQL, so the temp-table
 round trip is shared. The table is dropped on exit rather than left for the
 connection to clean up, because a caller-supplied connection outlives the
 call and geocoding in a loop would otherwise accumulate them.
+
+The empty probe is written and queried like any other rather than
+short-circuited, so a caller always gets a result with the query's own
+columns and types. Skipping it would return a shapeless `data.frame()`, and
+every caller would need its own idea of what the columns should have been.
 }
 \keyword{internal}

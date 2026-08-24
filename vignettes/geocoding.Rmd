@@ -196,6 +196,59 @@ The two columns fail differently, and that is why both are there. `n_matches`
 above 1 says the point may be in the wrong place. `n_records` above 1 says the
 point is in the right place but stands for more than one thing.
 
+### Looking at the records
+
+`geocode_matches()` returns them, one row each:
+
+
+``` r
+geocode_matches("49321 Range Road 72") |>
+  select(match_rank, APT_NO_LABEL, MAIL_MUN_NAME, MAIL_POSTAL_CODE, lon, lat) |>
+  head(6)
+#>   match_rank APT_NO_LABEL  MAIL_MUN_NAME MAIL_POSTAL_CODE      lon      lat
+#> 1          1            9 BRAZEAU COUNTY           T7A2A2 -114.922 53.24723
+#> 2          2            7 BRAZEAU COUNTY           T7A2A2 -114.922 53.24723
+#> 3          3           25 DRAYTON VALLEY           T7A1R9 -114.922 53.24723
+#> 4          4            2 BRAZEAU COUNTY           T7A2A2 -114.922 53.24723
+#> 5          5            1 BRAZEAU COUNTY           T7A2A2 -114.922 53.24723
+#> 6          6           10 BRAZEAU COUNTY           T7A1R8 -114.922 53.24723
+```
+
+Nineteen units of one property, on one coordinate, split across two mailing
+municipalities and four postal codes. The rows are ranked the way the tier ranks
+them, so `match_rank == 1` is the record `geocode()` answered with — the two
+queries collapse the same candidate set with the same ordering expression, so
+that is a guarantee rather than a coincidence. Past the first row the order
+carries no meaning: it is the `ADDR_GUID` tie-break, which exists to make the
+first row reproducible.
+
+The usual way to use it is not to call it on everything. Resolve first, then
+open up only what collapsed:
+
+
+``` r
+addr <- c("49321 Range Road 72", "4025 W 38th Ave, Vancouver BC")
+collapsed <- geocode(addr)$n_records > 1
+geocode_matches(addr[collapsed])$APT_NO_LABEL
+#>  [1] "9"  "7"  "25" "2"  "1"  "10" "15" "5"  "6"  "17" "3"  "23" "4"  "29" "13" "8"  "27" "21" "19"
+```
+
+It reads the exact NAR tier and nothing else, and takes no `method` argument,
+because no other tier has a set to enumerate. Interpolation stands *between* two
+civic numbers and resolves to no record; the road network file interpolates
+along a segment; the online services return an answer rather than a candidate
+set. So an address that only those tiers could place has no matches here:
+
+
+``` r
+nrow(geocode_matches("9999 Jasper Ave, Edmonton, AB"))
+#> [1] 0
+```
+
+That is the right answer and not a gap — nothing was collapsed, because nothing
+was resolved to a record in the first place. It does mean the result is not
+aligned with the input the way `geocode()`'s is; `input_id` indexes back into it.
+
 ## Choosing the methods
 
 `method` names the tiers to try and the order to try them in. Each tier is

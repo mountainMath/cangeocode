@@ -176,6 +176,28 @@ gains a tier when you run the import.
 
 ## Forward geocoding
 
+* **New `geocode_matches()`** returns the NAR records behind a `geocode()`
+  answer, one row each, in the order the tier ranks them -- so `match_rank == 1`
+  is the record `geocode()` answered with, and the rest are what it collapsed.
+  It reports `APT_NO_LABEL`, `LOC_GUID`, both street-name families, the mailing
+  municipality, the CSD, the postal code and `BU_USE`, which is what makes it
+  possible to see *why* the records are separate and whether the difference
+  matters.
+
+* `geocode_matches()` is the exact NAR tier only, and takes no `method`
+  argument, because no other tier has a candidate set to enumerate:
+  interpolation and `"rnf"` resolve to no record, and the online services
+  return an answer rather than a set. An address only those tiers could place
+  therefore has no matches, which is the correct answer rather than a gap. Its
+  result is not aligned with the input -- an address that matched nothing
+  contributes no rows -- and `input_id` indexes back.
+
+* Internally the two queries are now one query read two ways. The candidate
+  set, the civic-number key and the ranking expression are each defined once
+  and used by both, so `geocode_matches()` cannot enumerate a different search
+  than `geocode()` answered. The same shared shape absorbed Quebec's `"rqa"`
+  tier, which had its own copy of the pick-one-then-measure-the-set SQL.
+
 * **`geocode()` reports how many records matched**, in a new `n_records`
   column beside `n_matches`. They count different things: `n_matches` counts
   distinct *points* and is the ambiguity measure that widens `uncertainty_m`;

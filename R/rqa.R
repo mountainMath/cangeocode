@@ -448,9 +448,8 @@ rqa_method_label <- function(quality) {
 rqa_geocode_sql <- function(probe, bounds = "") {
   mun <- "replace(a.MUN_FOLD, '.', '')"
   borough <- "replace(strip_accents(upper(coalesce(a.BOROUGH, ''))), '.', '')"
-  sprintf("
-    WITH cand AS (
-      SELECT p.row_id, a.RQA_ID, a.POS_QUALITY, a.POSTAL_CODE, a.x, a.y
+  cand <- sprintf(
+    "SELECT p.row_id, a.RQA_ID, a.POS_QUALITY, a.POSTAL_CODE, a.x, a.y
         FROM %1$s p
         JOIN RqaAddresses a
           ON a.MATCH_FOLD = p.match_fold
@@ -460,25 +459,18 @@ rqa_geocode_sql <- function(probe, bounds = "") {
          AND (p.mun_fold = '' OR %2$s = p.mun_fold OR %3$s = p.mun_fold)
          AND (p.mun_auth = '' OR %2$s = p.mun_auth OR %3$s = p.mun_auth)
          AND (p.type = '' OR p.type = strip_accents(upper(a.STREET_TYPE)))
-         AND (p.dir  = '' OR p.dir  = coalesce(a.STREET_DIR, ''))%4$s
-    ),
-    best AS (
-      SELECT * FROM cand
-      QUALIFY row_number() OVER (
-        PARTITION BY row_id
-        ORDER BY CASE WHEN POS_QUALITY = 'B\u00e2timent' THEN 0
+         AND (p.dir  = '' OR p.dir  = coalesce(a.STREET_DIR, ''))%4$s",
+    probe, mun, borough, bounds)
+  # The surrounding shape -- pick one, then measure the set it came from -- is
+  # shared with the NAR tier; only the candidates, the quality order and the
+  # column names are Quebec's.
+  nar_geocode_best_sql(
+    cand,
+    "CASE WHEN POS_QUALITY = 'B\u00e2timent' THEN 0
                       WHEN POS_QUALITY = 'G\u00e9ocod\u00e9e' THEN 1
                       WHEN POS_QUALITY = 'Incertaine' THEN 3
                       ELSE 2 END,
-                 RQA_ID) = 1
-    )
-    SELECT b.row_id, b.POS_QUALITY, b.x, b.y,
-           count(DISTINCT c.x::VARCHAR || ',' || c.y::VARCHAR) AS n_points,
-           count(DISTINCT c.RQA_ID) AS n_records,
-           max(sqrt((c.x - b.x)^2 + (c.y - b.y)^2)) AS spread_m,
-           %5$s
-      FROM best b
-      JOIN cand c USING (row_id)
-     GROUP BY ALL", probe, mun, borough, bounds,
-          nar_geocode_postal_sql("c.POSTAL_CODE"))
+                 RQA_ID",
+    "b.row_id, b.POS_QUALITY, b.x, b.y",
+    "RQA_ID", "POSTAL_CODE")
 }
