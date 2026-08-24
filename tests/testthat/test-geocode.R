@@ -308,3 +308,45 @@ test_that("the postal-code aggregate folds a missing value into the agreement", 
   expect_match(sql, "nullif\\(min\\(coalesce\\(c\\.PC, ''\\)\\), ''\\)")
   expect_match(sql, "AS match_postal_code$")
 })
+
+test_that("a batch nothing in it can be looked up returns none, not an error", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # A civic number and a municipality but no street, so nothing is keepable and
+  # the probe has zero rows. Every tier has to be able to decline that: the
+  # probe's unconstrained columns were length-one literals, which do not
+  # recycle down to zero rows, so building it raised a data.frame() error about
+  # differing row counts rather than reporting a failure to match.
+  g <- geocode("49321, BRAZEAU COUNTY, AB", con = con)
+  expect_equal(g$match_method, "none")
+  expect_true(is.na(g$lon))
+
+  # The same, with the municipality authoritative -- which swaps which of the
+  # two probe columns is the literal.
+  expect_equal(geocode("49321, SOMEWHERE, AB", con = con,
+                       mun = "Vancouver")$match_method, "none")
+
+  # And mixed, since a batch is only as parseable as its worst row.
+  g2 <- geocode(c("49321, BRAZEAU COUNTY, AB",
+                  "4001 King Edward Ave W, Vancouver, BC"), con = con)
+  expect_equal(g2$match_method, c("none", "nar_building"))
+})
+
+test_that("an empty input is answered with an empty result", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection()
+
+  # Geocoding a vector a filter emptied is a normal thing to do. rbind() of
+  # nothing is a zero-column matrix rather than a zero-row data frame, and a
+  # length-one NA does not assign into a zero-row frame, so both ends of the
+  # pipeline had to be told what no rows looks like.
+  g <- geocode(character(0), con = con)
+  expect_equal(nrow(g), 0L)
+  expect_true(all(c("match_method", "match_postal_code", "lon", "lat") %in% names(g)))
+
+  norm <- normalize_address(character(0), con = con)
+  expect_equal(nrow(norm), 0L)
+  expect_equal(names(norm), names(normalize_address("1 Main St, Vancouver, BC",
+                                                    con = con)))
+})

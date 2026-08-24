@@ -374,8 +374,10 @@ nar_geocode_geometry <- function(out, x, y, con, crs = 4326, geometry = FALSE) {
   # Coordinates come off the matched subset, not the whole column: an empty
   # point contributes no row to st_coordinates() rather than a row of NAs, so
   # binding the full matrix on would silently shift every value up.
-  out$lon <- NA_real_
-  out$lat <- NA_real_
+  # `rep(NA_real_, nrow(out))` and not `NA_real_`: assigning a length-one value
+  # into a zero-row data frame is an error rather than a no-op.
+  out$lon <- rep(NA_real_, nrow(out))
+  out$lat <- rep(NA_real_, nrow(out))
   if (any(ok)) {
     co <- sf::st_coordinates(pts[ok])
     out$lon[ok] <- co[, 1]
@@ -583,16 +585,23 @@ nar_geocode_probe <- function(res, auth_mun = FALSE) {
     ifelse(is.na(v), "", as.character(v))[keep]
   }
   keep <- !is.na(res$STREET_NAME) & !is.na(res$CIVIC_NO)
+  # `rep("", sum(keep))` and not `""`: when nothing is keepable every other
+  # column is length zero, and a length-one literal does not recycle down to
+  # zero rows -- data.frame() errors instead. A batch in which no row parsed to
+  # both a street and a civic number is a normal input, not a mistake, and has
+  # to reach the tiers as an empty probe so they can decline it.
+  unconstrained <- rep("", sum(keep))
   data.frame(
     row_id    = which(keep),
     name_fold = nar_fold(res$STREET_NAME[keep]),
     # Only the RQA tier joins on this. The NAR tiers keep the plain fold,
     # which is indexed; see rqa_geocode_sql() on why RQA cannot.
     match_fold = nar_match_fold(res$STREET_NAME[keep]),
-    mun_fold  = if (auth_mun) "" else
+    mun_fold  = if (auth_mun) unconstrained else
                   gsub(".", "", nar_fold(blank("MUN_NAME")), fixed = TRUE),
     mun_auth  = if (auth_mun)
-                  gsub(".", "", nar_fold(blank("MUN_NAME")), fixed = TRUE) else "",
+                  gsub(".", "", nar_fold(blank("MUN_NAME")), fixed = TRUE)
+                else unconstrained,
     prov      = blank("PROV_ABVN"),
     type      = blank("STREET_TYPE"),
     dir       = blank("STREET_DIR"),

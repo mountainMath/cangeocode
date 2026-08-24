@@ -776,3 +776,15 @@ test_that("the prose strip reaches past one comma but never past two", {
   keep <- nar_norm_text("Attn, J Smith, 119 Markham St")
   expect_equal(nar_strip_lead_prose(keep), keep)
 })
+
+test_that("the match fold answers nothing to nothing", {
+  # It pads with paste0(" ", x, " "), and paste0() with a zero-length argument
+  # returns one element rather than none -- so an empty query came back as a
+  # one-row fold, and the caller building a data frame around it failed on a
+  # length mismatch that said nothing about addresses.
+  expect_equal(nar_match_fold(character(0)), character(0))
+  # The fold itself is unchanged: ST spells out, STE is Sainte, and the
+  # hyphen and apostrophe are word boundaries.
+  expect_equal(nar_match_fold(c("ST-JEAN", "STE FOY", "O'BRIEN")),
+               c("SAINT JEAN", "SAINTE FOY", "O BRIEN"))
+})

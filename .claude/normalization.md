@@ -292,6 +292,12 @@ the probe and to the gazetteer, and it is why the fuzzy branch can see Quebec at
 - **The apostrophe goes to a space, not to nothing**, so `de l'Orme` folds to `DE L ORME` and
   containment can find `ORME` inside it.
 
+The R half returns early on a zero-length input, and that guard is load-bearing rather than
+defensive: the fold pads with `paste0(" ", x, " ")`, and `paste0()` given a zero-length argument
+returns **one** element, not none. So an empty query folded to a one-row vector, and the caller
+building a data frame around it failed on a length mismatch that said nothing about addresses —
+which is how `geocode("49321, BRAZEAU COUNTY, AB")` came to error instead of reporting `none`.
+
 `nar_match_fold_sql()` is the DuckDB twin and **must stay in step with the R function character for
 character** — the probe is folded in R and the gazetteer in SQL, and a rule that exists on only one
 side silently stops matching rather than erroring. `test-normalize.R` pins the two against each

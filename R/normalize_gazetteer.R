@@ -236,6 +236,12 @@ nar_gazetteer_pass <- function(res, cand, con, eligible, sql_fn, source,
 #' @return A character vector folded for comparison
 #' @keywords internal
 nar_match_fold <- function(x) {
+  # The padding below is `paste0(" ", ..., " ")`, and paste0() with a
+  # zero-length argument returns one element rather than none -- so without
+  # this the fold would answer a one-row vector to an empty query, and the
+  # caller building a data frame around it would fail on the length mismatch
+  # rather than on anything to do with addresses.
+  if (!length(x)) return(character(0))
   x <- gsub("[.]", "", nar_fold(x))
   x <- gsub("[-']", " ", x)
   x <- paste0(" ", trimws(gsub("[[:space:]]+", " ", x)), " ")

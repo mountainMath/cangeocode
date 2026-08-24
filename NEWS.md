@@ -197,6 +197,26 @@ gains a tier when you run the import.
   postal code in the input does not break the tie: that is what the address
   claims, not something the lookup established.
 
+## Fixes
+
+* **`geocode()` no longer errors on a batch it cannot look anything up in.**
+  `geocode("49321, BRAZEAU COUNTY, AB")` — a civic number and a municipality
+  with no street between them — raised `arguments imply differing number of
+  rows` instead of reporting `none`. The probe drops rows with no street name,
+  and its unconstrained columns were length-one literals, which do not recycle
+  down to zero rows. Any input where *no* row parsed to both a street and a
+  civic number hit it.
+
+* **`nar_match_fold()` answers nothing to nothing.** It pads with
+  `paste0(" ", x, " ")`, and `paste0()` given a zero-length argument returns one
+  element rather than none, so an empty query folded to a one-row vector. That
+  was the other half of the error above.
+
+* **An empty input is answered with an empty result.**
+  `geocode(character(0))` and `normalize_address(character(0))` both errored;
+  they now return zero rows with the usual columns. Geocoding a vector that a
+  filter emptied is a normal thing to do.
+
 ## The NAR connection
 
 * **New `open_nar()` and `close_nar()`**, and `geocode()` and

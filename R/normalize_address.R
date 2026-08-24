@@ -187,7 +187,16 @@ nar_parse_rules <- function(x, prov = NULL) {
     parts[[i]] <- nar_parse_variants(txt[i], lang[i], province[i])
     parts[[i]]$.row <- i
   }
-  parts <- do.call(rbind, c(parts, list(stringsAsFactors = FALSE)))
+  # rbind() of nothing is a zero-column matrix, not a zero-row data frame, so an
+  # empty input would reach the column references below as an atomic. One
+  # throwaway parse supplies the shape instead -- geocoding a vector that a
+  # filter emptied is a normal thing to do, and has to come back with the same
+  # columns as any other call.
+  parts <- if (n) do.call(rbind, c(parts, list(stringsAsFactors = FALSE))) else {
+    empty <- nar_parse_variants("", "en", NA)[0, , drop = FALSE]
+    empty$.row <- integer(0)
+    empty
+  }
 
   cand <- dplyr::tibble(
     input            = x[parts$.row],

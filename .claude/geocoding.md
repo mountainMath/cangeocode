@@ -92,6 +92,18 @@ hands back the `OFFICIAL_*` spelling — without the fold, `24 Sussex Dr, Ottawa
 (The type and direction columns are uppercase in both families, so the fold is redundant there
 and kept for uniformity.)
 
+**A probe with zero rows is a normal input, not a mistake.** `nar_geocode_probe()` keeps only
+rows that parsed to both a street name and a civic number, so a batch of strings that all
+failed that — `49321, BRAZEAU COUNTY, AB` is one number and one municipality with nothing
+between them — produces an empty probe, and every tier has to be able to decline it. Two
+things made that an error rather than a `none`, and both were length-one values sitting in a
+zero-row frame: the probe's unconstrained `mun_fold`/`mun_auth` were the literal `""`, which
+does not recycle down to zero rows, and `nar_match_fold()` pads with `paste0(" ", x, " ")`,
+which returns **one** element when handed none. The same class of bug reached the ends of the
+pipeline for a genuinely empty input — `rbind()` of nothing is a zero-column matrix, and
+`out$lon <- NA_real_` is an error against zero rows — so `geocode(character(0))` is a test
+rather than an edge case.
+
 **`match_postal_code` is an aggregate over the candidate set, not a column read off the row
 that was returned**, and that distinction is the whole of it. NAR carries one row per address,
 so a civic number with units contributes many rows to `cand`; the tier already picks one of
