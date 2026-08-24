@@ -96,3 +96,14 @@ articles:
   navbar: The database
   contents:
   - querying-nar
+
+- title: Data sources
+  navbar: Data sources
+  contents:
+  - source-nar
+  - source-rqa
+  - source-rnf
+  - source-bc
+  - source-nrcan
+  - source-qc
+  - source-osm

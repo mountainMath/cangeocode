@@ -64,6 +64,7 @@ nar_bc_precision <- function(precision) {
 nar_bc_feature <- function(resp, min_score = 60) {
   empty <- data.frame(match_method = "none", uncertainty_m = NA_real_,
                       bc_score = NA_integer_, bc_precision = NA_character_,
+                      bc_descriptor = NA_character_, bc_accuracy = NA_character_,
                       bc_address = NA_character_, bc_faults = NA_character_,
                       lon = NA_real_, lat = NA_real_, stringsAsFactors = FALSE)
   f <- resp$features
@@ -90,6 +91,13 @@ nar_bc_feature <- function(resp, min_score = 60) {
   cbind(out, data.frame(
     bc_score     = score,
     bc_precision = p$matchPrecision %||% NA_character_,
+    # Which point came back, and how the service rates its position. Both are
+    # reported because the request cannot dictate either: `locationDescriptor`
+    # is honoured only where the service holds that kind of point, and falls
+    # back silently otherwise -- see the `locationDescriptor` section of
+    # bc_geocode().
+    bc_descriptor = p$locationDescriptor %||% NA_character_,
+    bc_accuracy   = p$locationPositionalAccuracy %||% NA_character_,
     bc_address   = p$fullAddress %||% NA_character_,
     bc_faults    = if (length(faults)) paste(faults, collapse = "; ") else NA_character_,
     lon = if (length(co) == 2) as.numeric(co[[1]]) else NA_real_,
@@ -137,10 +145,39 @@ nar_bc_feature <- function(resp, min_score = 60) {
 #' @param geometry Whether to return an `sf` object. Default `FALSE`.
 #' @param crs CRS for the returned coordinates, default EPSG:4326.
 #' @param ... Additional query parameters passed to the service, for example
-#' `locationDescriptor = "frontDoorPoint"` or `interpolation = "linear"`.
+#' `locationDescriptor = "accessPoint"` or `interpolation = "linear"`.
+#'
+#' @section Which point on the property: BC can return several different points
+#' for one address -- `locationDescriptor` selects among the parcel centroid,
+#' the rooftop, the front door, the `accessPoint` on the curb at the driveway,
+#' and the `routingPoint` on the road centreline in front of it. The default is
+#' the service's own `any`, which returns whatever "main location" it holds and
+#' only falls back to an access point when it holds none.
+#'
+#' **Asking does not mean getting.** Over 400 NAR BC building points
+#' (`data-raw/probe_bc.R`), `frontDoorPoint`, `rooftopPoint` and `parcelPoint`
+#' returned a point identical to `any` on **100%** of addresses: the service
+#' does not search for the requested kind, it returns the main location it has,
+#' which was a parcel point for 359 of the 400 and a rooftop for 19. Only
+#' `accessPoint` and `routingPoint` are genuinely different points, and
+#' `bc_descriptor` reports which one actually came back.
+#'
+#' **The default is also the closest to NAR**, which is not what the NAR User
+#' Guide's "may be the road access point or the driveway" would suggest.
+#' Distance to NAR's own building point, same 378 addresses:
+#'
+#' | requested | p50 | p90 | within 10 m |
+#' | --- | ---: | ---: | ---: |
+#' | `any` / `parcelPoint` / `frontDoorPoint` / `rooftopPoint` | **20.2 m** | 99.1 m | **38%** |
+#' | `accessPoint` | 28.9 m | 98.7 m | 11% |
+#' | `routingPoint` | 31.6 m | 99.7 m | 6% |
+#'
+#' So there is nothing to be gained by changing the default, and `accessPoint`
+#' is the one to ask for when the *road-side* position is what is wanted --
+#' routing, service delivery -- rather than the building.
 #' @return A data frame with one row per input: `input`, `match_method`,
-#' `uncertainty_m`, `bc_score`, `bc_precision`, `bc_address`, `bc_faults`, and
-#' either `lon`/`lat` or an `sf` geometry column.
+#' `uncertainty_m`, `bc_score`, `bc_precision`, `bc_descriptor`, `bc_accuracy`,
+#' `bc_address`, `bc_faults`, and either `lon`/`lat` or an `sf` geometry column.
 #' @export
 #' @examples
 #' \dontrun{

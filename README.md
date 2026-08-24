@@ -91,7 +91,21 @@ Full reference and articles: <https://mountainmath.github.io/cangeocode/>
   and matching address lists to each other
 - [Querying the NAR database directly](https://mountainmath.github.io/cangeocode/articles/querying-nar.html)
   (`vignette("querying-nar")`) — using the database with dplyr and `sf`
-- [Changelog](https://mountainmath.github.io/cangeocode/news/index.html)
+
+One vignette per data source, each covering what it adds to the package, the
+licence it comes with, and what to watch out for:
+
+| vignette | source | role |
+| --- | --- | --- |
+| [`source-nar`](https://mountainmath.github.io/cangeocode/articles/source-nar.html) | National Address Repository | the base, and the yardstick everything else is measured against |
+| [`source-rqa`](https://mountainmath.github.io/cangeocode/articles/source-rqa.html) | Répertoire québécois des adresses | offline `"rqa"` tier, via `rqa_import()` |
+| [`source-rnf`](https://mountainmath.github.io/cangeocode/articles/source-rnf.html) | Statistics Canada Road Network File | offline `"rnf"` tier, via `rnf_import()` |
+| [`source-bc`](https://mountainmath.github.io/cangeocode/articles/source-bc.html) | BC Address Geocoder | online tier, and `bc_validate()` |
+| [`source-nrcan`](https://mountainmath.github.io/cangeocode/articles/source-nrcan.html) | NRCan national geolocator | online tier |
+| [`source-qc`](https://mountainmath.github.io/cangeocode/articles/source-qc.html) | Quebec MRNF geocoder | online tier, `qc_validate()`, `qc_reverse_geocode()` |
+| [`source-osm`](https://mountainmath.github.io/cangeocode/articles/source-osm.html) | Government of Canada Nominatim | bound as `osm_geocode()`, deliberately not a tier |
+
+And the [changelog](https://mountainmath.github.io/cangeocode/news/index.html).
 
 Longer notes ship with the package and say what does *not* work yet, with the
 measurements behind each claim. `system.file("notes", package = "cangeocode")`

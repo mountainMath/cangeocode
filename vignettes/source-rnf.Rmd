@@ -1,0 +1,208 @@
+---
+title: "Source: the Road Network File"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Source: the Road Network File}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+
+Statistics Canada's **Road Network File** (product 92-500-X) is a national
+street centreline file: 2.25 million segments, 1.17 million kilometres, one
+`LINESTRING` each. What makes it an address source rather than a basemap is four
+fields — `AFL_VAL`/`ATL_VAL` and `AFR_VAL`/`ATR_VAL`, the civic number range on
+the left and right side of each segment.
+
+`rnf_import()` loads it into the same DuckDB file NAR lives in, as its own
+tables, and that adds the offline `"rnf"` tier.
+
+
+``` r
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+
+``` r
+rnf_import(con)   # ~340 MB, once
+```
+
+## What this adds to the package
+
+**It is the only tier that reaches streets NAR does not carry at all.**
+
+Every other offline tier reads NAR: `"nar"` matches a row, `"nar_interpolate"`
+fills a gap between two NAR rows on the same street, `"rqa"` reads Quebec's
+register. All of them need the street to exist somewhere in NAR. In the standing
+evaluation, **3.7% of filings fail because it does not** — and a street that
+exists on the ground is in the road network file whether or not anyone has ever
+geocoded a house on it.
+
+Measured on the 379 addresses `geocode()` leaves unplaced out of a 5,000-filing
+draw, the tier places **93 of them, 24.5%** — the largest recovery any tier here
+has offered, offline or online. Coverage on that draw goes 92.4% → 94.3%. It
+costs nothing measurable in time, because it only ever sees what its
+predecessors could not place.
+
+## Licence
+
+Statistics Canada Open Licence — the same terms as NAR, and recorded in the
+database's own metadata when you import:
+
+
+``` r
+tbl(con, "nar_metadata") |>
+  filter(key %in% c("rnf_source", "rnf_licence", "rnf_imported_at")) |>
+  collect()
+#> # A tibble: 3 × 2
+#>   key             value                           
+#>   <chr>           <chr>                           
+#> 1 rnf_source      lrnf000r25a_e.shp               
+#> 2 rnf_imported_at 2026-08-23T21:22:24-0700        
+#> 3 rnf_licence     Open Government Licence - Canada
+```
+
+## Using it
+
+Add `"rnf"` to `method`. It belongs after the NAR tiers and before the online
+ones — it is offline, so it is cheap, but it interpolates where the NAR tiers
+match:
+
+
+``` r
+hard <- c("185 Deerfield Rd, Newmarket, ON",
+          "1006 Theatre Rd, Gravenhurst, ON",
+          "1435 Celebration Dr, Pickering, ON",
+          "1545 Maley Dr, Sudbury, ON")
+
+geocode(hard, method = c("nar", "nar_interpolate", "rnf"), con = con) |>
+  select(input, match_method, n_matches, uncertainty_m, lon, lat)
+#>                                input     match_method n_matches uncertainty_m       lon      lat
+#> 1    185 Deerfield Rd, Newmarket, ON rnf_interpolated         1            95 -79.47162 44.05564
+#> 2   1006 Theatre Rd, Gravenhurst, ON rnf_interpolated         1            95 -79.33221 44.93899
+#> 3 1435 Celebration Dr, Pickering, ON rnf_interpolated         1            95 -79.07905 43.83198
+#> 4         1545 Maley Dr, Sudbury, ON    rnf_ambiguous         3            NA        NA       NA
+```
+
+Three of those four are streets NAR has no address on anywhere. The fourth is
+the subject of the next section.
+
+## What to watch out for
+
+### It refuses when the answer is ambiguous, and that is the load-bearing part
+
+`1545 Maley Dr` came back `rnf_ambiguous` with `n_matches = 3`: three separate
+segments in Sudbury named Maley claim a range containing 1545. The tier does not
+pick the shortest, or the nearest to the municipality centroid, or the first. It
+declines to answer.
+
+That refusal is where most of the tier's quality comes from. Measured against
+NAR on addresses both can place, the unambiguous half sits p50 26 m from NAR's
+building point; the ambiguous half carries essentially the whole gross-error
+tail. Dropping seven rows to keep ninety-three honest is the trade the tier
+makes.
+
+**It is necessary and not sufficient.** Every recovered row that landed more than
+2 km from where the filer's own postal code says it should be had
+`n_matches == 1` — the refusal never saw them. Two of those three turned out to
+be filers whose city and postal code name different municipalities, so the check
+rather than the tier was wrong. The third was a genuine error, and instructive:
+`10272 County Road 2, Cobourg, ON` parses to street `28`, type `HWY`, in
+Bailieboro, and RNF placed 10272 on that faithfully. A bad parse, laundered into
+a confident coordinate. A tier that exists precisely because NAR does not have
+the street cannot sanity-check its input against NAR, so this is the one tier
+where a parser error survives all the way to an answer. Roughly 1 row in 93.
+
+### The ranges are partly guesses, and the file will not say which
+
+This is the reason the tier went unbuilt for so long. Statistics Canada's own
+documentation says the ranges are observed for some segments, imputed for
+others, absent for the rest — and there is no provenance flag in the record
+layout. `CLASS` and `RANK` describe the road, not the range. You cannot tell a
+surveyed range from an interpolated guess by reading the file.
+
+What replaced the missing flag was a measurement. NAR's building points are an
+independent second reading of the same streets, so: how often does a civic
+number NAR holds fall inside the range RNF claims for the side the house is
+actually on? **89.7%.** That is the honest error rate on the fields, and a floor
+on the tier's own. It does not say *which* 10.3% are wrong — but it lets the
+tier be priced rather than guessed at.
+
+### Coverage is uneven, and thinnest where NAR is thinnest
+
+13% of segments are unnamed and are not candidates for anything. Of the named
+ones, **71.7% carry a range on at least one side**, and the spread is the widest
+number in the whole measurement:
+
+| province | of named segments | of all segments |
+| --- | ---: | ---: |
+| Nova Scotia, the best | 89.2% | 81.8% |
+| Ontario | 81.4% | 75.2% |
+| Quebec | 76.2% | 73.5% |
+| British Columbia | 66.9% | 59.4% |
+| Manitoba | 52.5% | 43.2% |
+| Saskatchewan, the worst | 36.6% | 18.7% |
+
+The tier will not serve rural Saskatchewan. That ordering is close enough to
+NAR's own that the tier is thinnest exactly where the thing it is compensating
+for is thinnest — the two gaps overlap rather than cancelling.
+
+### `uncertainty_m` is a segment-length model, not a measurement
+
+`max(95, 0.35 × len_m)`: 95 m on a short urban block, growing with the segment
+for long rural ones. Interpolating a house position from a range assumes the
+numbers are spaced evenly along the segment, which they are not, so the error
+scales with how far apart the endpoints are. Checked against NAR where both
+answer, that interval covers the true distance **91.8%** of the time.
+
+For comparison, interpolation lands p50 24.3 m from NAR's building point and p90
+93.3 m — which is about the same accuracy as the difference between a building
+point and a blockface point, and rather better than the 95 m floor suggests. The
+floor is deliberately pessimistic.
+
+### Accuracy on the overlap does not describe the residual
+
+The p50 26 m above is measured on addresses NAR *also* places, because those are
+the only ones there is anything to measure against. The rows the tier exists for
+are the ones NAR cannot place, and they are harder. Against the filer's own
+postal code, on urban FSAs:
+
+| | n | p50 | within 500 m |
+| --- | ---: | ---: | ---: |
+| NAR's answer, on rows the tier also placed | 3,749 | 43 m | 97% |
+| the tier, on those same rows | 3,749 | 60 m | 97% |
+| **the tier, on rows only it placed** | 46 | **149 m** | **87%** |
+
+Reading down: the tier's own error costs 43 → 60 m, and being an address NAR
+could not place costs a further 60 → 149 m. **The residual is harder by more
+than twice what the tier's own error is worth.** Whenever a source is validated
+where it overlaps NAR, that number is an upper bound on how well it does where
+NAR is silent — which is the only place it is being used.
+
+### Take the shapefile
+
+`rnf_import()` downloads the shapefile, and there are two independent reasons,
+both of which cost something to rediscover. It is the **only format published
+for every release** — the GeoPackage resolves for 2025 alone and 404s on the
+archive. And 13 features in the GeoPackage are `CircularString`s, which DuckDB's
+spatial extension refuses outright, failing the entire read rather than the
+rows. The shapefile format cannot express a CircularString, so those 13 arrive
+as ordinary linestrings and no workaround is needed.
+
+
+``` r
+DBI::dbDisconnect(con)
+```
+
+## Where the measurements live
+
+
+``` r
+file.show(system.file("notes", "road-network-file.md", package = "cangeocode"))
+```
+
+`data-raw/probe_rnf.R` reproduces every figure above.

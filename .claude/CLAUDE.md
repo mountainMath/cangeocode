@@ -94,11 +94,19 @@ boundary tests key off.
 
 ## Vignettes
 
-The vignettes are one per objective plus support: `cangeocode` (getting started, reverse
-geocoding), `geocoding` (`geocode()`), `address-normalization` (`normalize_address()` as a task
-in its own right, including address matching), and `querying-nar` (the database directly).
-`_pkgdown.yml` groups them under those headings in the navbar, and the reference index puts
-Address normalization directly below Geocoding for the same reason.
+The vignettes are one per objective, plus support, plus **one per data source**:
+`cangeocode` (getting started, reverse geocoding), `geocoding` (`geocode()`),
+`address-normalization` (`normalize_address()` as a task in its own right, including address
+matching), `querying-nar` (the database directly), and the `source-*` family --
+`source-nar`, `source-rqa`, `source-rnf`, `source-bc`, `source-nrcan`, `source-qc`,
+`source-osm`. The source family is where the measurements in `inst/notes/` are surfaced to a
+user, and **every one of them carries a `## What this adds to the package` section and a
+`## Licence` section** -- those two are the contract for the family, not decoration, since the
+licences are what decide which sources may be default tiers (OGL and CC-BY compose; ODbL does
+not, which is why `osm_geocode()` is not a tier). `source-osm` is the only one with no live
+chunks, because its accuracy probe has not been run. `_pkgdown.yml` groups the vignettes under
+those headings in the navbar, with the source family under **Data sources**, and the reference
+index puts Address normalization directly below Geocoding for the same reason.
 
 All vignettes query the real ~5 GB database, which `R CMD build` cannot do, so they are
 **pre-computed**: the sources are `vignettes/<name>.Rmd.orig`, `vignettes/precompute.R` knits them
@@ -129,7 +137,7 @@ covers the code you are about to touch.**
 | **[`normalization.md`](normalization.md)** | `R/normalize_address.R`, `R/normalize_pattern.R`, `R/normalize_variants.R`, `R/normalize_gazetteer.R`, `R/address_format.R` | numbered rural roads carry no street type at all; `STE` is Suite *and* Sainte, and all three unit paths must know it; `name_sim` is not a similarity; the fuzzy branch compares on a *match fold* that spells `ST` out to `SAINT` and turns the hyphen into a word boundary, and the R and SQL halves of it must stay identical or matching silently degrades; an alternative reading is generated only when the baseline is *demonstrably* broken, because the gazetteer scores a municipality-restricted match higher by construction and so cannot arbitrate a bad candidate away — and the third thing that counts as broken, a trailing run longer than the municipality claimed that also names one, is what segments a comma-free string and cannot fire on a delimited one; every civic-number rule anchors on a number at the *front* of the string, so `nar_strip_lead_prose()` cuts a prose prefix off before anything else reads it, and each of its four guards is holding back a real address form; the gazetteer runs a *second* pass over Quebec's own register where NAR left the row unresolved, and the R and SQL folds differ on the en dash unless the SQL half is told about it |
 | **[`rqa.md`](rqa.md)** | `R/rqa.R` — the RQA import and the `"rqa"` tier | RQA is kept beside NAR and not merged into it because merging spends the only instrument Quebec's coverage is measurable with; `nar_schema_version()` is deliberately *not* bumped, since the tables are optional and additive and a bump forces a re-download; NAR keeps the particule inside the street name and RQA in a column of its own, so comparing raw reads 1.27M missing where there are 358K; `IN_NAR` is fold equality and knowingly over-reports by ~14%; the tier joins on the *match* fold, not the plain one, because the addresses it exists for are exactly the ones the gazetteer could not resolve; the normalization pass reuses NAR's `MunAlias` rather than an alias table of its own, which is why RQA's `BOROUGH` is needed by the tier and not by the parser |
 | **[`rnf.md`](rnf.md)** | `R/rnf.R` — the road network file import and the `"rnf"` tier | the file carries no provenance flag on its address ranges, so every threshold rests on measurement rather than on the file; take the shapefile, which is the only format published for every release *and* the one without the 13 CircularStrings DuckDB refuses; `N/A` is a literal string beside real nulls in TYPE/DIR; an absent type or direction constrains nothing on either side; the municipality needs both `MunAlias` and a direct CSD comparison because 8.3% of RNF's ranged pairs are not in NAR at all; ambiguity refuses and a parity mismatch does not, and the reasons are different |
-| **[`geocoding.md`](geocoding.md)** | `R/geocode.R`, `R/geocode_bc.R`, `R/geocode_nrcan.R`, `R/geocode_qc.R`, `R/geocode_osm.R` | `method` names the tiers *in priority order*; "unplaced" is `is.na(x)`, never `match_method == "none"`; matching both NAR name families with `OR` instead of a `UNION` is a 99x slowdown; BC, the geolocator and Quebec always answer, so a response is not a match, while Nominatim genuinely refuses; a returned title must be re-parsed *without* the gazetteer or the floor launders the error it exists to catch; Quebec's locator needs the query spelled French-canonical (`Rue Notre-Dame Ouest`, not NAR's `NOTRE-DAME RUE O`) or it silently stops matching, and its `Score` is not a precision ranking; `osm_geocode()` is exported but is not a tier, and the reason is the ODbL licence rather than accuracy |
+| **[`geocoding.md`](geocoding.md)** | `R/geocode.R`, `R/geocode_bc.R`, `R/geocode_nrcan.R`, `R/geocode_qc.R`, `R/geocode_osm.R` | `method` names the tiers *in priority order*; "unplaced" is `is.na(x)`, never `match_method == "none"`; matching both NAR name families with `OR` instead of a `UNION` is a 99x slowdown; BC, the geolocator and Quebec always answer, so a response is not a match, while Nominatim genuinely refuses; a returned title must be re-parsed *without* the gazetteer or the floor launders the error it exists to catch; Quebec's locator needs the query spelled French-canonical (`Rue Notre-Dame Ouest`, not NAR's `NOTRE-DAME RUE O`) or it silently stops matching, and its `Score` is not a precision ranking; `osm_geocode()` is exported but is not a tier, and the reason is the ODbL licence rather than accuracy; BC's `locationDescriptor` is a request and not an instruction, three of its six values return the same point as the default, and the default is already the closest to NAR |
 
 ### Status notes
 

@@ -1,0 +1,213 @@
+---
+title: "Source: the BC Address Geocoder"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Source: the BC Address Geocoder}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+
+The Province of British Columbia runs the
+[BC Address Geocoder](https://geocoder.api.gov.bc.ca/), a public, keyless
+service over the province's own site and parcel registries. It is the highest
+quality address source this package can reach, and it covers one province.
+
+`bc_geocode()` is the binding, `"bc"` is a `geocode()` tier, and `bc_validate()`
+re-asks it about an answer you already have.
+
+
+``` r
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+## What this adds to the package
+
+**A second opinion from an authority, which nothing else here provides.**
+`geocode()` cannot tell you whether its own answer is right — every offline tier
+reads NAR, so a NAR error is invisible from the inside. BC's geocoder is a
+provincial address authority built on parcels and a site registry, not a
+compilation of what others supplied, and where it and NAR disagree **BC's answer
+is the more reliable of the two**. That is what `bc_validate()` is for.
+
+It also adds coverage, though less than the quality would suggest. As a tier it
+places BC addresses the offline tiers miss; but the two sources plausibly share
+upstream data, so it is not independent of NAR and much of what NAR is missing
+in BC it is missing too.
+
+And it is the source of the only calibration the package has of what
+`uncertainty_m = 0` is actually worth. `uncertainty_m` measures error *this
+package* adds relative to NAR's point, and says nothing about NAR's own error;
+BC is the one place that second quantity has been measured at all — see
+`vignette("source-nar")`.
+
+## Licence
+
+Every response carries its own copyright notice and licence link:
+
+> Copyright © 2024 Province of British Columbia
+
+under the **Open Government Licence – British Columbia**. That composes with the
+Open Government Licence covering NAR, so BC coordinates can be mixed into a
+result without further conditions — unlike the ODbL data behind `osm_geocode()`,
+which is why that one is not a tier.
+
+## Using it
+
+
+``` r
+bc_geocode("525 Superior St, Victoria, BC") |>
+  select(match_method, uncertainty_m, bc_score, bc_precision, bc_descriptor,
+         bc_accuracy, lon, lat)
+#>   match_method uncertainty_m bc_score bc_precision bc_descriptor bc_accuracy       lon     lat
+#> 1     bc_civic            20      100 CIVIC_NUMBER   parcelPoint        high -123.3709 48.4177
+```
+
+As a tier, and as a validator:
+
+
+``` r
+g <- geocode(c("525 Superior St, Victoria, BC", "800 Robson St, Vancouver, BC"),
+             method = c("nar", "bc"), con = con)
+
+bc_validate(g) |>
+  select(input, match_method, bc_match_method, bc_precision, bc_dist_m)
+#>                           input match_method bc_match_method bc_precision    bc_dist_m
+#> 1 525 Superior St, Victoria, BC nar_building        bc_civic CIVIC_NUMBER 6.864790e+00
+#> 2  800 Robson St, Vancouver, BC     bc_civic        bc_civic CIVIC_NUMBER 1.253831e-09
+```
+
+`bc_dist_m` is how far BC's answer sits from the one already obtained, and it is
+the column to sort on when looking for suspect rows. Note the second row: it was
+placed by the `"bc"` tier in the first place, so validating it re-asks the source
+that already answered and the distance is zero by construction. Validation only
+says something about rows an *offline* tier placed.
+
+## What to watch out for
+
+### The service always answers
+
+Feed it something that does not exist and it does not fail — it returns the
+centre of the locality:
+
+
+``` r
+bc_geocode("1234 Nonexistentzzz Rd, Victoria, BC") |>
+  select(match_method, bc_score, bc_precision, bc_address, bc_faults)
+#>   match_method bc_score bc_precision   bc_address                           bc_faults
+#> 1         none       48     LOCALITY Victoria, BC LOCALITY_INITIAL_GARBAGE notAllowed
+```
+
+So the presence of a result says nothing. `matchPrecision` is the field that
+decides what was actually resolved, and `match_method` is derived from it:
+`bc_site` and `bc_civic` are addresses, `bc_block` is interpolated along a
+block, and `bc_street` and `bc_locality` are answers about a *place* rather than
+an address. `min_score` additionally rejects matches the service itself scored
+poorly, and `bc_faults` says why it did.
+
+### Which point on the property you get — and which one you asked for
+
+BC holds several different points for one address, and `locationDescriptor`
+selects among them. Their definitions are the service's own:
+
+| descriptor | what it is |
+| --- | --- |
+| `parcelPoint` | a position known to be inside the parcel, usually the centroid |
+| `rooftopPoint` | the roof of the house or building |
+| `frontDoorPoint` | the front door or main entrance |
+| `accessPoint` | on the curb or road edge, in the middle of the driveway or access lane |
+| `routingPoint` | on the road centreline, directly in front of the access point |
+| `any` | *(the default)* whatever main location it holds, falling back to the access point when it holds none |
+
+
+``` r
+one <- "525 Superior St, Victoria, BC"
+
+lapply(c("any", "rooftopPoint", "accessPoint", "routingPoint"), function(d) {
+  bc_geocode(one, locationDescriptor = d) |>
+    transmute(asked = d, bc_descriptor, bc_accuracy, lon, lat)
+}) |> bind_rows()
+#>          asked bc_descriptor bc_accuracy       lon      lat
+#> 1          any   parcelPoint        high -123.3709 48.41770
+#> 2 rooftopPoint   parcelPoint        high -123.3709 48.41770
+#> 3  accessPoint   accessPoint      medium -123.3710 48.41808
+#> 4 routingPoint  routingPoint      medium -123.3710 48.41811
+```
+
+**Asking does not mean getting**, which is why `bc_descriptor` reports what
+actually came back. The service does not go looking for the kind of point you
+named; it returns the main location it happens to hold. Over 400 NAR BC building
+points (`data-raw/probe_bc.R`), `frontDoorPoint`, `rooftopPoint` and
+`parcelPoint` each returned a point **identical to `any` on 100% of addresses**
+— the main location was a parcel point for 359 of the 400 and a rooftop for 19,
+and no request changed that. Only `accessPoint` and `routingPoint` are genuinely
+different points.
+
+### The default is the one closest to NAR
+
+The NAR User Guide says a building representative point "may not correspond
+exactly to the physical center of the building structure itself" and may be the
+road access point or the driveway — which describes BC's `accessPoint` almost
+word for word, and suggests the package should be asking for that one. Measured,
+it should not. Distance from NAR's own building point, on the 378 of 400
+addresses BC resolved cleanly under every descriptor:
+
+| requested | p25 | p50 | p75 | p90 | within 10 m | within 25 m |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `any` / `parcelPoint` / `frontDoorPoint` / `rooftopPoint` | 1.6 m | **20.2 m** | 50.7 m | 99.1 m | **38%** | **57%** |
+| `accessPoint` | 16.6 m | 28.9 m | 52.9 m | 98.7 m | 11% | 43% |
+| `routingPoint` | 19.1 m | 31.6 m | 54.7 m | 99.7 m | 6% | 36% |
+
+Paired per address, `accessPoint` is a median 5.3 m *further* from NAR than the
+default and `routingPoint` 7.7 m further. So the package's default is already
+the right one, and `accessPoint` is what to ask for when the road-side position
+is what you actually want — routing, service delivery — rather than the
+building.
+
+The per-address picture is more interesting than the aggregate, though. The
+default is the closest of the three on only **58%** of addresses; `accessPoint`
+wins on 29% and `routingPoint` on 13%. NAR's building points are not
+consistently one kind of point or the other — they are a mixture, which is
+exactly what the User Guide's hedge describes. There is no single BC point that
+NAR is trying to be.
+
+Note also the p25 column: the default agrees with NAR to within 1.6 m on a
+quarter of addresses. That is not two sources independently arriving at the same
+place — it is the same underlying record surfacing twice.
+
+### `uncertainty_m` for the `bc_*` tiers is not measured
+
+It is the one set of numbers in this package that was not derived from data. BC
+publishes `locationPositionalAccuracy` as the categorical `high` / `medium` /
+`low` / `coarse` and no distance at all, so the metres attached to `bc_site`,
+`bc_civic` and the rest are the service's precision semantics translated into
+deliberately pessimistic order-of-magnitude figures. Treat them as a ranking
+that is safe to filter on, not as an error bar comparable to the NAR tiers'.
+
+`bc_accuracy` carries the categorical straight through, and it is the more
+honest field of the two.
+
+### It covers British Columbia only
+
+`bc_validate()` skips rows outside BC rather than sending them, because the
+service would answer about a BC place of the same name.
+
+
+``` r
+DBI::dbDisconnect(con)
+```
+
+## Where the measurements live
+
+
+``` r
+file.show(system.file("notes", "geocoding-status.md", package = "cangeocode"))
+```
+
+`data-raw/probe_bc.R` reproduces the reference-point comparison above; the
+geocoding status note carries the NAR-versus-BC distance distributions and what
+they do and do not prove.

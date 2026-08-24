@@ -6,3 +6,6 @@ docs/
 
 # CLAUDE.md and its component notes are part of the repo, despite the global .claude/* rule
 !.claude/*.md
+
+# Probe outputs are reproducible by re-running the script beside them
+data-raw/*_results.rds

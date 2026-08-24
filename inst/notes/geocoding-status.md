@@ -165,6 +165,47 @@ calibration — and into a defensible `uncertainty_m` for the `bc_*` tiers, whic
 the one set of numbers in this package that was not measured — is the obvious next piece of
 work.
 
+### The definitional difference was tested, and it is not the parcel-versus-access-point one
+
+The paragraph above attributes part of the ~20 m to a definition mismatch: NAR's building
+point "may be the road access point or the driveway", BC's is a parcel point. BC's geocoder
+exposes `locationDescriptor` — `parcelPoint`, `rooftopPoint`, `frontDoorPoint`, `accessPoint`,
+`routingPoint`, or `any` — so the hypothesis is directly testable by asking for the access
+point instead and seeing whether the gap closes. `data-raw/probe_bc.R` does that: 400 NAR BC
+building points sampled deterministically (`hash(ADDR_GUID || '20260824')`), each queried
+under all six descriptors, 378 clean under every one. Measured 2026-08-24 against the 2026-06
+NAR.
+
+**It does not close. It widens.** Distance from NAR's building point:
+
+| requested | p25 | p50 | p75 | p90 | ≤10 m | ≤25 m |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `any` / `parcelPoint` / `frontDoorPoint` / `rooftopPoint` | 1.6 | **20.2** | 50.7 | 99.1 | **38%** | **57%** |
+| `accessPoint` | 16.6 | 28.9 | 52.9 | 98.7 | 11% | 43% |
+| `routingPoint` | 19.1 | 31.6 | 54.7 | 99.7 | 6% | 36% |
+
+Paired per address, `accessPoint` is a median 5.3 m further from NAR than the default and
+`routingPoint` 7.7 m further. **The package's existing default is already the closest of the
+three**, so no change to what is requested is warranted, and the ~20 m stands as measured.
+
+**Three descriptors are not distinct requests at all.** `frontDoorPoint`, `rooftopPoint` and
+`parcelPoint` each returned a point *identical* to `any` on **100%** of addresses. The service
+does not go looking for the kind of point named; it returns whatever main location it holds —
+a parcel point for 359 of the 400, a rooftop for 19, and the access point for the 20 where it
+holds no main location. Only `accessPoint` and `routingPoint` are separate points. So
+`nar_bc_feature()` now reports `bc_descriptor` and `bc_accuracy` — what actually came back,
+and BC's own categorical accuracy class — because asking does not mean getting and a caller
+who requests `rooftopPoint` needs to know they got a parcel centroid.
+
+**The per-address picture refutes the aggregate reading in the other direction, though.** The
+default is closest on only **58%** of addresses; `accessPoint` wins on 29% and `routingPoint`
+on 13%. NAR's BC building points are a *mixture* of point definitions, which is exactly what
+the User Guide's hedge says and is not something a single descriptor choice can fix. There is
+no BC point that NAR is trying to be.
+
+And the p25 of 1.6 m is the lineage showing through: on a quarter of addresses the two sources
+agree to within a metre and a half, which is not two independent readings converging.
+
 ## The residual that does not resolve
 
 **7.5% now, and this decomposition was taken when it was 10.8%** — the parser changes above
@@ -228,6 +269,11 @@ deliberately pessimistic order-of-magnitude metres. They are a ranking that is s
 on, not an error bar comparable to the NAR tiers'. This is the one place in the package where
 a number was chosen rather than measured, and it is flagged as such in the function's own
 documentation.
+
+**Which reference point comes back is now reported, not assumed.** `bc_descriptor` and
+`bc_accuracy` ride along on every row. BC honours a `locationDescriptor` request only for
+`accessPoint` and `routingPoint`; the other three name a point it may not hold and it answers
+with its main location instead. See the descriptor measurement above.
 
 **Throttling needs `capacity`, not `rate`.** `httr2::req_throttle(rate = 5)` builds a
 `5 * 60 = 300`-token bucket, so the first 300 requests go out at once — a burst allowance,

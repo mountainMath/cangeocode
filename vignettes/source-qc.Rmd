@@ -1,0 +1,211 @@
+---
+title: "Source: the Quebec MRNF geocoder"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Source: the Quebec MRNF geocoder}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+
+Quebec's Ministère des Ressources naturelles et des Forêts runs an Esri
+`GeocodeServer` over the *Répertoire québécois des adresses* — the same register
+`rqa_import()` loads offline, served live. Two locators sit behind it:
+`RQA_Adresse` for addresses and `RQA_Rue` for streets.
+
+`qc_geocode()` is the client, `"qc"` is a `geocode()` tier, `qc_validate()`
+re-asks it about an answer you already have, and `qc_reverse_geocode()` is **the
+only online reverse geocoder in this package** — the other three services do
+forward only.
+
+
+``` r
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+## What this adds to the package
+
+**Reverse geocoding that is not NAR, and a Quebec fallback that needs no
+import.**
+
+The reverse endpoint is the distinctive one. Everything else here answers
+"where is this address"; `qc_reverse_geocode()` answers "what address is at this
+point" against a provincial register, where `reverse_geocode()` answers it
+against NAR. In Quebec those are close to the same question — see the warning
+below — but the service will name an address NAR does not carry.
+
+As a forward fallback it is worth about what NRCan's geolocator is: on 600
+Quebec corporations addresses it takes coverage from 81.0% to 83.3%, recovering
+12.3% of what NAR left unplaced. If you have run `rqa_import()`, the offline
+`"rqa"` tier does more than this and does it without the network — see
+`vignette("source-rqa")`. The online tier is what you reach for when you have
+not.
+
+## Licence
+
+The register is **CC-BY 4.0**, the same terms `rqa_import()` carries, and
+`rqa_attribution()` is the string that discharges it:
+
+
+``` r
+rqa_attribution()
+#> [1] "Contains information licensed under CC-BY 4.0 from the Repertoire quebecois des adresses, Ministere des Ressources naturelles et des Forets, Gouvernement du Quebec."
+```
+
+That composes with the Open Government Licence covering NAR, which is why this
+can be a default tier where `osm_geocode()`'s ODbL data cannot.
+
+## Using it
+
+
+``` r
+qc_geocode("1 Rue Notre-Dame Ouest, Montreal, QC") |>
+  select(match_method, uncertainty_m, qc_locator, qc_score, qc_address, lon, lat)
+#>   match_method uncertainty_m  qc_locator qc_score                              qc_address       lon
+#> 1   qc_address            20 RQA_Adresse    82.51 1 Rue Notre-Dame Ouest, Montréal H2Y1S5 -73.55596
+#>        lat
+#> 1 45.50617
+```
+
+Reverse:
+
+
+``` r
+qc_reverse_geocode(-73.5555, 45.5019)
+#>                                 qc_address qc_postal  qc_city qc_dist_m       lon     lat
+#> 1 12-285 Place D'Youville, Montréal H2Y2A4    H2Y2A4 Montréal  11.71217 -73.55552 45.5018
+```
+
+And as a validator against an answer you already have:
+
+
+``` r
+g <- geocode(c("1 Rue Notre-Dame Ouest, Montreal, QC",
+               "455 Rue Sainte-Catherine Est, Montreal, QC",
+               "1020 Rue Bleury, Montreal, QC",
+               "2 Cote du Palais, Quebec, QC",
+               "150 Boulevard Rene-Levesque Est, Quebec, QC"),
+             method = c("nar", "nar_interpolate"), con = con)
+
+qc_validate(g) |>
+  select(input, match_method, qc_match_method, qc_score, qc_address, qc_dist_m)
+#>                                         input match_method qc_match_method qc_score
+#> 1        1 Rue Notre-Dame Ouest, Montreal, QC nar_building      qc_address    82.51
+#> 2  455 Rue Sainte-Catherine Est, Montreal, QC nar_building            none    94.12
+#> 3               1020 Rue Bleury, Montreal, QC nar_building            none    80.48
+#> 4                2 Cote du Palais, Quebec, QC         none            none    94.29
+#> 5 150 Boulevard Rene-Levesque Est, Quebec, QC nar_building      qc_address    83.88
+#>                                       qc_address qc_dist_m
+#> 1        1 Rue Notre-Dame Ouest, Montréal H2Y1S5 0.9305597
+#> 2             Rue Sainte-Catherine Est, Montréal        NA
+#> 3            1020 Rue De Bleury, Montréal H2Z0B9        NA
+#> 4                         Côte du Palais, Québec        NA
+#> 5 150 Boulevard René-Lévesque Est, Québec G1R2B2 1.0469956
+```
+
+Two of the five come back with a usable second reading, and the other three are
+worth walking through, because between them they demonstrate almost everything
+in the next section. Rows 2 and 4 got **street centroids** — note the answer has
+no civic number in it — and row 3 got `Rue De Bleury` where `Rue Bleury` was
+asked for, which is the same street under the name the register prefers. All
+three were thrown out by the floor rather than by the service, which reported no
+problem at all; the third is the floor being stricter than it needs to be, which
+is the side to err on when the alternative is silently accepting a wrong street.
+
+And look at the scores. The two rejected street centroids scored **94.12** and
+**94.29**; the two accepted civic points scored **82.51** and **83.88**. The
+score is not a ranking, and this is what that looks like.
+
+## What to watch out for
+
+### It is not independent of NAR, so it is a fallback and not a check
+
+The locators are named `RQA_Adresse` and `RQA_Rue`. They serve the Répertoire —
+which is also what NAR's Quebec records are built from. Over 400 NAR Quebec
+building points the median disagreement is **0.9 m**, p90 13.3 m, nothing over
+500 metres; at scale, 2.5 million paired addresses agree to a median of **21
+cm**.
+
+Those numbers look like a spectacular validation and are nothing of the kind.
+They are evidence of shared lineage. `qc_validate()` says so in its own
+documentation, and the small `qc_dist_m` in the example above is that effect,
+not a confirmation. **There is no second opinion available for Quebec inside
+this package** — British Columbia is the only province where one exists.
+
+### The query has to be spelled French-canonical
+
+This is the reason the tier is worth having at all, and it is not cosmetic. The
+locator's reference strings are `Rue Notre-Dame Ouest` — type first, direction
+spelled out. NAR's own canonical form is `NOTRE-DAME RUE O`. Sent that, the
+service does not degrade gracefully; it stops matching. On 400 Quebec addresses,
+by share resolved to a civic point:
+
+| rendering | civic | street only | unmatched |
+| --- | ---: | ---: | ---: |
+| `NOTRE-DAME RUE O` — NAR's canonical form | 31.5% | 4.0% | 64.5% |
+| NAR order, direction spelled out | 58.0% | 3.0% | 39.0% |
+| French order, direction spelled out | 58.8% | 14.2% | 27.0% |
+| NAR order, type and direction spelled out | 95.0% | 3.5% | 1.5% |
+| **French order, type and direction** — what the package sends | **95.5%** | **3.5%** | **1.0%** |
+
+**The abbreviations are what break it; the word order barely matters.** Spelling
+out the direction is worth 26 points, the street type another 37, the order
+under one.
+
+The failure mode is the worst available: `1 RUE NOTRE-DAME O, MONTREAL` comes
+back as a *street centroid scoring 92.4*, where the correct civic point scores
+82.5. The abbreviated form does not lose the address — it replaces it with a
+confident wrong answer several hundred metres away. `qc_geocode()` re-renders
+every query for you, so you never send the NAR form by accident.
+
+### `Score` is not a precision ranking
+
+Correlation between the score and how far the answer landed from NAR's building
+point is **Spearman 0.018** — none. Worse, street-only answers score *higher*
+than civic ones: civic matches run 75.9–86.2 with a median of 83.0, street
+centroids 75.8–95.2 with a median of 87.0. The score measures how much of the
+string you *sent* was consumed, which a short street name consumes more
+completely than a long address.
+
+So `min_score` defaults to `0` here and should stay there. A threshold removes
+correct addresses before it removes street centroids — the opposite of what
+`min_score` does for the BC geocoder.
+
+**`Loc_name` is the precision field.** `RQA_Adresse` is an address,
+`RQA_Rue` is a street, and `match_method` reports that as `qc_address` or
+`qc_street`. `Addr_type` is `Feature` for both and separates nothing.
+
+### `uncertainty_m` here is not measured
+
+20 m for `qc_address`, 500 m for `qc_street`. Like the BC tiers' figures, these
+are precision semantics turned into deliberately pessimistic order-of-magnitude
+numbers, not error bars comparable to the NAR tiers'.
+
+### The floor re-parses the answer, without the gazetteer
+
+The service always returns something, so the package compares the returned title
+against what was asked for, component by component. That re-parse deliberately
+runs **without** the gazetteer — a gazetteer would resolve the returned string
+back toward the query and launder the very error the check exists to catch.
+
+It earns its keep. `12 RUE SAINT-JEAN, GATINEAU` comes back as `12 Rue
+Saint-Jean-Bosco, Gatineau` under `RQA_Adresse`: right municipality, right civic
+number, wrong street, and nothing in the service's own fields says so.
+
+
+``` r
+DBI::dbDisconnect(con)
+```
+
+## Where the measurements live
+
+
+``` r
+file.show(system.file("notes", "quebec-addresses.md", package = "cangeocode"))
+```
+
+`data-raw/probe_qc.R` reproduces the rendering and score tables above.

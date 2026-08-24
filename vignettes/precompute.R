@@ -12,8 +12,12 @@
 #   Rscript vignettes/precompute.R
 #
 # It needs NAR_CACHE_PATH set and a database already imported -- and, since the
-# geocoding vignette shows the `"rqa"` tier answering, one that `rqa_import()`
-# has been run against.
+# geocoding and source vignettes show the `"rqa"` and `"rnf"` tiers answering,
+# one that `rqa_import()` and `rnf_import()` have both been run against.
+#
+# The `source-*` vignettes for the online geocoders knit live requests to BC,
+# NRCan and Quebec, so those three services have to be reachable. `source-osm`
+# has no live chunks -- the accuracy probe behind it has not been run.
 
 if (!nzchar(Sys.getenv("NAR_CACHE_PATH"))) {
   stop("NAR_CACHE_PATH must be set to pre-compute the vignettes.")
@@ -23,7 +27,10 @@ old <- setwd("vignettes")
 on.exit(setwd(old), add = TRUE)
 
 for (vignette in c("cangeocode", "querying-nar",
-                   "address-normalization", "geocoding")) {
+                   "address-normalization", "geocoding",
+                   "source-nar", "source-rqa", "source-rnf",
+                   "source-bc", "source-nrcan", "source-qc",
+                   "source-osm")) {
   message("Knitting ", vignette)
   knitr::knit(paste0(vignette, ".Rmd.orig"), paste0(vignette, ".Rmd"))
 }

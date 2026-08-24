@@ -1,0 +1,181 @@
+---
+title: "Source: NRCan's national geolocator"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Source: NRCan's national geolocator}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+
+
+Natural Resources Canada runs a national geolocation service on the Canadian
+Geospatial Platform, at `https://geolocator.api.geo.ca/geolocation/en/locate`.
+It takes one string, covers the whole country, needs no key, and is what
+`nrcan_geocode()` and the `"nrcan"` tier of `geocode()` talk to.
+
+The service is **open source**, at
+[`Canadian-Geospatial-Platform/geoview-api-geolocator`](https://github.com/Canadian-Geospatial-Platform/geoview-api-geolocator),
+which is unusual enough to be worth saying out loud: most of what this package
+knows about the other online geocoders is inferred from their answers, and here
+it was read from the code that produces them.
+
+
+``` r
+library(cangeocode)
+library(dplyr)
+
+con <- nar_connection()
+```
+
+## What this adds to the package
+
+**Reach beyond the local database, for the whole country.** The offline tiers
+answer from NAR, Quebec's register and the road network file; all three are
+snapshots, and an address newer than the release — or one no contributor ever
+filed — is not in any of them. The geolocator is queried live and is the only
+national source here that is.
+
+What that is worth has been measured on the same 5,000 Corporations Canada
+filings the package measures everything on: **the `"nrcan"` tier places 8.1% of
+what the offline tiers leave unplaced.** That is real and it is small — for
+comparison the offline road network tier recovers 24.5% of the same residual —
+and the reason is not that the service is bad but that it is answering a
+different question. It matches one string against a national index; the
+addresses that reach it are the ones that failed against a national address
+file, and those are disproportionately addresses that do not exist in any
+index.
+
+It is also the **only** tier available for a province that has neither a
+provincial geocoder nor a local import: outside BC and Quebec, this is the
+fallback.
+
+## Licence
+
+Results are subject to NRCan's terms and the **Open Government Licence –
+Canada**, the same family of licence as NAR and the road network file. It
+composes with the rest of the package's data without further conditions, unlike
+the ODbL data behind `osm_geocode()` — see `vignette("source-osm")`.
+
+## Using it
+
+`nrcan_geocode()` is the direct binding. It takes address strings and returns
+the same `match_method` / `uncertainty_m` contract the rest of the package uses:
+
+
+``` r
+nrcan_geocode("1 Rue Notre-Dame Ouest, Montreal, QC") |>
+  select(match_method, uncertainty_m, n_matches, nrcan_qualifier, nrcan_title, lon, lat)
+#>   match_method uncertainty_m n_matches       nrcan_qualifier
+#> 1        nrcan           150         1 INTERPOLATED_POSITION
+#>                                nrcan_title       lon     lat
+#> 1 1 Rue Notre-Dame Ouest, Montréal, Quebec -73.55562 45.5062
+```
+
+As a tier it is opt-in, because it makes a network request per address. These
+three are addresses the offline tiers cannot place at all:
+
+
+``` r
+hard <- c("1435 Celebration Dr, Pickering, ON L1W 0C4",
+          "1545 Maley Dr, Sudbury, ON P3A 4R7",
+          "192037A TWP RD 665, Athabasca County, AB T0A 0M0")
+
+geocode(hard, method = c("nar", "nar_interpolate", "nrcan"), con = con) |>
+  select(input, match_method, n_matches, uncertainty_m)
+#>                                              input match_method n_matches uncertainty_m
+#> 1       1435 Celebration Dr, Pickering, ON L1W 0C4         none         0            NA
+#> 2               1545 Maley Dr, Sudbury, ON P3A 4R7        nrcan         1           150
+#> 3 192037A TWP RD 665, Athabasca County, AB T0A 0M0         none         0            NA
+```
+
+One of the three comes back, which is roughly the rate to expect: this tier is
+a thin recovery on a hard residual, not a second opinion on everything.
+
+## What to watch out for
+
+### The service always answers
+
+This is the single most important thing about it. Ask for an address that does
+not exist and you do not get an error, or an empty result — you get a confident
+position somewhere else:
+
+
+``` r
+nrcan_geocode(c("99999 Nowhere Rd, Nowhereville, SK",
+                "28 Silver St, Corner Brook, NL")) |>
+  select(match_method, nrcan_qualifier, nrcan_title, nrcan_reject)
+#>   match_method       nrcan_qualifier                                              nrcan_title
+#> 1         none INTERPOLATED_CENTROID                        Road To Nowhere, Iqaluit, Nunavut
+#> 2         none INTERPOLATED_POSITION 28 Brook Street, Corner Brook, Newfoundland and Labrador
+#>                                  nrcan_reject
+#> 1 best result is Street/INTERPOLATED_CENTROID
+#> 2                 street name SILVER != BROOK
+```
+
+Neither is a match, and neither would have been obvious from a coordinate. The
+first degraded to a *street centroid* — for a road in Iqaluit, Nunavut. The
+second is worse, because it looks completely normal: it silently substituted a
+**different street in the right town**.
+
+`nrcan_geocode()` therefore does not trust a response. Every candidate has to
+clear two floors — it must be a `Street` result carrying
+`INTERPOLATED_POSITION`, and its returned title has to agree with the query
+component by component — and `nrcan_reject` says which floor a rejected address
+failed. The qualifiers matter because they were measured: `INTERPOLATED_CENTROID`
+means "found the street, not the civic number" and lands p50 499 m and p90 11 km
+from NAR's point, and a `Geoname` answer is the service falling back to a
+populated place, at p50 133 km.
+
+### The ranking is not the signal it looks like
+
+Results come back ranked, and the rank is close to useless as a measure of
+correctness. Asked for `1 Rue Notre-Dame Ouest, Montreal, QC` the service ranks
+Lorrainville first and Montréal seventh; asked for `330 Spadina Rd, Toronto` it
+ranks Spadina *Avenue* first and Spadina Road seventh. In both cases the correct
+answer is already in the response body.
+
+So the whole list is scanned rather than just the first result, at no extra
+request, and the floor decides. A candidate at position 7 that passes is exactly
+as verified as one at position 1 that passes. When more than one candidate
+passes — the same street name in two municipalities, both satisfying containment
+— `n_matches` reports it rather than hiding it.
+
+### It loses about one request in twelve
+
+Measured over 300 national addresses: 24 came back as a clean HTTP 500, and
+**every one of the 24 succeeded on retry**, 23 of them on the very first attempt
+with no delay. One query succeeded first and then failed three times in a row
+afterwards, which is what rules out the failure being a property of the query.
+Left unretried they were silently costing about 8% of recall — indistinguishable
+in the output from the service having no answer. `nrcan_geocode()` retries them.
+
+### `uncertainty_m` is 150, and it is a percentile on a long tail
+
+Unlike the provincial geocoders' figures, this one is measured: it is the 90th
+percentile of the distance between a surviving answer and NAR's own building
+point, over the sample `data-raw/probe_geolocator.R` draws.
+
+**Do not read it as comparable to `nar_blockface`'s 176 m even though it is
+smaller.** A blockface error is bounded by the length of a blockface. This one
+is a percentile on a long tail: p95 212 m, p99 648 m, worst survivor 2.7 km.
+Half the survivors land inside 33 m and a few land in the wrong part of town.
+
+
+``` r
+DBI::dbDisconnect(con)
+```
+
+## Where the measurements live
+
+
+``` r
+file.show(system.file("notes", "nrcan-geolocator.md", package = "cangeocode"))
+file.show(system.file("notes", "geocoding-status.md", package = "cangeocode"))
+```
+
+`nrcan-geolocator.md` is what reading the service's own source settled — what
+`INTERPOLATED_POSITION` certifies, which of this package's checks turn out to be
+vacuous, the dead `expand=component` parameter that would have changed the
+design, and the aggregator endpoint the package deliberately does not use.
+`data-raw/probe_geolocator.R` reproduces the measurements.

@@ -198,3 +198,19 @@ test_that("bc_validate needs coordinates to compare against", {
   g <- data.frame(input = "a", PROV_ABVN = "BC", stringsAsFactors = FALSE)
   expect_error(bc_validate(g), "no coordinates")
 })
+
+test_that("which point came back is reported, not assumed", {
+  r <- nar_bc_feature(bc_fixture("civic"))
+  expect_equal(r$bc_descriptor, "parcelPoint")
+  expect_equal(r$bc_accuracy, "high")
+
+  # A locality fallback still says what it gave you.
+  l <- nar_bc_feature(bc_fixture("locality"))
+  expect_equal(l$bc_descriptor, "localityPoint")
+  expect_equal(l$bc_accuracy, "coarse")
+
+  # And an empty response carries the columns rather than dropping them.
+  e <- nar_bc_feature(list(features = list()))
+  expect_true(is.na(e$bc_descriptor))
+  expect_true(is.na(e$bc_accuracy))
+})

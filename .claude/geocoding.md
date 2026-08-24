@@ -117,7 +117,20 @@ measured.** BC publishes `locationPositionalAccuracy` as the categorical
 `high`/`medium`/`low`/`coarse` and no distance at all, so `nar_bc_precision()` translates its
 precision vocabulary into deliberately pessimistic order-of-magnitude metres. Treat them as a
 ranking safe to filter on, not as an error bar comparable to the NAR tiers'. Calibrating them
-is named as the next step in the note.
+is named as the next step in the note. `bc_accuracy` carries the categorical through unchanged
+and is the more honest of the two fields.
+
+**`locationDescriptor` is a request, not an instruction, and `bc_descriptor` reports what came
+back.** Of BC's six descriptors only `accessPoint` and `routingPoint` are distinct points;
+`frontDoorPoint`, `rooftopPoint` and `parcelPoint` each returned a point *identical* to `any`
+on 100% of 400 sampled addresses, because the service answers with whatever main location it
+holds rather than looking for the kind of point named. `nar_bc_feature()` therefore carries
+`bc_descriptor` and `bc_accuracy` (BC's categorical `locationPositionalAccuracy`) through to
+the caller. **Do not switch the default to `accessPoint`** on the strength of NAR's User Guide
+saying its building point "may be the road access point or the driveway" — that was tested and
+is wrong in aggregate: p50 from NAR is 20.2 m for the default against 28.9 m for `accessPoint`
+and 31.6 m for `routingPoint`. Per address the default wins only 58% of the time, so NAR's BC
+points are a mixture and no single descriptor is the right answer. `data-raw/probe_bc.R`.
 
 **Both online tiers rebuild the query string from the components rather than forwarding
 `input`.** `prov`/`mun` are authoritative and overwrite the parsed columns, so forwarding the
