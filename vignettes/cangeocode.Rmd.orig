@@ -8,7 +8,7 @@ vignette: >
 ---
 
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.path = "")
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.path = "", warning = FALSE)
 ```
 
 `cangeocode` reverse geocodes Canadian coordinates against Statistics Canada's
@@ -144,7 +144,7 @@ The default, `output = "multiple"`, is the full table of matches shown above.
 When no address falls inside the radius the function warns and returns `NULL`,
 so check for that rather than assuming a data frame comes back.
 
-```{r no-match}
+```{r no-match, warning = TRUE}
 result <- reverse_geocode(c(-135, 65), match_radius = 100, con = con)
 is.null(result)
 ```

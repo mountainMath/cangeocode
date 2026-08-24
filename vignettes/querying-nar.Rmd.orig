@@ -8,7 +8,7 @@ vignette: >
 ---
 
 ```{r setup, include = FALSE}
-knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", warning = FALSE)
 ```
 
 `reverse_geocode()` answers one question — what is near this point — but the

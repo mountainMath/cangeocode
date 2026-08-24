@@ -18,6 +18,12 @@
 # The `source-*` vignettes for the online geocoders knit live requests to BC,
 # NRCan and Quebec, so those three services have to be reachable. `source-osm`
 # has no live chunks -- the accuracy probe behind it has not been run.
+#
+# `warning = FALSE` is set globally in every vignette, so a service being briefly
+# unreachable no longer leaks a warning into the committed output. It does not
+# cover `available_nar_versions()` in `cangeocode.Rmd`, which scrapes StatCan and
+# inlines an *error* when it cannot be reached -- check that chunk's diff before
+# committing a precompute run.
 
 if (!nzchar(Sys.getenv("NAR_CACHE_PATH"))) {
   stop("NAR_CACHE_PATH must be set to pre-compute the vignettes.")
