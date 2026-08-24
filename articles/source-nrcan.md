@@ -68,10 +68,12 @@ is the direct binding. It takes address strings and returns the same
 
 ``` r
 
-nrcan_geocode("1 Rue Notre-Dame Ouest, Montreal, QC") |>
+nrcan_geocode("1 Rue Notre-Dame Ouest, Montreal, QC", retries = 8) |>
   select(match_method, uncertainty_m, n_matches, nrcan_qualifier, nrcan_title, lon, lat)
-#>   match_method uncertainty_m n_matches nrcan_qualifier nrcan_title lon lat
-#> 1         none            NA         0            <NA>        <NA>  NA  NA
+#>   match_method uncertainty_m n_matches       nrcan_qualifier
+#> 1        nrcan           150         1 INTERPOLATED_POSITION
+#>                                nrcan_title       lon     lat
+#> 1 1 Rue Notre-Dame Ouest, Montréal, Quebec -73.55562 45.5062
 ```
 
 As a tier it is opt-in, because it makes a network request per address.
@@ -101,7 +103,12 @@ request in twelve** as a clean HTTP 500 —
 retries, and a request that fails the retries too returns `none` with
 nothing to distinguish it from an address the service does not hold.
 That is worth about 8 points of coverage, and earlier measurements of
-this tier silently charged it to the geolocator’s accuracy.
+this tier silently charged it to the geolocator’s accuracy. The two
+direct
+[`nrcan_geocode()`](https://mountainmath.github.io/cangeocode/reference/nrcan_geocode.md)
+calls below pass `retries = 8` rather than the default 3 for exactly
+that reason — over one or two addresses a drop is likely enough to
+change what the example shows.
 
 ## What to watch out for
 
@@ -114,14 +121,14 @@ you get a confident position somewhere else:
 ``` r
 
 nrcan_geocode(c("99999 Nowhere Rd, Nowhereville, SK",
-                "28 Silver St, Corner Brook, NL")) |>
+                "28 Silver St, Corner Brook, NL"), retries = 8) |>
   select(match_method, nrcan_qualifier, nrcan_title, nrcan_reject)
-#>   match_method       nrcan_qualifier                       nrcan_title
-#> 1         none INTERPOLATED_CENTROID Road To Nowhere, Iqaluit, Nunavut
-#> 2         none                  <NA>                              <NA>
+#>   match_method       nrcan_qualifier                                              nrcan_title
+#> 1         none INTERPOLATED_CENTROID                        Road To Nowhere, Iqaluit, Nunavut
+#> 2         none INTERPOLATED_POSITION 28 Brook Street, Corner Brook, Newfoundland and Labrador
 #>                                  nrcan_reject
 #> 1 best result is Street/INTERPOLATED_CENTROID
-#> 2                              request failed
+#> 2                 street name SILVER != BROOK
 ```
 
 Neither is a match, and neither would have been obvious from a

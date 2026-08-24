@@ -142,10 +142,12 @@ without further conditions, unlike the ODbL data behind
 strings and returns the same <code>match_method</code> /
 <code>uncertainty_m</code> contract the rest of the package uses:</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/nrcan_geocode.html">nrcan_geocode</a></span><span class="op">(</span><span class="st">"1 Rue Notre-Dame Ouest, Montreal, QC"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/nrcan_geocode.html">nrcan_geocode</a></span><span class="op">(</span><span class="st">"1 Rue Notre-Dame Ouest, Montreal, QC"</span>, retries <span class="op">=</span> <span class="fl">8</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">uncertainty_m</span>, <span class="va">n_matches</span>, <span class="va">nrcan_qualifier</span>, <span class="va">nrcan_title</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
-<span><span class="co">#&gt;   match_method uncertainty_m n_matches nrcan_qualifier nrcan_title lon lat</span></span>
-<span><span class="co">#&gt; 1         none            NA         0            &lt;NA&gt;        &lt;NA&gt;  NA  NA</span></span></code></pre></div>
+<span><span class="co">#&gt;   match_method uncertainty_m n_matches       nrcan_qualifier</span></span>
+<span><span class="co">#&gt; 1        nrcan           150         1 INTERPOLATED_POSITION</span></span>
+<span><span class="co">#&gt;                                nrcan_title       lon     lat</span></span>
+<span><span class="co">#&gt; 1 1 Rue Notre-Dame Ouest, Montréal, Quebec -73.55562 45.5062</span></span></code></pre></div>
 <p>As a tier it is opt-in, because it makes a network request per
 address. These three are addresses the offline tiers cannot place at
 all:</p>
@@ -169,7 +171,10 @@ everything.</p>
 retries too returns <code>none</code> with nothing to distinguish it
 from an address the service does not hold. That is worth about 8 points
 of coverage, and earlier measurements of this tier silently charged it
-to the geolocator’s accuracy.</p>
+to the geolocator’s accuracy. The two direct
+<code><a href="../reference/nrcan_geocode.html">nrcan_geocode()</a></code> calls below pass <code>retries = 8</code>
+rather than the default 3 for exactly that reason — over one or two
+addresses a drop is likely enough to change what the example shows.</p>
 </div>
 <div class="section level2">
 <h2 id="what-to-watch-out-for">What to watch out for<a class="anchor" aria-label="anchor" href="#what-to-watch-out-for"></a>
@@ -182,14 +187,14 @@ that does not exist and you do not get an error, or an empty result —
 you get a confident position somewhere else:</p>
 <div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/nrcan_geocode.html">nrcan_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"99999 Nowhere Rd, Nowhereville, SK"</span>,</span>
-<span>                <span class="st">"28 Silver St, Corner Brook, NL"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>                <span class="st">"28 Silver St, Corner Brook, NL"</span><span class="op">)</span>, retries <span class="op">=</span> <span class="fl">8</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">nrcan_qualifier</span>, <span class="va">nrcan_title</span>, <span class="va">nrcan_reject</span><span class="op">)</span></span>
-<span><span class="co">#&gt;   match_method       nrcan_qualifier                       nrcan_title</span></span>
-<span><span class="co">#&gt; 1         none INTERPOLATED_CENTROID Road To Nowhere, Iqaluit, Nunavut</span></span>
-<span><span class="co">#&gt; 2         none                  &lt;NA&gt;                              &lt;NA&gt;</span></span>
+<span><span class="co">#&gt;   match_method       nrcan_qualifier                                              nrcan_title</span></span>
+<span><span class="co">#&gt; 1         none INTERPOLATED_CENTROID                        Road To Nowhere, Iqaluit, Nunavut</span></span>
+<span><span class="co">#&gt; 2         none INTERPOLATED_POSITION 28 Brook Street, Corner Brook, Newfoundland and Labrador</span></span>
 <span><span class="co">#&gt;                                  nrcan_reject</span></span>
 <span><span class="co">#&gt; 1 best result is Street/INTERPOLATED_CENTROID</span></span>
-<span><span class="co">#&gt; 2                              request failed</span></span></code></pre></div>
+<span><span class="co">#&gt; 2                 street name SILVER != BROOK</span></span></code></pre></div>
 <p>Neither is a match, and neither would have been obvious from a
 coordinate. The first degraded to a <em>street centroid</em> — for a
 road in Iqaluit, Nunavut. The second is worse, because it looks

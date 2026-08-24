@@ -138,6 +138,92 @@ deliberately excluded from that. See
 <code><a href="../articles/source-osm.html">vignette("source-osm")</a></code>.</p>
 </div>
 <div class="section level2">
+<h2 id="how-nar-is-built-and-what-it-is-built-from">How NAR is built, and what it is built from<a class="anchor" aria-label="anchor" href="#how-nar-is-built-and-what-it-is-built-from"></a>
+</h2>
+<p>NAR is not collected. It is <strong>extracted from Statistics
+Canada’s Statistical Building Register</strong> (SBgR) — the internal
+register of every building and building unit in the country — and its
+User Guide adds that the addresses “were validated by two independent
+data sources” before release. So the question of what NAR is made of is
+really a question about the SBgR, and StatCan <a href="https://www23.statcan.gc.ca/imdb/p2SV.pl?Function=getSurvey&amp;SDDS=5380" class="external-link">documents
+its inputs</a> in two distinct roles:</p>
+<ul>
+<li>
+<strong>The universe</strong> — which addresses exist at all, and
+where they are — comes from the national <strong>Canada Post
+Point-of-Call</strong> file together with the <strong>provincial 911
+emergency files</strong>. In Nova Scotia that is the Nova Scotia Civic
+Address File; in Quebec, the Répertoire québécois des adresses that
+<code><a href="../articles/source-rqa.html">vignette("source-rqa")</a></code> covers.</li>
+<li>
+<strong>The attributes</strong> are complemented from
+<strong>property assessment rolls and land registries, hydro-electricity
+company files, and provincial driver’s licence files</strong>, which
+populate “building type, building name and building unit usage”. Those
+are NAR’s <code>BU_USE</code> and <code>BU_N_CIVIC_ADD</code> columns,
+and they are populated on every row in every province.</li>
+</ul>
+<p>Each source is standardised and then <strong>geocoded by StatCan to
+its own spatial data infrastructure</strong> — though “geocoded” turns
+out to mean less than it sounds like, since where this has been checked
+the resulting coordinate is the contributor’s own, transformed onto
+StatCan’s frame rather than re-derived. On top of that, the register is
+maintained by listing and profiling activities, the Canadian Housing
+Statistics Program, survey feedback, and — every five years — a
+reconciliation against the Census of Population, so that dwellings found
+on the ground during collection get added.</p>
+<p>Two things follow that matter when reading the rest of this
+vignette.</p>
+<p>First, <strong>the vintage of a record is the vintage of its
+contributor’s file</strong>, not of the NAR release. A subdivision
+registered after a province’s last 911 extract is absent from NAR no
+matter how recent the release is, which is most of what the section on
+missing addresses below is describing.</p>
+<p>Second, and less obvious: <strong>NAR is not independent of the
+provincial address authority.</strong> It is largely a re-geocoded,
+standardised assembly of those files. That has been measured in two
+provinces, and in both the provincial file turns out to be inside NAR
+rather than beside it:</p>
+<table class="table">
+<colgroup>
+<col width="30%">
+<col width="30%">
+<col width="40%">
+</colgroup>
+<thead><tr class="header">
+<th>province</th>
+<th>authority file</th>
+<th align="right">NAR’s distance from it</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>Quebec</td>
+<td>Répertoire québécois des adresses</td>
+<td align="right">median <strong>0.21 m</strong> over 2.5 M
+addresses</td>
+</tr>
+<tr class="even">
+<td>Nova Scotia</td>
+<td>NS Civic Address File</td>
+<td align="right">median <strong>1.04 m</strong>, a single constant
+re-datum</td>
+</tr>
+</tbody>
+</table>
+<p>In Nova Scotia the entire distribution sits in one 1–2 m band, and
+subtracting a single vector leaves a residual of about three centimetres
+— it is the same coordinate in a different NAD83 realization. Comparing
+NAR to either file measures how well an address <em>parsed</em>, not
+whether its coordinate is right.</p>
+<p>The practical rule this gives, for anyone reaching for a provincial
+file to check NAR with: <strong>the more authoritative a provincial
+address file is, the more likely NAR already contains it.</strong> A
+useful check has to come from somebody who collected the addresses for a
+different reason — which is why the Nova Scotia comparison in
+<code>inst/notes/nova-scotia-pvsc.md</code> is built on the province’s
+<em>property assessment</em> file rather than its addressing one.</p>
+</div>
+<div class="section level2">
 <h2 id="a-reference-is-not-ground-truth">A reference is not ground truth<a class="anchor" aria-label="anchor" href="#a-reference-is-not-ground-truth"></a>
 </h2>
 <p>NAR is a <em>compilation</em>. Statistics Canada assembles it from
@@ -158,9 +244,11 @@ a parcel-level provincial authority: on <code>nar_building</code>
 matches the two answers sit a median <strong>19.8 m</strong> apart, p90
 118.8 m. That is disagreement rather than error — it contains both
 sources’ error plus their definitional difference — and the two are not
-independent, since BC’s records and NAR’s BC records plausibly share
-upstream data. It is best read as a lower bound on how far apart two
-genuinely independent sources would be.</p>
+independent, for the reason the previous section gives: NAR’s BC records
+are assembled from BC’s own files. That is no longer a guess about this
+particular pair, it is how the register is built. Read the 19.8 m as a
+lower bound on how far apart two genuinely independent sources would
+be.</p>
 </div>
 <div class="section level2">
 <h2 id="not-every-point-is-the-same-kind-of-point">Not every point is the same kind of point<a class="anchor" aria-label="anchor" href="#not-every-point-is-the-same-kind-of-point"></a>
@@ -485,10 +573,13 @@ settle:</p>
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"nar-consistency.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"quebec-addresses.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"road-network-file.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"geocoding-status.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"geocoding-status.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"nova-scotia-pvsc.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p><code>data-raw/probe_consistency.R</code> reproduces the misplacement
-analysis in about six minutes, and <code>data-raw/probe_rnf.R</code> the
-road network measurements.</p>
+analysis in about six minutes, <code>data-raw/probe_rnf.R</code> the
+road network measurements, and <code>data-raw/probe_pvsc.R</code> the
+Nova Scotia comparison — including the provenance test behind the table
+above, which is its stage 0.</p>
 </div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside>
