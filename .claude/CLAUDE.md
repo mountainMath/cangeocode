@@ -182,6 +182,21 @@ record the design.
   segmenting a comma-free string on the municipality inventory — each of which reversed the one
   result the tagger still led, and why a fine-tune and a from-scratch model are both unwarranted
   on the evidence. It closes the open question at the end of the normalization status note.
+- **[`inst/notes/nar-consistency.md`](../inst/notes/nar-consistency.md)**
+  — finding NAR's misplaced addresses using nothing but NAR: why a row's postal code and
+  coordinate disagreeing is an *internal* contradiction and so escapes the not-ground-truth
+  caveat every other measurement here carries; that the CSD label is **not** a third witness —
+  point-in-polygon against the 2021 digital CSDs agrees with it 98.8% of the time, because it is
+  derived from the coordinate, which leaves two sides and no majority to appeal to; that a postal
+  code is a *delivery route* and may legitimately be disconnected, so distance-from-the-group's-
+  median is the wrong statistic and `d_own`/`d_other` replace it — a ratio, which is what lets
+  rural postal codes stay in instead of being excluded wholesale; why `d_other` has to be
+  re-measured **along the road network** or Georgian Bay and Whistler supply the flags; and the
+  one extra question — is the street at the point or at the postal code — that turns 17,224 flags
+  into 653 rows whose *coordinate* is the part to disbelieve, plus the Amos row that shows a
+  shared street name fooling that same arbiter. Read it before treating any flag as an error: the
+  84,282-address blind spot and the false-positive families are named there, and nothing has been
+  repaired. `data-raw/probe_consistency.R` reproduces all of it.
 
 ## Package-level plumbing (`R/misc.R`)
 
