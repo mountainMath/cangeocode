@@ -373,6 +373,10 @@ nar_remap_uncertainty_m <- function() {
 #' Gazetteer arguments -- [nar_resolve_gazetteer()]'s, `mun_swap_penalty` among
 #' them -- are forwarded to [normalize_address()] when `x` is a character
 #' vector, and ignored when it is a data frame someone else has already parsed.
+#' `keep_refused = TRUE` is the one worth knowing about: it places the matches
+#' the gazetteer's threshold would have turned away and flags them in
+#' `refused_for`, which turns an invisible false negative into an answer
+#' [geocode_accept()] can drop again.
 #' `rate` is
 #' understood by all of them; `api_key` is [bc_geocode()]'s, as is anything
 #' else it does not recognize, which it forwards to its own service as a query
@@ -391,6 +395,8 @@ nar_remap_uncertainty_m <- function() {
 #' address string itself said, or `NA` when it said nothing --  while
 #' `match_postal_code` is what the matched record carries; see the section
 #' below.
+#' @seealso [geocode_accept()], for applying your own bar to the result without
+#' re-running the query.
 #' @export
 #' @examples
 #' \dontrun{

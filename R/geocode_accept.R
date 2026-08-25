@@ -1,0 +1,205 @@
+#' Withdraw the coordinates a result does not clear your bar
+#'
+#' @description [geocode()] answers every row it can and reports what the
+#' answer rests on. Which of those answers is good enough is not the same
+#' question for everyone, and it is not one the geocoder can settle: an
+#' epidemiologist aggregating to a dissemination area and a dispatcher sending a
+#' vehicle want opposite errors. This applies a bar to a result that already
+#' exists.
+#'
+#' What it does *not* do is re-run anything. Every column it reads is one
+#' [geocode()] already returned, so a bar can be moved, tightened and moved back
+#' without paying for the query again -- which matters, because resolving forty
+#' thousand addresses takes minutes and deciding where to draw the line usually
+#' takes several tries.
+#'
+#' @section What "withdraw" means: A rejected row keeps everything except its
+#' position: `ADDR_GUID`, `match_method`, `uncertainty_m`, `n_matches` and the
+#' parse all stay, and `rejected_for` names the test that failed. Only `lon` and
+#' `lat` -- or the `sf` geometry -- are blanked.
+#'
+#' That is deliberate. The evidence for the rejection is the part you need in
+#' order to argue with it, and deleting the row would throw away the count of
+#' how many addresses were dropped, which is usually the number worth reporting.
+#' It also keeps the package's own convention: an unplaced row is `is.na(lon)`,
+#' never `match_method == "none"`, so a withdrawn row and a row nothing matched
+#' test the same way downstream.
+#'
+#' Rows that were never placed are not rejected. There is no position to
+#' withdraw, so `rejected_for` stays `NA` and they remain distinguishable from
+#' the ones this call turned away.
+#'
+#' @section The tests: Each is off by default, and a row is charged to the first
+#' one it fails, in the order the arguments are listed. A test whose column the
+#' result does not carry is an error rather than a silent pass -- asking for a
+#' bar that cannot be evaluated should not look like a bar that everything
+#' cleared. The one exception is `refused`, since a result from a plain
+#' [geocode()] call carries no refusals to keep or drop.
+#'
+#' \describe{
+#'   \item{`method`}{Keep only the tiers named. `"nar_building"` alone is the
+#'     strictest thing this package offers: a coordinate NAR states for that
+#'     address, nothing interpolated and nothing online.}
+#'   \item{`refused`}{Drop the sub-threshold matches that
+#'     `keep_refused = TRUE` surfaced -- see [nar_resolve_gazetteer()]. The
+#'     default keeps them, because a caller who asked for them presumably wants
+#'     them; pass `FALSE` to take one pass with them and one without.}
+#'   \item{`attested_only`}{Drop rows whose municipality was substituted on no
+#'     evidence. This is the same partition [nar_remap_uncertainty_m()] prices:
+#'     a swap a shared postal code or a census subdivision name attests measures
+#'     no worse than an untouched municipality and is kept, while
+#'     `unattested`, `untestable` and `inferred` go. It is the single most
+#'     effective test here against gross error -- in a 40,000-address Nova
+#'     Scotia sample those three classes are 2.3% of the rows measured and
+#'     roughly a third of everything landing more than five kilometres out.}
+#'   \item{`unambiguous`}{Drop rows where more than one distinct point matched.
+#'     Necessary and nowhere near sufficient: one exact unambiguous match in
+#'     288 is still more than a kilometre wrong, because `n_matches` counts
+#'     what the search found and not whether it looked in the right place.}
+#'   \item{`postal_code`}{Drop rows where the input stated a postal code and the
+#'     matched record carries a different one. Silent where either is missing,
+#'     which is most rows -- `match_postal_code` reports nothing unless the
+#'     candidates agree.}
+#'   \item{`max_uncertainty`}{Drop rows whose `uncertainty_m` exceeds a bound in
+#'     metres. Read [geocode()]'s uncertainty section first: it is a 90th
+#'     percentile of the error the *method* introduces, so it prices a
+#'     blockface point and a long interpolation span and says nothing about
+#'     whether the street was the right street.}
+#'   \item{`min_confidence`}{Drop rows whose parse scored below a bound. This is
+#'     the gazetteer's score, not a positional one.}
+#' }
+#'
+#' @param x A data frame from [geocode()]
+#' @param method Character vector of `match_method` values to keep
+#' @param refused Whether to keep matches flagged in `refused_for`
+#' @param attested_only Whether to require a municipality swap to be attested
+#' @param unambiguous Whether to require exactly one matched point
+#' @param postal_code Whether to require a stated postal code to agree with the
+#' matched record's
+#' @param max_uncertainty Maximum `uncertainty_m`, in metres
+#' @param min_confidence Minimum parse `confidence`
+#' @return `x` with a `rejected_for` column added and the coordinates withdrawn
+#' on the rows that failed a test
+#' @seealso [geocode()], [nar_remap_uncertainty_m()]
+#' @export
+#' @examples
+#' \dontrun{
+#' g <- geocode(addresses)
+#'
+#' # A bar you can move without re-running the query.
+#' strict <- geocode_accept(g, attested_only = TRUE, unambiguous = TRUE,
+#'                          max_uncertainty = 100)
+#' mean(is.na(strict$lon)) - mean(is.na(g$lon))   # what the bar cost
+#' table(strict$rejected_for)                     # and what it was spent on
+#'
+#' # Nothing interpolated, nothing online.
+#' geocode_accept(g, method = "nar_building")
+#' }
+geocode_accept <- function(x,
+                           method = NULL,
+                           refused = TRUE,
+                           attested_only = FALSE,
+                           unambiguous = FALSE,
+                           postal_code = FALSE,
+                           max_uncertainty = NULL,
+                           min_confidence = NULL) {
+  if (!is.data.frame(x)) {
+    stop("`x` must be a data frame from geocode().", call. = FALSE)
+  }
+  placed <- nar_accept_placed(x)
+  reason <- rep(NA_character_, nrow(x))
+
+  charge <- function(reason, fail, label) {
+    ifelse(is.na(reason) & placed & !is.na(fail) & fail, label, reason)
+  }
+  need <- function(cols, arg) {
+    miss <- setdiff(cols, names(x))
+    if (length(miss)) {
+      stop("`", arg, "` needs the ", paste(miss, collapse = " and "),
+           " column, which `x` does not have.", call. = FALSE)
+    }
+  }
+
+  if (!is.null(method)) {
+    need("match_method", "method")
+    reason <- charge(reason, !x$match_method %in% method, "method")
+  }
+  # Absent rather than empty is the normal case: only a keep_refused = TRUE
+  # parse produces the column at all, and a result without one has no refusals
+  # to drop.
+  if (!refused && "refused_for" %in% names(x)) {
+    reason <- charge(reason, !is.na(x$refused_for), "refused")
+  }
+  if (attested_only) {
+    need("mun_remapped", "attested_only")
+    floors <- nar_remap_uncertainty_m()
+    # The floor is the classification: a class priced above zero is one the
+    # measurement says to distrust, and reading it from there rather than
+    # naming the classes again keeps the two from drifting apart. An evidence
+    # value this version does not know is not attested.
+    f <- if (!"mun_evidence" %in% names(x))
+           rep(unname(floors[["unattested"]]), nrow(x))
+         else unname(floors[match(x$mun_evidence, names(floors))])
+    f[is.na(f)] <- unname(floors[["unattested"]])
+    reason <- charge(reason, !is.na(x$mun_remapped) & x$mun_remapped & f > 0,
+                     "unattested_mun")
+  }
+  if (unambiguous) {
+    need("n_matches", "unambiguous")
+    reason <- charge(reason, x$n_matches > 1, "ambiguous")
+  }
+  if (postal_code) {
+    need(c("POSTAL_CODE", "match_postal_code"), "postal_code")
+    reason <- charge(reason,
+                     !is.na(x$POSTAL_CODE) & !is.na(x$match_postal_code) &
+                       x$POSTAL_CODE != x$match_postal_code,
+                     "postal_code")
+  }
+  if (!is.null(max_uncertainty)) {
+    need("uncertainty_m", "max_uncertainty")
+    reason <- charge(reason, x$uncertainty_m > max_uncertainty, "uncertainty")
+  }
+  if (!is.null(min_confidence)) {
+    need("confidence", "min_confidence")
+    reason <- charge(reason, x$confidence < min_confidence, "confidence")
+  }
+
+  x$rejected_for <- reason
+  nar_accept_withdraw(x, !is.na(reason))
+}
+
+#' Which rows of a geocoding result carry a position
+#'
+#' @description The package's own test for placed, applied to whichever
+#' representation the result is in: `lon`/`lat` columns, or an `sf` geometry
+#' whose unplaced rows are empty points.
+#' @param x A data frame from [geocode()]
+#' @return A logical vector over the rows of `x`
+#' @keywords internal
+nar_accept_placed <- function(x) {
+  if (inherits(x, "sf")) return(!sf::st_is_empty(sf::st_geometry(x)))
+  if (!all(c("lon", "lat") %in% names(x))) {
+    stop("`x` has no lon/lat columns and is not an sf object. Pass the output ",
+         "of geocode().", call. = FALSE)
+  }
+  !is.na(x$lon) & !is.na(x$lat)
+}
+
+#' Blank the coordinates on the rejected rows
+#'
+#' @param x A data frame from [geocode()]
+#' @param i Logical vector of rows to withdraw
+#' @return `x`, unplaced on those rows
+#' @keywords internal
+nar_accept_withdraw <- function(x, i) {
+  if (!any(i)) return(x)
+  if (inherits(x, "sf")) {
+    g <- sf::st_geometry(x)
+    g[i] <- sf::st_sfc(sf::st_point(), crs = sf::st_crs(g))
+    sf::st_geometry(x) <- g
+    return(x)
+  }
+  x$lon[i] <- NA_real_
+  x$lat[i] <- NA_real_
+  x
+}

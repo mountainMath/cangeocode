@@ -280,6 +280,51 @@ because these are freshly computed values rather than a stored geometry column; 
 CRS is still read from the database with `nar_crs()`, and `sf` handles the axis order that
 `collect_nar()` needs `always_xy` for.
 
+### `geocode_accept()` — where the precision/recall choice actually lives
+
+The two errors are not symmetric and cannot both be defaulted away. A **false negative is
+visible**: `is.na(lon)`, countable, and the caller knows exactly how many rows it lost. A
+**false positive is invisible by construction** — a point that looks like every other point,
+and is 118 km out. That asymmetry is the whole design rule here: decide conservatively, report
+generously, and put the dial at *report* time rather than at *scoring* time.
+
+Which is why this is not a `strictness = c("loose", "normal", "strict")` argument on
+`geocode()`, and not a scalar dial either. A scalar has to pretend the tests are commensurable
+— `n_matches > 1` and `uncertainty_m > 100` and an unattested municipality swap are three
+different failures with three different consequences, and collapsing them into one number
+would mean inventing exchange rates the measurements do not support. The tests stay separate
+and each one is off by default.
+
+Three things about the implementation are load-bearing:
+
+* **It re-runs nothing.** Every column it reads is one `geocode()` already returned. A 40,000-row
+  `geocode()` costs about 85 s, and nobody finds the right bar on the first try — so a helper
+  that made the caller re-query would be used once and then hand-rolled.
+* **A rejected row keeps everything but its position.** `ADDR_GUID`, `match_method`,
+  `uncertainty_m`, `n_matches` and the parse all stay; only `lon`/`lat` — or the `sf` geometry —
+  are blanked, and `rejected_for` names the test. Deleting the row would throw away both the
+  evidence for the rejection and the count of what the bar cost, which is usually the number
+  worth reporting. It is also the package's own "unplaced is `is.na(x)`, never
+  `match_method == "none"`" convention read forwards: a withdrawn row and a row nothing matched
+  test the same way downstream.
+* **A row that was never placed is not a rejection.** `rejected_for` stays `NA` there, so the
+  rows this call turned away stay distinguishable from the rows nothing ever answered — which
+  is the only way `table(rejected_for)` means anything.
+
+`attested_only` reads its partition **off `nar_remap_uncertainty_m()`** — a class priced above
+zero is a class the measurement says to distrust — rather than naming `unattested`,
+`untestable` and `inferred` a second time. Two lists of the same classes in two files is how
+they drift. An evidence value this version does not know is treated as *unattested* here and
+as *no floor* in `nar_geocode_remap_floor()`, and the difference is deliberate: the floor is
+forward-compatible because widening an uncertainty on a class it cannot interpret would be a
+fabricated number, while a bar that silently admits an unrecognized class is a bar that does
+not hold.
+
+A test whose column is absent **errors**, with one exception. Asking for a bar that cannot be
+evaluated must not look like a bar everything cleared. `refused` is the exception because a
+plain `geocode()` call produces no `refused_for` column at all, and `refused = FALSE` on a
+result with no refusals is a well-formed no-op rather than a mistake.
+
 ## `R/geocode_bc.R` — the provincial geocoder
 
 A binding to the Province of British Columbia's [Address Geocoder]. `bc_geocode()` is the

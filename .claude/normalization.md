@@ -432,6 +432,43 @@ compares against `mun_match`, the name the string actually wrote, and is what le
 `mun_remapped` — the flag `normalize_address()` returns and `geocode()` prices per
 `mun_evidence`. Reusing either for the other's job silently changes what the flag means.
 
+### `keep_refused` — reporting what the threshold turned away
+
+A match scoring below the combined `threshold` is normally discarded, and the row comes back
+parsed but unresolved. From the outside that is **indistinguishable from the street not
+existing** — no rejected answer, no score, no evidence class. It is a false negative with
+nothing to read, and the caller who could overrule it (someone holding locality evidence the
+package does not have) is exactly the one given nothing to overrule it with.
+
+`keep_refused = TRUE` adopts the best sub-threshold match anyway, `confidence` carrying the
+sub-threshold score, and adds a `refused_for` column naming the gate. Notes:
+
+* **Two reasons, and only one of them is worth a name.** `"mun_swap"` means the score cleared
+  `threshold` *before* the swap multiplier and not after — the street matched and the
+  municipality did not, which is a different failure from a weak name. It is recoverable in R
+  as `score / mun_swap_penalty >= threshold` **only because the penalty applies to exactly one
+  evidence class** (`unattested`); the R side checks that class explicitly rather than
+  inverting the multiplier blind. If a second class ever gets fined, the query must return the
+  pre-penalty score instead — and that means a new column in *both* branches of the
+  `UNION ALL`, which lines up by position.
+* **Only what cleared `name_threshold` can be reported at all.** That gate lives inside the
+  query, so a name too far from every candidate never comes back. This is a documented limit,
+  not something to work around by relaxing the gate — the gate is what stops type and direction
+  credit from carrying a wrong street over the line.
+* **A NAR refusal outranks an RQA one, and an RQA *match* outranks a NAR refusal.** The refused
+  write-back only targets rows still at `parse_source == "rules"`, while the accepted one is
+  unconditional and clears `refused_for`. So a row NAR could only refuse still gets Quebec's
+  register offered to it properly, and a row both passes only refused keeps NAR's answer —
+  the same running-order priority the accepted matches follow.
+* **The column is created in `nar_resolve_gazetteer()`, before `out_cols` is taken.** That
+  function cuts the result back to the column list it captured at entry, so a column a pass
+  added would otherwise be silently dropped on the way out.
+* `res$refused_for` is tested with `"refused_for" %in% names(res)` and not `is.null()`:
+  `res` is a tibble, and `$` on an absent column warns.
+
+`geocode_accept(refused = FALSE)` is the other half — take one pass with the refusals and one
+without, and the difference is what the threshold is buying.
+
 ### The second pass, over Quebec's own register
 
 `nar_resolve_gazetteer()` runs `nar_gazetteer_pass()` twice: once against NAR, and — only where

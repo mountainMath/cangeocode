@@ -876,3 +876,40 @@ test_that("the match fold answers nothing to nothing", {
   expect_equal(nar_match_fold(c("ST-JEAN", "STE FOY", "O'BRIEN")),
                c("SAINT JEAN", "SAINTE FOY", "O BRIEN"))
 })
+
+test_that("keep_refused reports the match the threshold turned away", {
+  skip_if_no_duckdb_spatial()
+  con <- local_mini_gazetteer()
+  x <- c("500 Windwood Dr, Milford NS",   # sank by the swap penalty alone
+         "500 Wildwood Rd, Milford NS",   # sank on the name, type and number
+         "12 Wildwood Dr, Milford NS")    # clears the threshold
+
+  off <- nar_resolve_gazetteer(nar_parse_rules(x), con)
+  expect_equal(off$parse_source, c("rules", "rules", "gazetteer"))
+  expect_false("refused_for" %in% names(off))
+
+  on <- nar_resolve_gazetteer(nar_parse_rules(x), con, keep_refused = TRUE)
+  expect_equal(on$parse_source, rep("gazetteer", 3))
+  expect_equal(on$refused_for, c("mun_swap", "score", NA))
+  # The whole point: the answer that was thrown away comes back with the score
+  # and the evidence class that sank it, rather than as an unresolved row.
+  expect_equal(on$STREET_NAME, c("Windwood", "Wildwood", "Wildwood"))
+  expect_equal(on$mun_evidence, c("unattested", "copostal", "copostal"))
+  expect_true(all(on$confidence[1:2] < 0.85))
+  # Nothing that already resolved may change.
+  expect_equal(on[3, names(off)], off[3, ])
+})
+
+test_that("mun_swap is only claimed where the penalty is what sank the row", {
+  skip_if_no_duckdb_spatial()
+  con <- local_mini_gazetteer()
+  x <- "500 Windwood Dr, Milford NS"
+  # Same row, penalty off: it clears the threshold, which is what makes the
+  # penalty and not the evidence the reason it was refused with the penalty on.
+  expect_equal(nar_resolve_gazetteer(nar_parse_rules(x), con,
+                                     mun_swap_penalty = 1)$parse_source,
+               "gazetteer")
+  on <- nar_resolve_gazetteer(nar_parse_rules(x), con, keep_refused = TRUE)
+  expect_equal(on$refused_for, "mun_swap")
+  expect_gte(on$confidence / 0.88, 0.85)
+})

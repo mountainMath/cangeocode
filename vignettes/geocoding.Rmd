@@ -545,6 +545,155 @@ province, using `address_pattern()` to separate addresses that are wrong from
 addresses that were never going to resolve, and matching two lists of addresses
 to each other without geocoding anything.
 
+## Deciding which errors you would rather make
+
+Every qualifier above tells you something about one answer. Turning them into a
+policy — *these* answers I will use, *those* I will not — is a separate
+decision, and not one the geocoder can make for you. Which error you would
+rather make depends on what the points are for: aggregating to a dissemination
+area and dispatching a vehicle to an address want opposite mistakes.
+
+The asymmetry is worth naming, because it drives everything else here. A **false
+negative is visible**: the row comes back with `NA` coordinates, and you can
+count it. A **false positive is invisible by construction** — it looks exactly
+like a good answer, and it is 118 km away. So the defaults stay conservative
+where an answer is decided and generous where it is reported.
+
+`geocode_accept()` is where you draw your own line. It re-runs nothing; it reads
+the columns the result already carries, withdraws the coordinates from the rows
+that fail your bar, and records which test each one failed:
+
+
+``` r
+hard <- c(addresses,
+          "551 Victoria Dr, Birch Grove, NS",
+          "36 Lakeview Dr, Howie Centre, NS",
+          "100 Main St")
+
+g <- geocode(hard)
+
+strict <- geocode_accept(g, attested_only = TRUE, unambiguous = TRUE,
+                         max_uncertainty = 100)
+
+table(strict$rejected_for, useNA = "no")
+#> 
+#>      ambiguous unattested_mun 
+#>              2              1
+```
+
+Each test is off by default: `method`, `refused`, `attested_only`,
+`unambiguous`, `postal_code`, `max_uncertainty` and `min_confidence`. A row is
+charged to the first one it fails, in that order.
+
+A rejected row keeps everything except its position. `ADDR_GUID`,
+`match_method`, `uncertainty_m` and the parse all stay, so you can see what was
+turned away and argue with it; only the coordinates go:
+
+
+``` r
+strict |>
+  filter(!is.na(rejected_for)) |>
+  select(input, match_method, uncertainty_m, n_matches, mun_evidence,
+         rejected_for, lon)
+#>                              input     match_method uncertainty_m n_matches mun_evidence
+#> 1    5491 Route 11, Brantville, NB nar_interpolated       83.9406         2         kept
+#> 2 36 Lakeview Dr, Howie Centre, NS     nar_building      118.0000         1   untestable
+#> 3                      100 Main St     nar_building  4043775.8020       139         <NA>
+#>     rejected_for lon
+#> 1      ambiguous  NA
+#> 2 unattested_mun  NA
+#> 3      ambiguous  NA
+```
+
+Rows that were never placed are not rejections — `rejected_for` stays `NA`
+there, so `table(rejected_for)` counts what your bar cost and nothing else.
+
+Because nothing is re-queried, moving the line is cheap, which matters: nobody
+picks the right bar on the first try, and resolving forty thousand addresses
+takes minutes.
+
+
+``` r
+sapply(c(25, 100, 250, Inf), function(u)
+  mean(!is.na(geocode_accept(g, max_uncertainty = u)$lon)))
+#> [1] 0.5454545 0.6363636 0.7272727 0.8181818
+```
+
+### Seeing the answers that were refused
+
+The other direction is the one the package used to be silent about. When the
+gazetteer scores a match below its threshold, the row comes back unresolved —
+and from the outside that is indistinguishable from the street not existing. You
+get no rejected answer, no score, and no evidence class. That is a false
+negative with nothing to read.
+
+
+``` r
+refusable <- c("551 Victoria Dr, Birch Grove, NS",
+               "16 Kelry Dr, East Dover, NS",
+               "1741 Brunswick St, Halifax, NS")
+
+geocode(refusable) |>
+  select(input, STREET_NAME, MUN_NAME, match_method)
+#>                              input STREET_NAME    MUN_NAME match_method
+#> 1 551 Victoria Dr, Birch Grove, NS    VICTORIA BIRCH GROVE         none
+#> 2      16 Kelry Dr, East Dover, NS       KELRY  EAST DOVER         none
+#> 3   1741 Brunswick St, Halifax, NS   Brunswick     HALIFAX nar_building
+```
+
+`keep_refused = TRUE` reports them instead:
+
+
+``` r
+geocode(refusable, keep_refused = TRUE) |>
+  select(input, STREET_NAME, MUN_NAME, confidence, mun_evidence, refused_for,
+         match_method, uncertainty_m)
+#>                              input STREET_NAME MUN_NAME confidence mun_evidence refused_for
+#> 1 551 Victoria Dr, Birch Grove, NS    Victoria   SYDNEY      0.792   unattested    mun_swap
+#> 2      16 Kelry Dr, East Dover, NS       Kelly  HALIFAX      0.833     copostal       score
+#> 3   1741 Brunswick St, Halifax, NS   Brunswick  HALIFAX      1.000         kept        <NA>
+#>       match_method uncertainty_m
+#> 1 nar_interpolated      341.0394
+#> 2     nar_building        0.0000
+#> 3     nar_building        0.0000
+```
+
+Both were real answers all along. `refused_for` names the gate each one failed:
+
+* `"mun_swap"` — the score cleared the threshold *before* the municipality-swap
+  penalty and not after. The street matched and the municipality did not, which
+  is exactly the case where you may know something the register does not: Birch
+  Grove and Sydney are both in Cape Breton Regional Municipality, and there is
+  no `Victoria Dr` filed under Birch Grove.
+* `"score"` — everything else. `Kelry` is one keystroke from the `Kelly Dr` the
+  register carries, and the near-miss on the name is what put the combined score
+  at 0.833 rather than over 0.85.
+
+Note what `uncertainty_m` does *not* do here: the second row is an exact
+building match and reports 0 m, because that column describes the error the
+**method** introduces and knows nothing about whether the street was the right
+street. The refusal is the warning; the metres are not.
+
+So the natural pairing is one pass with them and one without —
+`geocode_accept(refused = FALSE)` takes them back out again, and the difference
+is what the threshold is buying you:
+
+
+``` r
+r <- geocode(hard, keep_refused = TRUE)
+
+c(refused_kept    = mean(!is.na(r$lon)),
+  refused_dropped = mean(!is.na(geocode_accept(r, refused = FALSE)$lon)))
+#>    refused_kept refused_dropped 
+#>       0.9090909       0.8181818
+```
+
+One limit: only matches that cleared the *name* similarity gate can be reported
+this way. That gate is applied inside the database query, so a street name too
+far from every candidate never comes back at all — which is deliberate, since it
+is the gate that stops a matching street type from carrying an unrelated street
+over the line.
+
 ## Geometry
 
 `geometry = TRUE` returns an `sf` object instead of `lon`/`lat` columns, with an

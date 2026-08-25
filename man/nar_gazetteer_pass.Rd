@@ -13,7 +13,9 @@ nar_gazetteer_pass(
   source,
   threshold = 0.85,
   name_threshold = 0.9,
-  prepare = NULL
+  prepare = NULL,
+  keep_refused = FALSE,
+  mun_swap_penalty = 1
 )
 }
 \arguments{
@@ -34,6 +36,12 @@ nar_gazetteer_pass(
 \item{name_threshold}{Minimum name similarity, passed to `sql_fn`}
 
 \item{prepare}{Optional function of `con`, run once there is work to do}
+
+\item{keep_refused}{Whether to also adopt the best sub-threshold match,
+flagged in `refused_for`}
+
+\item{mun_swap_penalty}{The multiplier this pass\'s query applied, used only
+to tell a refusal the penalty caused from a refusal it did not}
 }
 \value{
 `res`, with matched rows replaced by their canonical values

@@ -174,6 +174,44 @@ gains a tier when you run the import.
   the default wins only 58% of the time: NAR's BC points are a mixture of
   definitions, not one of them. `data-raw/probe_bc.R` reproduces it.
 
+## Choosing which errors to make
+
+The two mistakes a geocoder makes are not symmetric and not interchangeable. A
+false negative is *visible* -- the row comes back with `is.na(lon)`, and you can
+count it. A false positive is invisible by construction: a point that looks
+exactly like every other point, and is 118 km from the address. So the defaults
+here stay conservative where the answer is decided and generous where it is
+reported, and these two additions are both about the reporting.
+
+* **New `geocode_accept()`** applies your own bar to a result that already
+  exists: `method`, `refused`, `attested_only`, `unambiguous`, `postal_code`,
+  `max_uncertainty` and `min_confidence`, each off by default. A row that fails
+  one loses its coordinates and keeps everything else, with `rejected_for`
+  naming the test -- so the count of what a bar cost, and the evidence for each
+  rejection, both survive. It re-runs nothing, which is the point: forty
+  thousand addresses take minutes to resolve and finding the right bar takes
+  several tries.
+
+* `attested_only` reads its classification off `nar_remap_uncertainty_m()`
+  rather than naming the evidence classes again, so the bar and the uncertainty
+  floor cannot drift apart.
+
+* **New `keep_refused = TRUE`**, passed through `geocode()` or
+  `normalize_address()` to the gazetteer. A match scoring below the combined
+  threshold is normally dropped, and the row comes back unresolved -- which from
+  the outside is indistinguishable from the street not existing. With this the
+  match is adopted anyway, `confidence` carries the sub-threshold score,
+  `mun_evidence` the class, and a new `refused_for` column names the gate:
+  `"mun_swap"` where the score cleared the threshold before the
+  municipality-swap multiplier and not after, `"score"` otherwise. Pair it with
+  `geocode_accept(refused = FALSE)` to take one pass with and one without.
+
+* `"mun_swap"` is the one refusal a caller can act on with evidence the package
+  does not have: it says the street matched and the municipality did not. Rows
+  that failed the *name* gate cannot be reported this way -- that gate is
+  applied inside the query, so a name too far from every candidate never comes
+  back at all.
+
 ## Forward geocoding
 
 * **New `geocode_matches()`** returns the NAR records behind a `geocode()`

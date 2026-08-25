@@ -16,8 +16,10 @@
 #' resolution; without it parsing is lexicon-only. The caller keeps ownership --
 #' a connection passed here is left open, matching [reverse_geocode()].
 #' @param ... Passed to the gazetteer layer when `con` is supplied, and ignored
-#' otherwise -- `threshold`, `name_threshold` and `mun_swap_penalty`; see
-#' [nar_resolve_gazetteer()].
+#' otherwise -- `threshold`, `name_threshold`, `mun_swap_penalty` and
+#' `keep_refused`; see [nar_resolve_gazetteer()]. `keep_refused = TRUE` adds a
+#' `refused_for` column and resolves the rows the threshold would have left
+#' unresolved, flagged with the gate they failed.
 #'
 #' @return A tibble with one row per element of `x`, carrying the NAR-shaped
 #' columns `APT_NO_LABEL`, `CIVIC_NO`, `CIVIC_NO_SUFFIX`, `STREET_NAME`,

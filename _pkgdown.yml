@@ -9,10 +9,13 @@ reference:
     Resolve free-text Canadian addresses to coordinates, interpolating the
     civic numbers NAR does not carry. `geocode()` answers one row per address;
     `geocode_matches()` opens up the NAR records behind an answer, which is
-    where the units of a multi-unit building are.
+    where the units of a multi-unit building are. `geocode_accept()` applies
+    your own bar to a result that already exists, withdrawing the coordinates
+    on the rows that do not clear it.
   contents:
   - geocode
   - geocode_matches
+  - geocode_accept
 
 - title: Address normalization
   desc: >

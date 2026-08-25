@@ -70,12 +70,36 @@ nar_has_streets <- function(con) {
 #' it -- see the penalty section of [nar_gazetteer_sql()]. Not applied to the
 #' RQA pass, which files under census subdivisions rather than postal cities
 #' and so changes the municipality by design.
+#' @param keep_refused Whether to report the matches the combined `threshold`
+#' turned away instead of discarding them. See the section below.
+#' @section Reporting what was refused: A match that scores below `threshold` is
+#' normally dropped, and the row comes back parsed but unresolved -- which from
+#' the outside is indistinguishable from the street not existing. That is a
+#' false negative with nothing to read: not the answer that was rejected, not
+#' its score, not the evidence class that sank it.
+#'
+#' `keep_refused = TRUE` adopts the best sub-threshold match anyway and adds a
+#' `refused_for` column naming the gate it failed:
+#'
+#' * `"mun_swap"` -- the score cleared `threshold` before the municipality-swap
+#'   multiplier and not after. The street matched; the municipality is one NAR
+#'   files mail under, shares no postal code with the answer, and is not its
+#'   census subdivision\'s own name. A caller holding locality evidence of its
+#'   own is exactly the caller who can overrule this.
+#' * `"score"` -- everything else: a weak name, a disagreeing type or direction,
+#'   a civic number outside every candidate\'s range.
+#' * `NA` -- the row was not refused.
+#'
+#' `confidence` carries the sub-threshold score, and `mun_evidence` the class,
+#' so the row can be re-filtered on either. Rows that cleared `name_threshold`
+#' are the whole of what can be reported: that gate is applied inside the query,
+#' so a name too far from every candidate never comes back at all.
 #' @return `res` with matched rows replaced by their canonical values,
 #' `confidence` set to the match score and `parse_source` set to `"gazetteer"`
 #' or `"rqa"` according to which register answered
 #' @keywords internal
 nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0.90,
-                                  mun_swap_penalty = 0.88) {
+                                  mun_swap_penalty = 0.88, keep_refused = FALSE) {
   if (!nar_has_streets(con)) {
     warning("This NAR database predates the street gazetteer (schema version 4); ",
             "returning rules-only results. Rebuild with ",
@@ -85,6 +109,9 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
   }
 
   res$.row <- seq_len(nrow(res))
+  # Created here rather than inside the pass, because the column list the
+  # result is cut back to is taken now.
+  if (keep_refused) res$refused_for <- NA_character_
   out_cols <- setdiff(names(res), ".row")
 
   # Every reading nar_parse_rules() produced is probed, not just the one its
@@ -106,21 +133,29 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
                                                 mun_swap_penalty),
                             source = "gazetteer",
                             threshold = threshold, name_threshold = name_threshold,
-                            prepare = nar_gazetteer_prepare)
+                            prepare = nar_gazetteer_prepare,
+                            keep_refused = keep_refused,
+                            mun_swap_penalty = mun_swap_penalty)
 
   # Quebec's own register, second and only over what NAR left. Priority is
   # running order, exactly as in geocode(): no row NAR resolved can be
   # displaced by one of these, so importing RQA cannot change an answer that
   # already worked -- it can only fill in one that did not.
   if (nar_has_rqa(con)) {
-    unresolved <- res$parse_source != "gazetteer"
+    # A row NAR only refused is still unresolved as far as this pass is
+    # concerned: the flagged answer is a report, not a claim strong enough to
+    # keep Quebec's own register from answering the same row properly.
+    refused <- if (!"refused_for" %in% names(res)) rep(FALSE, nrow(res))
+               else !is.na(res$refused_for)
+    unresolved <- res$parse_source != "gazetteer" | refused
     res <- nar_gazetteer_pass(
       res, cand, con,
       eligible = !is.na(cand$STREET_NAME) &
         unresolved[match(cand$.row, res$.row)] &
         (is.na(cand$PROV_ABVN) | cand$PROV_ABVN == "QC"),
       sql_fn = nar_rqa_gazetteer_sql, source = "rqa",
-      threshold = threshold, name_threshold = name_threshold)
+      threshold = threshold, name_threshold = name_threshold,
+      keep_refused = keep_refused)
   }
 
   res <- res[, out_cols, drop = FALSE]
@@ -144,11 +179,16 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
 #' @param threshold Minimum combined score for a match to be accepted
 #' @param name_threshold Minimum name similarity, passed to `sql_fn`
 #' @param prepare Optional function of `con`, run once there is work to do
+#' @param keep_refused Whether to also adopt the best sub-threshold match,
+#' flagged in `refused_for`
+#' @param mun_swap_penalty The multiplier this pass\'s query applied, used only
+#' to tell a refusal the penalty caused from a refusal it did not
 #' @return `res`, with matched rows replaced by their canonical values
 #' @keywords internal
 nar_gazetteer_pass <- function(res, cand, con, eligible, sql_fn, source,
                                threshold = 0.85, name_threshold = 0.90,
-                               prepare = NULL) {
+                               prepare = NULL, keep_refused = FALSE,
+                               mun_swap_penalty = 1) {
   todo <- cand[eligible, , drop = FALSE]
   if (!nrow(todo)) return(res)
 
@@ -187,20 +227,71 @@ nar_gazetteer_pass <- function(res, cand, con, eligible, sql_fn, source,
   if (!is.null(prepare)) prepare(con)
   best <- DBI::dbGetQuery(con, sql_fn(tmp, name_threshold))
 
-  if (nrow(best)) best <- best[best$score >= threshold, , drop = FALSE]
   if (!nrow(best)) return(res)
+  best$.w    <- match(best$row_id, cand$.probe)
+  best$.row  <- cand$.row[best$.w]
+  best$.cand <- cand$.cand[best$.w]
 
-  # One winner per input: the highest-scoring reading, and on a tie the
-  # earliest candidate -- which is the baseline parse. A reading only displaces
-  # it by resolving to a street this one does not.
-  w <- match(best$row_id, cand$.probe)
-  best$.row  <- cand$.row[w]
-  best$.cand <- cand$.cand[w]
+  acc <- nar_gazetteer_winner(best[best$score >= threshold, , drop = FALSE])
+  res <- nar_gazetteer_adopt(res, cand, acc, source)
+  if (!keep_refused) return(res)
+
+  # What the combined threshold turned away. Adopted rather than dropped, but
+  # never silently: `confidence` carries the sub-threshold score and
+  # `refused_for` names the gate, so a match the pipeline would have thrown
+  # away -- indistinguishable, from the outside, from no such street existing
+  # -- comes back as a flagged answer the caller can drop again.
+  #
+  # Only rows this pass did not already answer, and only rows no earlier pass
+  # answered: a NAR refusal outranks an RQA one, which is the same running-order
+  # priority the accepted matches follow.
+  ref <- nar_gazetteer_winner(
+    best[best$score < threshold & !best$.row %in% acc$.row, , drop = FALSE])
+  if (nrow(ref)) {
+    ref <- ref[res$parse_source[match(ref$.row, res$.row)] == "rules", ,
+               drop = FALSE]
+  }
+  if (!nrow(ref)) return(res)
+
+  # Which gate, and only one of the two is worth naming separately. A score
+  # that clears the threshold before the swap multiplier and not after says the
+  # street matched and the municipality did not -- a different failure, and one
+  # a caller with its own locality evidence can act on. It is recoverable here
+  # rather than needing a second column out of the query because the penalty
+  # applies to exactly one evidence class.
+  penalised <- !is.na(ref$mun_evidence) & ref$mun_evidence == "unattested" &
+    ref$score / mun_swap_penalty >= threshold
+  nar_gazetteer_adopt(res, cand, ref, source,
+                      ifelse(penalised, "mun_swap", "score"))
+}
+
+#' One winner per input row
+#'
+#' @description The highest-scoring reading, and on a tie the earliest
+#' candidate -- which is the baseline parse. A reading only displaces it by
+#' resolving to a street this one does not.
+#' @param best Scored rows carrying `.row`, `.cand` and `score`
+#' @return `best`, one row per `.row`
+#' @keywords internal
+nar_gazetteer_winner <- function(best) {
+  if (!nrow(best)) return(best)
   o <- order(best$.row, -best$score, best$.cand)
-  keep <- o[!duplicated(best$.row[o])]
-  best <- best[keep, , drop = FALSE]
-  w <- w[keep]
+  best[o[!duplicated(best$.row[o])], , drop = FALSE]
+}
 
+#' Write a gazetteer winner back over the parse it corrects
+#'
+#' @param res The rows being resolved, carrying `.row`
+#' @param cand Every candidate reading, carrying `.probe`
+#' @param best One winning row per input, from [nar_gazetteer_winner()]
+#' @param source The `parse_source` value a match from this pass earns
+#' @param refused_for `NA`, or the gate these rows failed
+#' @return `res`, with the matched rows replaced by their canonical values
+#' @keywords internal
+nar_gazetteer_adopt <- function(res, cand, best, source,
+                                refused_for = NA_character_) {
+  if (!nrow(best)) return(res)
+  w <- best$.w
   i <- match(best$.row, res$.row)
 
   # Adopt the winning reading's own parse before correcting it. The readings
@@ -231,6 +322,10 @@ nar_gazetteer_pass <- function(res, cand, con, eligible, sql_fn, source,
   # municipality the row kept the parse's own, and there is nothing to classify.
   res$mun_evidence[i] <- ifelse(is.na(best$MAIL_MUN_NAME), NA_character_,
                                 best$mun_evidence)
+  # Present only when the caller asked for the refusals. An accepted match
+  # clears it, so a later pass answering a row an earlier one only refused
+  # leaves no stale reason behind.
+  if ("refused_for" %in% names(res)) res$refused_for[i] <- refused_for
   res
 }
 

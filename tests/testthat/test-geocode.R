@@ -580,3 +580,12 @@ test_that("both readings of the candidate set share their ordering", {
   expect_false(grepl(collapse, nar_geocode_matches_sql("probe"), fixed = TRUE))
   expect_true(grepl(collapse, nar_geocode_exact_sql("probe"), fixed = TRUE))
 })
+
+test_that("gazetteer arguments reach the parse from geocode()'s dots", {
+  d <- nar_gazetteer_dots(list(keep_refused = TRUE, mun_swap_penalty = 0.9,
+                               rate = 1, api_key = "x"))
+  # The gazetteer's own arguments and nothing else -- an online tier's are
+  # sorted out separately, and would error here.
+  expect_equal(d, list(keep_refused = TRUE, mun_swap_penalty = 0.9)[names(d)])
+  expect_setequal(names(d), c("keep_refused", "mun_swap_penalty"))
+})
