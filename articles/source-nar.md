@@ -409,6 +409,119 @@ first one’s precision, and `prov` / `mun` / `within` let you supply what
 the string did not. Filtering on `uncertainty_m` catches this class
 before it reaches a map.
 
+## The same street, filed two ways
+
+A compass word at the front of a street name is either part of the name
+or a direction, and the string itself does not say which.
+`West Jeddore Rd` in Head of Jeddore is a name; `Georgia St W` in
+Vancouver is a direction. NAR has to answer that question for 3,386
+streets, and mostly answers it the same way twice:
+
+``` r
+
+compass <- c("EAST", "WEST", "NORTH", "SOUTH", "NORD", "SUD", "EST", "OUEST")
+abbr <- c(EAST = "E", WEST = "W", NORTH = "N", SOUTH = "S",
+          NORD = "N", SUD = "S", EST = "E", OUEST = "O")
+
+lead <- tbl(con, "Streets") |>
+  mutate(o_word = split_part(toupper(OFFICIAL_STREET_NAME), " ", 1L),
+         m_word = split_part(toupper(MAIL_STREET_NAME), " ", 1L)) |>
+  filter(o_word %in% compass | m_word %in% compass) |>
+  collect() |>
+  # which family leads with the word, and what the *other* family would have to
+  # carry for the two spellings to mean the same street
+  mutate(o_lead = o_word %in% compass & toupper(OFFICIAL_STREET_NAME) != o_word,
+         m_lead = m_word %in% compass & toupper(MAIL_STREET_NAME) != m_word,
+         word = ifelse(o_lead, o_word, m_word),
+         echo = unname(abbr[word]),
+         own_dir   = ifelse(o_lead, OFFICIAL_STREET_DIR, MAIL_STREET_DIR),
+         other_dir = ifelse(o_lead, MAIL_STREET_DIR, OFFICIAL_STREET_DIR),
+         led_name  = ifelse(o_lead, OFFICIAL_STREET_NAME, MAIL_STREET_NAME),
+         other_name = ifelse(o_lead, MAIL_STREET_NAME, OFFICIAL_STREET_NAME)) |>
+  filter(o_lead | m_lead) |>
+  mutate(shape = case_when(
+    own_dir == "" & other_dir == "" ~ "the compass word is simply the name",
+    o_lead != m_lead & other_dir == echo &
+      toupper(other_name) == sub("^\\S+ ", "", toupper(led_name)) ~
+      "the two name families disagree with each other",
+    own_dir == echo ~ "the direction repeats the word already in the name",
+    .default = "the name has the word, the direction is another quadrant"))
+
+lead |>
+  summarise(streets = n(), addresses = sum(N_ADDRESSES), .by = shape) |>
+  arrange(desc(addresses))
+#> # A tibble: 4 × 3
+#>   shape                                                    streets addresses
+#>   <chr>                                                      <int>     <dbl>
+#> 1 the compass word is simply the name                         2948     92167
+#> 2 the name has the word, the direction is another quadrant     273      7979
+#> 3 the two name families disagree with each other               162      3193
+#> 4 the direction repeats the word already in the name             3        25
+```
+
+The overwhelming bulk — 92,167 addresses — sit on a street whose name
+begins with a compass word and which carries **no direction field on
+either family**. NAR is stating that the word is the name. That is a
+usable signal rather than a problem: a parse that reads
+`EAST UNIACKE RD` as `UNIACKE` plus direction `E` can be checked against
+a database that files the street as `East Uniacke Rd` with no direction
+at all.
+
+The 7,979 addresses that carry both are not contradictions either.
+`South Terwillegar Dr NW` in Edmonton is the South Terwillegar
+neighbourhood in the city’s northwest quadrant, and both halves are
+load-bearing — a reader that strips the leading word here gets the name
+*and* the direction wrong.
+
+The 3,193 that remain are where NAR contradicts itself. One of its two
+name families embeds the word and the other splits it into its own
+direction field, and the two spellings mean the same street:
+
+``` r
+
+lead |>
+  filter(shape == "the two name families disagree with each other") |>
+  slice_max(N_ADDRESSES, n = 6) |>
+  transmute(official = trimws(paste(OFFICIAL_STREET_NAME, OFFICIAL_STREET_TYPE,
+                                    OFFICIAL_STREET_DIR)),
+            mail = trimws(paste(MAIL_STREET_NAME, MAIL_STREET_TYPE,
+                                MAIL_STREET_DIR)),
+            MAIL_MUN_NAME, MAIL_PROV_ABVN, N_ADDRESSES)
+#> # A tibble: 6 × 5
+#>   official             mail                   MAIL_MUN_NAME   MAIL_PROV_ABVN N_ADDRESSES
+#>   <chr>                <chr>                  <chr>           <chr>                <dbl>
+#> 1 South Dogwood ST     DOGWOOD ST S           CAMPBELL RIVER  BC                     227
+#> 2 South Pine Lake RD   PINE LAKE RD S         RED DEER COUNTY AB                     147
+#> 3 Baptiste Lake RD S   SOUTH BAPTISTE LAKE RD BANCROFT        ON                     129
+#> 4 Baptiste Lake RD N   NORTH BAPTISTE LAKE RD MAYNOOTH        ON                     117
+#> 5 Big Island RD N      NORTH BIG ISLAND RD    DEMORESTVILLE   ON                     108
+#> 6 East Waseosa Lake RD WASEOSA LAKE RD E      HUNTSVILLE      ON                      76
+```
+
+`Baptiste Lake Rd S` and `SOUTH BAPTISTE LAKE RD` are one street in
+Bancroft, written both ways in a single row. This is the same species of
+finding as the misplaced points above — an *internal* contradiction,
+visible without any second source and not blamable on one — but it is a
+far smaller one, and unlike a wrong coordinate it is close to harmless.
+
+**What the package does.** Nothing repairs these, and little needs to.
+The gazetteer behind
+[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+scores an input against *both* NAR name families and keeps the better
+match, so a street NAR spells two ways is a street with two chances to
+match rather than one: `SOUTH DOGWOOD ST` finds the official spelling in
+Campbell River and `DOGWOOD ST S` finds the mail one, and both land on
+the same street.
+
+The harder half of this problem is not NAR’s. NAR at least records an
+answer; a free-text address arrives with none, and
+[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+has to guess whether a leading `EAST` is a name or a direction before it
+can look anything up. It currently guesses direction, which is wrong for
+the 92,167 addresses in the first row of that table — the failure mode
+`inst/notes/nova-scotia-pvsc.md` measures against an independent source,
+where it accounts for 1.14% of Nova Scotia rows.
+
 ## A remark: municipality and postal city are not the same thing
 
 Not a limit, but worth keeping in mind. A NAR row carries both a mailing

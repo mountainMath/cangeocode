@@ -506,6 +506,109 @@ supply what the string did not. Filtering on <code>uncertainty_m</code>
 catches this class before it reaches a map.</p>
 </div>
 <div class="section level2">
+<h2 id="the-same-street-filed-two-ways">The same street, filed two ways<a class="anchor" aria-label="anchor" href="#the-same-street-filed-two-ways"></a>
+</h2>
+<p>A compass word at the front of a street name is either part of the
+name or a direction, and the string itself does not say which.
+<code>West Jeddore Rd</code> in Head of Jeddore is a name;
+<code>Georgia St W</code> in Vancouver is a direction. NAR has to answer
+that question for 3,386 streets, and mostly answers it the same way
+twice:</p>
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">compass</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"EAST"</span>, <span class="st">"WEST"</span>, <span class="st">"NORTH"</span>, <span class="st">"SOUTH"</span>, <span class="st">"NORD"</span>, <span class="st">"SUD"</span>, <span class="st">"EST"</span>, <span class="st">"OUEST"</span><span class="op">)</span></span>
+<span><span class="va">abbr</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>EAST <span class="op">=</span> <span class="st">"E"</span>, WEST <span class="op">=</span> <span class="st">"W"</span>, NORTH <span class="op">=</span> <span class="st">"N"</span>, SOUTH <span class="op">=</span> <span class="st">"S"</span>,</span>
+<span>          NORD <span class="op">=</span> <span class="st">"N"</span>, SUD <span class="op">=</span> <span class="st">"S"</span>, EST <span class="op">=</span> <span class="st">"E"</span>, OUEST <span class="op">=</span> <span class="st">"O"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">lead</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://dplyr.tidyverse.org/reference/tbl.html" class="external-link">tbl</a></span><span class="op">(</span><span class="va">con</span>, <span class="st">"Streets"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html" class="external-link">mutate</a></span><span class="op">(</span>o_word <span class="op">=</span> <span class="fu">split_part</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/chartr.html" class="external-link">toupper</a></span><span class="op">(</span><span class="va">OFFICIAL_STREET_NAME</span><span class="op">)</span>, <span class="st">" "</span>, <span class="fl">1L</span><span class="op">)</span>,</span>
+<span>         m_word <span class="op">=</span> <span class="fu">split_part</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/chartr.html" class="external-link">toupper</a></span><span class="op">(</span><span class="va">MAIL_STREET_NAME</span><span class="op">)</span>, <span class="st">" "</span>, <span class="fl">1L</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">o_word</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">compass</span> <span class="op">|</span> <span class="va">m_word</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">compass</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/compute.html" class="external-link">collect</a></span><span class="op">(</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="co"># which family leads with the word, and what the *other* family would have to</span></span>
+<span>  <span class="co"># carry for the two spellings to mean the same street</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html" class="external-link">mutate</a></span><span class="op">(</span>o_lead <span class="op">=</span> <span class="va">o_word</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">compass</span> <span class="op">&amp;</span> <span class="fu"><a href="https://rdrr.io/r/base/chartr.html" class="external-link">toupper</a></span><span class="op">(</span><span class="va">OFFICIAL_STREET_NAME</span><span class="op">)</span> <span class="op">!=</span> <span class="va">o_word</span>,</span>
+<span>         m_lead <span class="op">=</span> <span class="va">m_word</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="va">compass</span> <span class="op">&amp;</span> <span class="fu"><a href="https://rdrr.io/r/base/chartr.html" class="external-link">toupper</a></span><span class="op">(</span><span class="va">MAIL_STREET_NAME</span><span class="op">)</span> <span class="op">!=</span> <span class="va">m_word</span>,</span>
+<span>         word <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span><span class="va">o_lead</span>, <span class="va">o_word</span>, <span class="va">m_word</span><span class="op">)</span>,</span>
+<span>         echo <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/unname.html" class="external-link">unname</a></span><span class="op">(</span><span class="va">abbr</span><span class="op">[</span><span class="va">word</span><span class="op">]</span><span class="op">)</span>,</span>
+<span>         own_dir   <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span><span class="va">o_lead</span>, <span class="va">OFFICIAL_STREET_DIR</span>, <span class="va">MAIL_STREET_DIR</span><span class="op">)</span>,</span>
+<span>         other_dir <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span><span class="va">o_lead</span>, <span class="va">MAIL_STREET_DIR</span>, <span class="va">OFFICIAL_STREET_DIR</span><span class="op">)</span>,</span>
+<span>         led_name  <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span><span class="va">o_lead</span>, <span class="va">OFFICIAL_STREET_NAME</span>, <span class="va">MAIL_STREET_NAME</span><span class="op">)</span>,</span>
+<span>         other_name <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/ifelse.html" class="external-link">ifelse</a></span><span class="op">(</span><span class="va">o_lead</span>, <span class="va">MAIL_STREET_NAME</span>, <span class="va">OFFICIAL_STREET_NAME</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">o_lead</span> <span class="op">|</span> <span class="va">m_lead</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html" class="external-link">mutate</a></span><span class="op">(</span>shape <span class="op">=</span> <span class="fu"><a href="https://dplyr.tidyverse.org/reference/case-and-replace-when.html" class="external-link">case_when</a></span><span class="op">(</span></span>
+<span>    <span class="va">own_dir</span> <span class="op">==</span> <span class="st">""</span> <span class="op">&amp;</span> <span class="va">other_dir</span> <span class="op">==</span> <span class="st">""</span> <span class="op">~</span> <span class="st">"the compass word is simply the name"</span>,</span>
+<span>    <span class="va">o_lead</span> <span class="op">!=</span> <span class="va">m_lead</span> <span class="op">&amp;</span> <span class="va">other_dir</span> <span class="op">==</span> <span class="va">echo</span> <span class="op">&amp;</span></span>
+<span>      <span class="fu"><a href="https://rdrr.io/r/base/chartr.html" class="external-link">toupper</a></span><span class="op">(</span><span class="va">other_name</span><span class="op">)</span> <span class="op">==</span> <span class="fu"><a href="https://rdrr.io/r/base/grep.html" class="external-link">sub</a></span><span class="op">(</span><span class="st">"^\\S+ "</span>, <span class="st">""</span>, <span class="fu"><a href="https://rdrr.io/r/base/chartr.html" class="external-link">toupper</a></span><span class="op">(</span><span class="va">led_name</span><span class="op">)</span><span class="op">)</span> <span class="op">~</span></span>
+<span>      <span class="st">"the two name families disagree with each other"</span>,</span>
+<span>    <span class="va">own_dir</span> <span class="op">==</span> <span class="va">echo</span> <span class="op">~</span> <span class="st">"the direction repeats the word already in the name"</span>,</span>
+<span>    .default <span class="op">=</span> <span class="st">"the name has the word, the direction is another quadrant"</span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">lead</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/summarise.html" class="external-link">summarise</a></span><span class="op">(</span>streets <span class="op">=</span> <span class="fu"><a href="https://dplyr.tidyverse.org/reference/context.html" class="external-link">n</a></span><span class="op">(</span><span class="op">)</span>, addresses <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">N_ADDRESSES</span><span class="op">)</span>, .by <span class="op">=</span> <span class="va">shape</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/arrange.html" class="external-link">arrange</a></span><span class="op">(</span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/desc.html" class="external-link">desc</a></span><span class="op">(</span><span class="va">addresses</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; # A tibble: 4 × 3</span></span>
+<span><span class="co">#&gt;   shape                                                    streets addresses</span></span>
+<span><span class="co">#&gt;   &lt;chr&gt;                                                      &lt;int&gt;     &lt;dbl&gt;</span></span>
+<span><span class="co">#&gt; 1 the compass word is simply the name                         2948     92167</span></span>
+<span><span class="co">#&gt; 2 the name has the word, the direction is another quadrant     273      7979</span></span>
+<span><span class="co">#&gt; 3 the two name families disagree with each other               162      3193</span></span>
+<span><span class="co">#&gt; 4 the direction repeats the word already in the name             3        25</span></span></code></pre></div>
+<p>The overwhelming bulk — 92,167 addresses — sit on a street whose name
+begins with a compass word and which carries <strong>no direction field
+on either family</strong>. NAR is stating that the word is the name.
+That is a usable signal rather than a problem: a parse that reads
+<code>EAST UNIACKE RD</code> as <code>UNIACKE</code> plus direction
+<code>E</code> can be checked against a database that files the street
+as <code>East Uniacke Rd</code> with no direction at all.</p>
+<p>The 7,979 addresses that carry both are not contradictions either.
+<code>South Terwillegar Dr NW</code> in Edmonton is the South
+Terwillegar neighbourhood in the city’s northwest quadrant, and both
+halves are load-bearing — a reader that strips the leading word here
+gets the name <em>and</em> the direction wrong.</p>
+<p>The 3,193 that remain are where NAR contradicts itself. One of its
+two name families embeds the word and the other splits it into its own
+direction field, and the two spellings mean the same street:</p>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">lead</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">shape</span> <span class="op">==</span> <span class="st">"the two name families disagree with each other"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/slice.html" class="external-link">slice_max</a></span><span class="op">(</span><span class="va">N_ADDRESSES</span>, n <span class="op">=</span> <span class="fl">6</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/transmute.html" class="external-link">transmute</a></span><span class="op">(</span>official <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/trimws.html" class="external-link">trimws</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">OFFICIAL_STREET_NAME</span>, <span class="va">OFFICIAL_STREET_TYPE</span>,</span>
+<span>                                    <span class="va">OFFICIAL_STREET_DIR</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>            mail <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/trimws.html" class="external-link">trimws</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">MAIL_STREET_NAME</span>, <span class="va">MAIL_STREET_TYPE</span>,</span>
+<span>                                <span class="va">MAIL_STREET_DIR</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>            <span class="va">MAIL_MUN_NAME</span>, <span class="va">MAIL_PROV_ABVN</span>, <span class="va">N_ADDRESSES</span><span class="op">)</span></span>
+<span><span class="co">#&gt; # A tibble: 6 × 5</span></span>
+<span><span class="co">#&gt;   official             mail                   MAIL_MUN_NAME   MAIL_PROV_ABVN N_ADDRESSES</span></span>
+<span><span class="co">#&gt;   &lt;chr&gt;                &lt;chr&gt;                  &lt;chr&gt;           &lt;chr&gt;                &lt;dbl&gt;</span></span>
+<span><span class="co">#&gt; 1 South Dogwood ST     DOGWOOD ST S           CAMPBELL RIVER  BC                     227</span></span>
+<span><span class="co">#&gt; 2 South Pine Lake RD   PINE LAKE RD S         RED DEER COUNTY AB                     147</span></span>
+<span><span class="co">#&gt; 3 Baptiste Lake RD S   SOUTH BAPTISTE LAKE RD BANCROFT        ON                     129</span></span>
+<span><span class="co">#&gt; 4 Baptiste Lake RD N   NORTH BAPTISTE LAKE RD MAYNOOTH        ON                     117</span></span>
+<span><span class="co">#&gt; 5 Big Island RD N      NORTH BIG ISLAND RD    DEMORESTVILLE   ON                     108</span></span>
+<span><span class="co">#&gt; 6 East Waseosa Lake RD WASEOSA LAKE RD E      HUNTSVILLE      ON                      76</span></span></code></pre></div>
+<p><code>Baptiste Lake Rd S</code> and
+<code>SOUTH BAPTISTE LAKE RD</code> are one street in Bancroft, written
+both ways in a single row. This is the same species of finding as the
+misplaced points above — an <em>internal</em> contradiction, visible
+without any second source and not blamable on one — but it is a far
+smaller one, and unlike a wrong coordinate it is close to harmless.</p>
+<p><strong>What the package does.</strong> Nothing repairs these, and
+little needs to. The gazetteer behind <code><a href="../reference/normalize_address.html">normalize_address()</a></code>
+scores an input against <em>both</em> NAR name families and keeps the
+better match, so a street NAR spells two ways is a street with two
+chances to match rather than one: <code>SOUTH DOGWOOD ST</code> finds
+the official spelling in Campbell River and <code>DOGWOOD ST S</code>
+finds the mail one, and both land on the same street.</p>
+<p>The harder half of this problem is not NAR’s. NAR at least records an
+answer; a free-text address arrives with none, and
+<code><a href="../reference/normalize_address.html">normalize_address()</a></code> has to guess whether a leading
+<code>EAST</code> is a name or a direction before it can look anything
+up. It currently guesses direction, which is wrong for the 92,167
+addresses in the first row of that table — the failure mode
+<code>inst/notes/nova-scotia-pvsc.md</code> measures against an
+independent source, where it accounts for 1.14% of Nova Scotia rows.</p>
+</div>
+<div class="section level2">
 <h2 id="a-remark-municipality-and-postal-city-are-not-the-same-thing">A remark: municipality and postal city are not the same thing<a class="anchor" aria-label="anchor" href="#a-remark-municipality-and-postal-city-are-not-the-same-thing"></a>
 </h2>
 <p>Not a limit, but worth keeping in mind. A NAR row carries both a
@@ -513,7 +616,7 @@ mailing municipality and a census subdivision, and the relationship
 between the two is complex in both directions — one postal city can span
 many municipalities, and one municipality can be served under several
 postal city names:</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://dplyr.tidyverse.org/reference/tbl.html" class="external-link">tbl</a></span><span class="op">(</span><span class="va">con</span>, <span class="st">"MunAlias"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="va">NAME_FOLD</span> <span class="op"><a href="https://rdrr.io/r/base/match.html" class="external-link">%in%</a></span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"SCARBOROUGH"</span>, <span class="st">"TORONTO"</span>, <span class="st">"PRINCE RUPERT"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/count.html" class="external-link">count</a></span><span class="op">(</span><span class="va">NAME_FOLD</span>, name <span class="op">=</span> <span class="st">"csds_named"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
@@ -563,7 +666,7 @@ matched”.</strong> The BC geocoder, the geolocator and Quebec’s locator
 always return something; the tiers re-parse and score what comes back
 rather than trusting the response.</li>
 </ul>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu">DBI</span><span class="fu">::</span><span class="fu"><a href="https://dbi.r-dbi.org/reference/dbDisconnect.html" class="external-link">dbDisconnect</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
@@ -572,7 +675,7 @@ rather than trusting the response.</li>
 <p>Every figure quoted above comes from a note that ships with the
 package, each of which records how it was measured and what it does not
 settle:</p>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"nar-consistency.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"quebec-addresses.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"road-network-file.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>

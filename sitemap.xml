@@ -62,6 +62,7 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_crs_string.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_csv_schema.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_delivery_marks.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_dir_lead_variant.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_download_provinces.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_file_reader.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_fold.html</loc></url>
@@ -184,6 +185,7 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_resolve_gazetteer.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_resolve_version.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_road_tail_words.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_row_address.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_rqa_gazetteer_sql.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_rules_confidence.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_schema_version.html</loc></url>
