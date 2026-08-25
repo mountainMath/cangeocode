@@ -777,7 +777,26 @@ leads on is `odhf_street` — 78.6% against 75.9% — which is not a segmentatio
 since those rows have their municipality appended behind a comma. It is a different question,
 and one to diagnose before it is a reason to run this harness again.
 
-Also noted in the plan and still outstanding, unrelated to normalization: `reverse_geocode()`
-builds its `address` string from `MAIL_*` columns, and `MAIL_STREET_NAME` is empty for 957,307
-addresses, so those results return an address with no street. A `coalesce(MAIL_*, OFFICIAL_*)`
-would fix it.
+Also noted in the plan, unrelated to normalization, and **done, 2026-08-25**:
+`reverse_geocode()` built its `address` string from `MAIL_*` columns alone, and
+`MAIL_STREET_NAME` is empty for 957,307 of NAR 2026-06's 17.4M addresses, so those results came
+back with no street -- `242, WINTERTON A0B3M0`. The fallback is now in `nar_row_address()`, and
+measuring it first changed its shape twice:
+
+* It swaps the **whole name family**, not field by field. `MAIL_STREET_TYPE` is empty on every
+  one of those 957,307 rows, so a per-field `coalesce()` would have paired an official name with
+  a mail type it was never spelled against -- and `MAIL_STREET_DIR` survives on 11 of them,
+  which is exactly the hybrid that would produce. 957,213 rows carry an official name; 94 have
+  no street under either family.
+* It fixes a second, unnamed half. `MAIL_MUN_NAME` is empty for 39,691 rows and
+  `MAIL_POSTAL_CODE` for 57,154, and those were pasted in with `paste0()`, which spells an `NA`
+  `"NA"` -- so the string read `9 Bowdring RD, NA NA`. Missing parts are now dropped, and
+  `CSD_ENG_NAME` stands in for the city on 39,620 of the 39,691. That substitution is defensible
+  here and would not be everywhere: the CSD is not the mailing city and the two do not nest, but
+  `MunAlias` already treats it as a surface for the municipality, and it is derived from the
+  coordinate -- which is the thing a reverse geocode was asked about. Nothing stands in for the
+  postal code.
+
+The assembly moved out of `reverse_geocode()` into `nar_row_address()` so it could be tested
+without a database: every row the test fixture carries has both name families populated, and
+adding one that does not would move every row count in `test-import.R`.
