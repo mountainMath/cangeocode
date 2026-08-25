@@ -9,3 +9,7 @@ docs/
 
 # Probe outputs are reproducible by re-running the script beside them
 data-raw/*_results.rds
+
+# Hex sticker prototypes: 5.7 MB of PNGs, all regenerable by re-running
+# tools/hex-prototypes/prototypes.R against the cached ca.rds / nar_dots.rds
+tools/hex-prototypes/*.png

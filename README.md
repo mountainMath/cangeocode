@@ -1,5 +1,5 @@
 
-# cangeocode
+# cangeocode <img src="man/figures/logo.png" align="right" height="139" alt="cangeocode hex sticker: a map of Canada drawn from NAR address points, with one large pin and its accuracy rings" />
 
 <!-- badges: start -->
 [![R-CMD-check](https://github.com/mountainMath/cangeocode/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/mountainMath/cangeocode/actions/workflows/R-CMD-check.yaml)
