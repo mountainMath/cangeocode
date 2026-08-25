@@ -285,6 +285,43 @@ else to survive; <code><a href="../reference/geocode.html">geocode()</a></code> 
 River row is attested and 118 km out — but it is the difference between
 a rural community filed under the city that delivers its mail and a
 street name that simply landed somewhere else.</p>
+<div class="section level3">
+<h3 id="seeing-what-the-gazetteer-refused">Seeing what the gazetteer refused<a class="anchor" aria-label="anchor" href="#seeing-what-the-gazetteer-refused"></a>
+</h3>
+<p>A match scoring below the gazetteer’s threshold is normally
+discarded, and the row comes back with
+<code>parse_source == "rules"</code>. From the outside that is
+indistinguishable from the street not existing: no rejected answer, no
+score, no evidence class. <code>keep_refused = TRUE</code> reports them
+instead, with a <code>refused_for</code> column naming the gate that
+turned each one away.</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/normalize_address.html">normalize_address</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"551 Victoria Dr, Birch Grove, NS"</span>,</span>
+<span>                    <span class="st">"16 Kelry Dr, East Dover, NS"</span>,</span>
+<span>                    <span class="st">"1741 Brunswick St, Halifax, NS"</span><span class="op">)</span>,</span>
+<span>                  con <span class="op">=</span> <span class="va">con</span>, keep_refused <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">STREET_NAME</span>, <span class="va">MUN_NAME</span>, <span class="va">confidence</span>, <span class="va">mun_evidence</span>, <span class="va">parse_source</span>,</span>
+<span>         <span class="va">refused_for</span><span class="op">)</span></span>
+<span><span class="co">#&gt; # A tibble: 3 × 7</span></span>
+<span><span class="co">#&gt;   input                        STREET_NAME MUN_NAME confidence mun_evidence parse_source refused_for</span></span>
+<span><span class="co">#&gt;   &lt;chr&gt;                        &lt;chr&gt;       &lt;chr&gt;         &lt;dbl&gt; &lt;chr&gt;        &lt;chr&gt;        &lt;chr&gt;      </span></span>
+<span><span class="co">#&gt; 1 551 Victoria Dr, Birch Grov… Victoria    SYDNEY        0.792 unattested   gazetteer    mun_swap   </span></span>
+<span><span class="co">#&gt; 2 16 Kelry Dr, East Dover, NS  Kelly       HALIFAX       0.833 copostal     gazetteer    score      </span></span>
+<span><span class="co">#&gt; 3 1741 Brunswick St, Halifax,… Brunswick   HALIFAX       1     kept         gazetteer    &lt;NA&gt;</span></span></code></pre></div>
+<p><code>"mun_swap"</code> means the score cleared the threshold before
+the municipality-swap penalty and not after — the street matched and the
+municipality did not, which is the case where you may know something the
+register does not: Birch Grove and Sydney are both in Cape Breton
+Regional Municipality, and no <code>Victoria Dr</code> is filed under
+Birch Grove. <code>"score"</code> is everything else: <code>Kelry</code>
+is one keystroke from the <code>Kelly Dr</code> the register carries,
+and that near-miss is what put the combined score under the line.
+<code>confidence</code> carries the sub-threshold score either way, so
+you can set your own line on it.</p>
+<p>Only matches that cleared the <em>name</em> similarity gate can be
+reported this way — that gate is applied inside the database query, so a
+name too far from every candidate never comes back at all.</p>
+</div>
 </div>
 <div class="section level2">
 <h2 id="triage-before-cleaning">Triage before cleaning<a class="anchor" aria-label="anchor" href="#triage-before-cleaning"></a>
@@ -293,7 +330,7 @@ street name that simply landed somewhere else.</p>
 shapes and needs no database at all. It is triage, not a quality score:
 some of those shapes are things that will never resolve to a building no
 matter how clean the input is.</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/address_pattern.html">address_pattern</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"PO Box 40, Iqaluit, NU"</span>,</span>
 <span>                  <span class="st">"RR 3, Site 4, Comp 5, Kelowna, BC"</span>,</span>
 <span>                  <span class="st">"9819 96A Street NW, Edmonton, AB"</span>,</span>
@@ -321,7 +358,7 @@ either.</p>
 <p>This is what normalization is mostly <em>for</em>. The same building,
 written five ways, has to collapse to one thing, and
 <code><a href="../reference/address_key.html">address_key()</a></code> is what collapses it:</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">variants</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"1055 West Georgia Street, Vancouver, British Columbia"</span>,</span>
 <span>              <span class="st">"1055 W. Georgia St., Vancouver BC"</span>,</span>
 <span>              <span class="st">"Suite 1500 - 1055 W Georgia St, Vancouver, B.C. V6E 4N7"</span>,</span>
@@ -365,7 +402,7 @@ joined.</p>
 canonical components written the way an address is written, which is
 what you want in a cleaned column or in a report of what a parse
 actually resolved to:</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/format_address.html">format_address</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"suite 800-666 burrard st, vancouver, b.c. v6c2x8"</span>,</span>
 <span>                 <span class="st">"12 1/2 rue notre-dame e, montreal, quebec"</span>,</span>
 <span>                 <span class="st">"100 queen street west, toronto, ontario"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
@@ -451,10 +488,10 @@ answers 8.9%.</p>
 <p>The full accounting — every failure mode ranked by how many addresses
 it affects, what was tried and rejected, and what to fix next — ships
 with the package:</p>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"address-normalization-status.md"</span>,</span>
 <span>                      package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu">DBI</span><span class="fu">::</span><span class="fu"><a href="https://dbi.r-dbi.org/reference/dbDisconnect.html" class="external-link">dbDisconnect</a></span><span class="op">(</span><span class="va">con</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">

@@ -9,11 +9,16 @@ answers one row per address;
 [`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md)
 opens up the NAR records behind an answer, which is where the units of a
 multi-unit building are.
+[`geocode_accept()`](https://mountainmath.github.io/cangeocode/reference/geocode_accept.md)
+applies your own bar to a result that already exists, withdrawing the
+coordinates on the rows that do not clear it.
 
 - [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
   : Geocode Canadian addresses to coordinates
 - [`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md)
   : Every NAR record behind a geocoding answer
+- [`geocode_accept()`](https://mountainmath.github.io/cangeocode/reference/geocode_accept.md)
+  : Withdraw the coordinates a result does not clear your bar
 
 ## Address normalization
 

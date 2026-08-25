@@ -217,6 +217,45 @@ guarantee — the Moser River row is attested and 118 km out — but it is
 the difference between a rural community filed under the city that
 delivers its mail and a street name that simply landed somewhere else.
 
+### Seeing what the gazetteer refused
+
+A match scoring below the gazetteer’s threshold is normally discarded,
+and the row comes back with `parse_source == "rules"`. From the outside
+that is indistinguishable from the street not existing: no rejected
+answer, no score, no evidence class. `keep_refused = TRUE` reports them
+instead, with a `refused_for` column naming the gate that turned each
+one away.
+
+``` r
+
+normalize_address(c("551 Victoria Dr, Birch Grove, NS",
+                    "16 Kelry Dr, East Dover, NS",
+                    "1741 Brunswick St, Halifax, NS"),
+                  con = con, keep_refused = TRUE) |>
+  select(input, STREET_NAME, MUN_NAME, confidence, mun_evidence, parse_source,
+         refused_for)
+#> # A tibble: 3 × 7
+#>   input                        STREET_NAME MUN_NAME confidence mun_evidence parse_source refused_for
+#>   <chr>                        <chr>       <chr>         <dbl> <chr>        <chr>        <chr>      
+#> 1 551 Victoria Dr, Birch Grov… Victoria    SYDNEY        0.792 unattested   gazetteer    mun_swap   
+#> 2 16 Kelry Dr, East Dover, NS  Kelly       HALIFAX       0.833 copostal     gazetteer    score      
+#> 3 1741 Brunswick St, Halifax,… Brunswick   HALIFAX       1     kept         gazetteer    <NA>
+```
+
+`"mun_swap"` means the score cleared the threshold before the
+municipality-swap penalty and not after — the street matched and the
+municipality did not, which is the case where you may know something the
+register does not: Birch Grove and Sydney are both in Cape Breton
+Regional Municipality, and no `Victoria Dr` is filed under Birch Grove.
+`"score"` is everything else: `Kelry` is one keystroke from the
+`Kelly Dr` the register carries, and that near-miss is what put the
+combined score under the line. `confidence` carries the sub-threshold
+score either way, so you can set your own line on it.
+
+Only matches that cleared the *name* similarity gate can be reported
+this way — that gate is applied inside the database query, so a name too
+far from every candidate never comes back at all.
+
 ## Triage before cleaning
 
 [`address_pattern()`](https://mountainmath.github.io/cangeocode/reference/address_pattern.md)

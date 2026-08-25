@@ -102,8 +102,10 @@ Ontario and `AV` in Quebec.</p></dd>
 
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>
 <dd><p>Passed to the gazetteer layer when `con` is supplied, and ignored
-otherwise – `threshold`, `name_threshold` and `mun_swap_penalty`; see
-[nar_resolve_gazetteer()].</p></dd>
+otherwise – `threshold`, `name_threshold`, `mun_swap_penalty` and
+`keep_refused`; see [nar_resolve_gazetteer()]. `keep_refused = TRUE` adds a
+`refused_for` column and resolves the rows the threshold would have left
+unresolved, flagged with the gate they failed.</p></dd>
 
 </dl></div>
     <div class="section level2">

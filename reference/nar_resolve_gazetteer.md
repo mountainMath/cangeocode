@@ -48,7 +48,8 @@ nar_resolve_gazetteer(
   con,
   threshold = 0.85,
   name_threshold = 0.9,
-  mun_swap_penalty = 0.88
+  mun_swap_penalty = 0.88,
+  keep_refused = FALSE
 )
 ```
 
@@ -82,8 +83,39 @@ nar_resolve_gazetteer(
   pass, which files under census subdivisions rather than postal cities
   and so changes the municipality by design.
 
+- keep_refused:
+
+  Whether to report the matches the combined \`threshold\` turned away
+  instead of discarding them. See the section below.
+
 ## Value
 
 \`res\` with matched rows replaced by their canonical values,
 \`confidence\` set to the match score and \`parse_source\` set to
 \`"gazetteer"\` or \`"rqa"\` according to which register answered
+
+## Reporting what was refused
+
+A match that scores below \`threshold\` is normally dropped, and the row
+comes back parsed but unresolved – which from the outside is
+indistinguishable from the street not existing. That is a false negative
+with nothing to read: not the answer that was rejected, not its score,
+not the evidence class that sank it.
+
+\`keep_refused = TRUE\` adopts the best sub-threshold match anyway and
+adds a \`refused_for\` column naming the gate it failed:
+
+\* \`"mun_swap"\` – the score cleared \`threshold\` before the
+municipality-swap multiplier and not after. The street matched; the
+municipality is one NAR files mail under, shares no postal code with the
+answer, and is not its census subdivision\\s own name. A caller holding
+locality evidence of its own is exactly the caller who can overrule
+this. \* \`"score"\` – everything else: a weak name, a disagreeing type
+or direction, a civic number outside every candidate\\s range. \* \`NA\`
+– the row was not refused.
+
+\`confidence\` carries the sub-threshold score, and \`mun_evidence\` the
+class, so the row can be re-filtered on either. Rows that cleared
+\`name_threshold\` are the whole of what can be reported: that gate is
+applied inside the query, so a name too far from every candidate never
+comes back at all.

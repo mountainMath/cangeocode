@@ -28,8 +28,11 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/dot-nar_session.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/format_address.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/geocode.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/geocode_accept.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/geocode_matches.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/index.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_accept_placed.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_accept_withdraw.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_address_agreement.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_address_pattern.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_address_patterns.html</loc></url>
@@ -62,10 +65,12 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_download_provinces.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_file_reader.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_fold.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_adopt.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_dots.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_pass.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_prepare.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_sql.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_winner.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_best_sql.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_bounds.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_bounds_geom.html</loc></url>

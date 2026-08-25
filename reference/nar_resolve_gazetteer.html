@@ -153,7 +153,8 @@ canonicalized against a register NAR does not carry it in, and a join against
 <span>  <span class="va">con</span>,</span>
 <span>  threshold <span class="op">=</span> <span class="fl">0.85</span>,</span>
 <span>  name_threshold <span class="op">=</span> <span class="fl">0.9</span>,</span>
-<span>  mun_swap_penalty <span class="op">=</span> <span class="fl">0.88</span></span>
+<span>  mun_swap_penalty <span class="op">=</span> <span class="fl">0.88</span>,</span>
+<span>  keep_refused <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -188,12 +189,39 @@ it – see the penalty section of [nar_gazetteer_sql()]. Not applied to the
 RQA pass, which files under census subdivisions rather than postal cities
 and so changes the municipality by design.</p></dd>
 
+
+<dt id="arg-keep-refused">keep_refused<a class="anchor" aria-label="anchor" href="#arg-keep-refused"></a></dt>
+<dd><p>Whether to report the matches the combined `threshold`
+turned away instead of discarding them. See the section below.</p></dd>
+
 </dl></div>
     <div class="section level2">
     <h2 id="value">Value<a class="anchor" aria-label="anchor" href="#value"></a></h2>
     <p>`res` with matched rows replaced by their canonical values,
 `confidence` set to the match score and `parse_source` set to `"gazetteer"`
 or `"rqa"` according to which register answered</p>
+    </div>
+    <div class="section level2">
+    <h2 id="reporting-what-was-refused">Reporting what was refused<a class="anchor" aria-label="anchor" href="#reporting-what-was-refused"></a></h2>
+    <p>A match that scores below `threshold` is
+normally dropped, and the row comes back parsed but unresolved – which from
+the outside is indistinguishable from the street not existing. That is a
+false negative with nothing to read: not the answer that was rejected, not
+its score, not the evidence class that sank it.</p>
+<p>`keep_refused = TRUE` adopts the best sub-threshold match anyway and adds a
+`refused_for` column naming the gate it failed:</p>
+<p>* `"mun_swap"` – the score cleared `threshold` before the municipality-swap
+  multiplier and not after. The street matched; the municipality is one NAR
+  files mail under, shares no postal code with the answer, and is not its
+  census subdivision\'s own name. A caller holding locality evidence of its
+  own is exactly the caller who can overrule this.
+* `"score"` – everything else: a weak name, a disagreeing type or direction,
+  a civic number outside every candidate\'s range.
+* `NA` – the row was not refused.</p>
+<p>`confidence` carries the sub-threshold score, and `mun_evidence` the class,
+so the row can be re-filtered on either. Rows that cleared `name_threshold`
+are the whole of what can be reported: that gate is applied inside the query,
+so a name too far from every candidate never comes back at all.</p>
     </div>
 
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>

@@ -656,6 +656,263 @@ addresses to each other without geocoding anything.</p>
 </div>
 </div>
 <div class="section level2">
+<h2 id="deciding-which-errors-you-would-rather-make">Deciding which errors you would rather make<a class="anchor" aria-label="anchor" href="#deciding-which-errors-you-would-rather-make"></a>
+</h2>
+<p>Every qualifier above tells you something about one answer. Turning
+them into a policy — <em>these</em> answers I will use, <em>those</em> I
+will not — is a separate decision, and not one the geocoder can make for
+you. Which error you would rather make depends on what the points are
+for: aggregating to a dissemination area and dispatching a vehicle to an
+address want opposite mistakes.</p>
+<p>The asymmetry is worth naming, because it drives everything else
+here. A <strong>false negative is visible</strong>: the row comes back
+with <code>NA</code> coordinates, and you can count it. A <strong>false
+positive is invisible by construction</strong> — it looks exactly like a
+good answer, and it is 118 km away. So the defaults stay conservative
+where an answer is decided and generous where it is reported.</p>
+<p><code><a href="../reference/geocode_accept.html">geocode_accept()</a></code> is where you draw your own line. It
+re-runs nothing; it reads the columns the result already carries,
+withdraws the coordinates from the rows that fail your bar, and records
+which test each one failed:</p>
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">hard</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">addresses</span>,</span>
+<span>          <span class="st">"551 Victoria Dr, Birch Grove, NS"</span>,</span>
+<span>          <span class="st">"36 Lakeview Dr, Howie Centre, NS"</span>,</span>
+<span>          <span class="st">"100 Main St"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">g</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">strict</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode_accept.html">geocode_accept</a></span><span class="op">(</span><span class="va">g</span>, attested_only <span class="op">=</span> <span class="cn">TRUE</span>, unambiguous <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>                         max_uncertainty <span class="op">=</span> <span class="fl">100</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">strict</span><span class="op">$</span><span class="va">rejected_for</span>, useNA <span class="op">=</span> <span class="st">"no"</span><span class="op">)</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt;      ambiguous unattested_mun </span></span>
+<span><span class="co">#&gt;              2              1</span></span></code></pre></div>
+<p>Each test is off by default: <code>method</code>,
+<code>refused</code>, <code>attested_only</code>,
+<code>unambiguous</code>, <code>postal_code</code>,
+<code>max_uncertainty</code> and <code>min_confidence</code>. A row is
+charged to the first one it fails, in that order.</p>
+<p>A rejected row keeps everything except its position.
+<code>ADDR_GUID</code>, <code>match_method</code>,
+<code>uncertainty_m</code> and the parse all stay, so you can see what
+was turned away and argue with it; only the coordinates go:</p>
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">strict</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/filter.html" class="external-link">filter</a></span><span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="va">rejected_for</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">match_method</span>, <span class="va">uncertainty_m</span>, <span class="va">n_matches</span>, <span class="va">mun_evidence</span>,</span>
+<span>         <span class="va">rejected_for</span>, <span class="va">lon</span><span class="op">)</span></span>
+<span><span class="co">#&gt;                              input     match_method uncertainty_m n_matches mun_evidence</span></span>
+<span><span class="co">#&gt; 1    5491 Route 11, Brantville, NB nar_interpolated       83.9406         2         kept</span></span>
+<span><span class="co">#&gt; 2 36 Lakeview Dr, Howie Centre, NS     nar_building      118.0000         1   untestable</span></span>
+<span><span class="co">#&gt; 3                      100 Main St     nar_building  4043775.8020       139         &lt;NA&gt;</span></span>
+<span><span class="co">#&gt;     rejected_for lon</span></span>
+<span><span class="co">#&gt; 1      ambiguous  NA</span></span>
+<span><span class="co">#&gt; 2 unattested_mun  NA</span></span>
+<span><span class="co">#&gt; 3      ambiguous  NA</span></span></code></pre></div>
+<p>Rows that were never placed are not rejections —
+<code>rejected_for</code> stays <code>NA</code> there, so
+<code>table(rejected_for)</code> counts what your bar cost and nothing
+else.</p>
+<p>Because nothing is re-queried, moving the line is cheap, which
+matters: nobody picks the right bar on the first try, and resolving
+forty thousand addresses takes minutes.</p>
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">sapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">25</span>, <span class="fl">100</span>, <span class="fl">250</span>, <span class="cn">Inf</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">u</span><span class="op">)</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/mean.html" class="external-link">mean</a></span><span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="fu"><a href="../reference/geocode_accept.html">geocode_accept</a></span><span class="op">(</span><span class="va">g</span>, max_uncertainty <span class="op">=</span> <span class="va">u</span><span class="op">)</span><span class="op">$</span><span class="va">lon</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 0.5454545 0.6363636 0.7272727 0.8181818</span></span></code></pre></div>
+<div class="section level3">
+<h3 id="seeing-the-answers-that-were-refused">Seeing the answers that were refused<a class="anchor" aria-label="anchor" href="#seeing-the-answers-that-were-refused"></a>
+</h3>
+<p>The other direction is the one the package used to be silent about.
+When the gazetteer scores a match below its threshold, the row comes
+back unresolved — and from the outside that is indistinguishable from
+the street not existing. You get no rejected answer, no score, and no
+evidence class. That is a false negative with nothing to read.</p>
+<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">refusable</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"551 Victoria Dr, Birch Grove, NS"</span>,</span>
+<span>               <span class="st">"16 Kelry Dr, East Dover, NS"</span>,</span>
+<span>               <span class="st">"1741 Brunswick St, Halifax, NS"</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">refusable</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">STREET_NAME</span>, <span class="va">MUN_NAME</span>, <span class="va">match_method</span><span class="op">)</span></span>
+<span><span class="co">#&gt;                              input STREET_NAME    MUN_NAME match_method</span></span>
+<span><span class="co">#&gt; 1 551 Victoria Dr, Birch Grove, NS    VICTORIA BIRCH GROVE         none</span></span>
+<span><span class="co">#&gt; 2      16 Kelry Dr, East Dover, NS       KELRY  EAST DOVER         none</span></span>
+<span><span class="co">#&gt; 3   1741 Brunswick St, Halifax, NS   Brunswick     HALIFAX nar_building</span></span></code></pre></div>
+<p><code>keep_refused = TRUE</code> reports them instead:</p>
+<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">refusable</span>, keep_refused <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">STREET_NAME</span>, <span class="va">MUN_NAME</span>, <span class="va">confidence</span>, <span class="va">mun_evidence</span>, <span class="va">refused_for</span>,</span>
+<span>         <span class="va">match_method</span>, <span class="va">uncertainty_m</span><span class="op">)</span></span>
+<span><span class="co">#&gt;                              input STREET_NAME MUN_NAME confidence mun_evidence refused_for</span></span>
+<span><span class="co">#&gt; 1 551 Victoria Dr, Birch Grove, NS    Victoria   SYDNEY      0.792   unattested    mun_swap</span></span>
+<span><span class="co">#&gt; 2      16 Kelry Dr, East Dover, NS       Kelly  HALIFAX      0.833     copostal       score</span></span>
+<span><span class="co">#&gt; 3   1741 Brunswick St, Halifax, NS   Brunswick  HALIFAX      1.000         kept        &lt;NA&gt;</span></span>
+<span><span class="co">#&gt;       match_method uncertainty_m</span></span>
+<span><span class="co">#&gt; 1 nar_interpolated      341.0394</span></span>
+<span><span class="co">#&gt; 2     nar_building        0.0000</span></span>
+<span><span class="co">#&gt; 3     nar_building        0.0000</span></span></code></pre></div>
+<p>Both were real answers all along. <code>refused_for</code> names the
+gate each one failed:</p>
+<ul>
+<li>
+<code>"mun_swap"</code> — the score cleared the threshold
+<em>before</em> the municipality-swap penalty and not after. The street
+matched and the municipality did not, which is exactly the case where
+you may know something the register does not: Birch Grove and Sydney are
+both in Cape Breton Regional Municipality, and there is no
+<code>Victoria Dr</code> filed under Birch Grove.</li>
+<li>
+<code>"score"</code> — everything else. <code>Kelry</code> is one
+keystroke from the <code>Kelly Dr</code> the register carries, and the
+near-miss on the name is what put the combined score at 0.833 rather
+than over 0.85.</li>
+</ul>
+<p>Note what <code>uncertainty_m</code> does <em>not</em> do here: the
+second row is an exact building match and reports 0 m, because that
+column describes the error the <strong>method</strong> introduces and
+knows nothing about whether the street was the right street. The refusal
+is the warning; the metres are not.</p>
+<p>So the natural pairing is one pass with them and one without —
+<code>geocode_accept(refused = FALSE)</code> takes them back out again,
+and the difference is what the threshold is buying you:</p>
+<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">r</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span>, keep_refused <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span>refused_kept    <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html" class="external-link">mean</a></span><span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="va">r</span><span class="op">$</span><span class="va">lon</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>  refused_dropped <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/mean.html" class="external-link">mean</a></span><span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="fu"><a href="../reference/geocode_accept.html">geocode_accept</a></span><span class="op">(</span><span class="va">r</span>, refused <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span><span class="op">$</span><span class="va">lon</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt;    refused_kept refused_dropped </span></span>
+<span><span class="co">#&gt;       0.9090909       0.8181818</span></span></code></pre></div>
+<p>One limit: only matches that cleared the <em>name</em> similarity
+gate can be reported this way. That gate is applied inside the database
+query, so a street name too far from every candidate never comes back at
+all — which is deliberate, since it is the gate that stops a matching
+street type from carrying an unrelated street over the line.</p>
+</div>
+<div class="section level3">
+<h3 id="how-to-actually-use-this">How to actually use this<a class="anchor" aria-label="anchor" href="#how-to-actually-use-this"></a>
+</h3>
+<p>The pattern that works is <strong>geocode once with everything on,
+then split three ways</strong>. Resolve with
+<code>keep_refused = TRUE</code> — it costs nothing extra and can only
+add rows — and let <code><a href="../reference/geocode_accept.html">geocode_accept()</a></code> do the deciding
+afterwards, as many times as it takes:</p>
+<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">r</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">hard</span>, keep_refused <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">a</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode_accept.html">geocode_accept</a></span><span class="op">(</span><span class="va">r</span>, refused <span class="op">=</span> <span class="cn">FALSE</span>, attested_only <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>                    unambiguous <span class="op">=</span> <span class="cn">TRUE</span>, max_uncertainty <span class="op">=</span> <span class="fl">100</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">a</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/mutate.html" class="external-link">mutate</a></span><span class="op">(</span>outcome <span class="op">=</span> <span class="fu"><a href="https://dplyr.tidyverse.org/reference/case-and-replace-when.html" class="external-link">case_when</a></span><span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="va">lon</span><span class="op">)</span>          <span class="op">~</span> <span class="st">"use"</span>,</span>
+<span>                             <span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="va">rejected_for</span><span class="op">)</span> <span class="op">~</span> <span class="st">"review"</span>,</span>
+<span>                             <span class="cn">TRUE</span>                 <span class="op">~</span> <span class="st">"not placed"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/count.html" class="external-link">count</a></span><span class="op">(</span><span class="va">outcome</span>, <span class="va">rejected_for</span><span class="op">)</span></span>
+<span><span class="co">#&gt;      outcome   rejected_for n</span></span>
+<span><span class="co">#&gt; 1 not placed           &lt;NA&gt; 1</span></span>
+<span><span class="co">#&gt; 2     review      ambiguous 2</span></span>
+<span><span class="co">#&gt; 3     review        refused 1</span></span>
+<span><span class="co">#&gt; 4     review unattested_mun 1</span></span>
+<span><span class="co">#&gt; 5        use           &lt;NA&gt; 6</span></span></code></pre></div>
+<p>Three outcomes, not two, and the middle one is the reason to
+bother:</p>
+<ul>
+<li>
+<strong>use</strong> — cleared your bar. Coordinates present.</li>
+<li>
+<strong>review</strong> — an answer exists and you turned it down.
+<code>rejected_for</code> says why, and every column the decision rested
+on is still there. This is the pile worth hand-checking, and it is
+usually small.</li>
+<li>
+<strong>not placed</strong> — nothing was ever found. No amount of
+loosening the bar helps; these need a better address string, a different
+tier, or nothing.</li>
+</ul>
+<p>Filtering with <code>filter(!is.na(lon))</code> collapses the last
+two together and throws away the distinction, which is the one piece of
+information you cannot recover afterwards.</p>
+</div>
+<div class="section level3">
+<h3 id="choosing-a-bar">Choosing a bar<a class="anchor" aria-label="anchor" href="#choosing-a-bar"></a>
+</h3>
+<p>There is no universally right setting, but the task usually decides
+it:</p>
+<table class="table">
+<colgroup>
+<col width="50%">
+<col width="50%">
+</colgroup>
+<thead><tr class="header">
+<th>what you are doing</th>
+<th>a reasonable starting bar</th>
+</tr></thead>
+<tbody>
+<tr class="odd">
+<td>aggregating to a census geography — DA, CSD, health region</td>
+<td>
+<code>attested_only = TRUE</code>, and nothing else. At that scale
+100 m of positional error is invisible and a 118 km municipality swap is
+not.</td>
+</tr>
+<tr class="even">
+<td>mapping points, neighbourhood scale</td>
+<td><code>attested_only = TRUE, unambiguous = TRUE, max_uncertainty = 100</code></td>
+</tr>
+<tr class="odd">
+<td>anything address-exact — dispatch, service eligibility, joining to a
+parcel</td>
+<td>add <code>method = "nar_building"</code>. Nothing interpolated,
+nothing online, nothing that resolved to a street rather than a
+building.</td>
+</tr>
+<tr class="even">
+<td>maximum recall, hand-checked after</td>
+<td>
+<code>keep_refused = TRUE</code> and no bar at all. Sort by
+<code>confidence</code> and work down;
+<code>refused_for == "mun_swap"</code> is where local knowledge
+pays.</td>
+</tr>
+<tr class="odd">
+<td>matching two address lists to each other</td>
+<td>don’t geocode at all —
+<code><a href="../articles/address-normalization.html">vignette("address-normalization")</a></code> does this without a
+coordinate.</td>
+</tr>
+</tbody>
+</table>
+<p>Three things to keep in mind while tuning:</p>
+<ul>
+<li>
+<strong><code>attested_only</code> is the one to reach for
+first.</strong> It is the cheapest test by a wide margin: in a
+40,000-address Nova Scotia sample the unverified evidence classes are
+2.3% of the rows and roughly a third of everything landing more than
+five kilometres out. The other tests trade far more recall per error
+removed.</li>
+<li>
+<strong>A row is charged only to the <em>first</em> test it
+fails.</strong> So the counts in <code>table(rejected_for)</code> are
+not what each test costs on its own — run them one at a time if you need
+to attribute the loss.</li>
+<li>
+<strong>Don’t use <code>min_confidence</code> as a stand-in for
+positional accuracy.</strong> It scores how well the string matched a
+street name, not where the point landed. The Kelry row above scores
+0.833 and sits on an exact building point; the Howie Centre row scores
+0.900 and is 388 km out.</li>
+</ul>
+<p>Finally, report what the bar cost.
+<code>mean(is.na(a$lon)) - mean(is.na(r$lon))</code> is the share of
+addresses you gave up, and it belongs next to whatever the coordinates
+were used for — a study that geocodes 94% of its subjects and one that
+geocodes 71% of them are not describing the same population.</p>
+</div>
+</div>
+<div class="section level2">
 <h2 id="geometry">Geometry<a class="anchor" aria-label="anchor" href="#geometry"></a>
 </h2>
 <p><code>geometry = TRUE</code> returns an <code>sf</code> object
@@ -663,7 +920,7 @@ instead of <code>lon</code>/<code>lat</code> columns, with an empty
 point for the rows that did not resolve. <code>crs</code> picks the CRS
 — EPSG:4326 by default, or <code>NULL</code> to keep NAR’s own projected
 storage CRS, in which case distances come out in metres.</p>
-<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb25"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">pts</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">4</span><span class="op">]</span>, geometry <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu">sf</span><span class="fu">::</span><span class="fu"><a href="https://r-spatial.github.io/sf/reference/st_geometry.html" class="external-link">st_geometry</a></span><span class="op">(</span><span class="va">pts</span><span class="op">)</span></span>
@@ -682,7 +939,7 @@ storage CRS, in which case distances come out in metres.</p>
 </h2>
 <p><code><a href="../reference/reverse_geocode.html">reverse_geocode()</a></code> runs the other direction, which makes
 it a cheap sanity check on a coordinate you just derived.</p>
-<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb26"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"100 Queen St W, Toronto, ON"</span>, geometry <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="../reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span>match_radius <span class="op">=</span> <span class="fl">50</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">address</span>, <span class="va">dist</span><span class="op">)</span> <span class="op">|&gt;</span></span>
@@ -705,7 +962,7 @@ how accurate NAR is.</p>
 <p><strong>This is the one path in the package that sends an address off
 your machine</strong>, and nothing reaches it unless you call one of
 these functions.</p>
-<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb27"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">bc</span> <span class="op">&lt;-</span> <span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"525 Superior St, Victoria, BC"</span>,</span>
 <span>                <span class="st">"800 Robson St, Vancouver, BC"</span>,</span>
 <span>                <span class="st">"3800 Finnerty Rd, Victoria, BC"</span><span class="op">)</span><span class="op">)</span></span>
@@ -729,7 +986,7 @@ sensible points on it — a large disagreement that is nobody’s
 mistake.</p>
 <p>The same service can also be used as a <em>tier</em>, for the BC
 addresses NAR cannot place at all:</p>
-<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb28"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">hard</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"2912 West Broadway, Vancouver, BC"</span>,</span>
 <span>          <span class="st">"1 Nesters Rd, Whistler, BC"</span>,</span>
 <span>          <span class="st">"7165 Nakiska Dr, Vernon, BC"</span><span class="op">)</span></span>
@@ -749,7 +1006,7 @@ the rest to a block or a street.</p>
 <p>A response from that service is not by itself a match, because
 <strong>it always answers</strong>. Ask it for an address that does not
 exist and it returns the centre of the nearest town, not an error:</p>
-<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb29"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/bc_geocode.html">bc_geocode</a></span><span class="op">(</span><span class="st">"1234 Nonexistentzzz Rd, Victoria, BC"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
 <span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">match_method</span>, <span class="va">bc_score</span>, <span class="va">bc_precision</span>, <span class="va">bc_address</span><span class="op">)</span></span>
 <span><span class="co">#&gt;   match_method bc_score bc_precision   bc_address</span></span>
@@ -770,12 +1027,12 @@ thrown away stays readable rather than vanishing. See
 des adresses</em>, in full — and it carries about 750,000 certified
 addresses more than NAR’s Quebec extract does. <code><a href="../reference/rqa_import.html">rqa_import()</a></code>
 loads it into the same database, in tables of its own:</p>
-<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb30"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/rqa_import.html">rqa_import</a></span><span class="op">(</span><span class="op">)</span>   <span class="co"># a ~780 MB download, once</span></span></code></pre></div>
 <p>Once imported, <code>"rqa"</code> is available as a tier. It is
 offline, it only ever looks at rows that parsed to Quebec, and it
 belongs <strong>before</strong> interpolation:</p>
-<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb31"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>On 4,000 Corporations Canada filings with a Quebec address, that
 takes coverage from 88.5% to 90.1% — but the number to look at is a
@@ -791,7 +1048,7 @@ exist if you ran the import — and <code><a href="../reference/geocode.html">ge
 so, up front, rather than when the tier is first reached.</p>
 <p><code>match_method</code> reports the register’s own positional
 class, not one flat label:</p>
-<div class="sourceCode" id="cb25"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb32"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"3190 Boulevard Laurier Est, Saint-Hyacinthe QC"</span>,</span>
 <span>          <span class="st">"1255 Rue Peel, Montreal QC"</span><span class="op">)</span>,</span>
 <span>        method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
@@ -820,19 +1077,19 @@ NAR never carried. Statistics Canada’s <strong>Road Network
 File</strong> has every street in the country, with an address range on
 each side of each segment, and <code><a href="../reference/rnf_import.html">rnf_import()</a></code> loads it into
 the same database in tables of its own:</p>
-<div class="sourceCode" id="cb26"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb33"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/rnf_import.html">rnf_import</a></span><span class="op">(</span><span class="op">)</span>   <span class="co"># a ~340 MB download, once</span></span></code></pre></div>
 <p>Once imported, <code>"rnf"</code> is available as a tier. It is
 offline and national, and it belongs <strong>after</strong>
 interpolation — a point placed between two known civic numbers beats one
 placed along a range:</p>
-<div class="sourceCode" id="cb27"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb34"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>On the 5,000 filings above that takes coverage from 92.4% to
 <strong>94.3%</strong>: 93 of the 379 the offline pair gives up on, a
 quarter of the residual and the largest recovery any tier here
 offers.</p>
-<div class="sourceCode" id="cb28"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb35"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">new_streets</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"1435 Celebration Dr, Pickering, ON L1W 0C4"</span>,</span>
 <span>                 <span class="st">"192037A TWP RD 665, Athabasca County, AB T0A 0M0"</span>,</span>
 <span>                 <span class="st">"1545 Maley Dr, Sudbury, ON P3A 4R7"</span><span class="op">)</span></span>
@@ -880,7 +1137,7 @@ are genuinely harder.</p>
 database at all — which makes it the only tier that can answer before a
 NAR release has been imported, and the one that covers provinces a
 single-province import does not hold.</p>
-<div class="sourceCode" id="cb29"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb36"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"nrcan"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>It has the same trap as the BC service, in a sharper form: <strong>it
 always answers, and it gives you no score to disbelieve.</strong> Asked
@@ -923,7 +1180,7 @@ deliberately not something <code>method</code> can name.
 Natural Resources Canada hosts — not the volunteer-funded
 <code>nominatim.openstreetmap.org</code>, whose usage policy forbids
 bulk geocoding.</p>
-<div class="sourceCode" id="cb30"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb37"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="../reference/osm_geocode.html">osm_geocode</a></span><span class="op">(</span><span class="st">"990 Bute St, Vancouver, BC"</span><span class="op">)</span></span></code></pre></div>
 <p>The reason it is a separate call rather than a tier is the licence,
 not the accuracy. OpenStreetMap data is ODbL: attribution plus
@@ -961,7 +1218,7 @@ file eats into the first bucket by construction, so read the ranking
 rather than the shares.</p>
 <p>The notes that ship with the package carry the measurements behind
 every figure quoted here, along with what is not built yet:</p>
-<div class="sourceCode" id="cb31"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb38"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"geocoding-status.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"road-network-file.md"</span>, package <span class="op">=</span> <span class="st">"cangeocode"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/file.show.html" class="external-link">file.show</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/system.file.html" class="external-link">system.file</a></span><span class="op">(</span><span class="st">"notes"</span>, <span class="st">"address-normalization-status.md"</span>,</span>

@@ -18,7 +18,9 @@ nar_gazetteer_pass(
   source,
   threshold = 0.85,
   name_threshold = 0.9,
-  prepare = NULL
+  prepare = NULL,
+  keep_refused = FALSE,
+  mun_swap_penalty = 1
 )
 ```
 
@@ -59,6 +61,16 @@ nar_gazetteer_pass(
 - prepare:
 
   Optional function of \`con\`, run once there is work to do
+
+- keep_refused:
+
+  Whether to also adopt the best sub-threshold match, flagged in
+  \`refused_for\`
+
+- mun_swap_penalty:
+
+  The multiplier this pass\\s query applied, used only to tell a refusal
+  the penalty caused from a refusal it did not
 
 ## Value
 

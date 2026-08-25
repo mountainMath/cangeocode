@@ -264,6 +264,10 @@ again before returning.</p></dd>
 Gazetteer arguments – [nar_resolve_gazetteer()]'s, `mun_swap_penalty` among
 them – are forwarded to [normalize_address()] when `x` is a character
 vector, and ignored when it is a data frame someone else has already parsed.
+`keep_refused = TRUE` is the one worth knowing about: it places the matches
+the gazetteer's threshold would have turned away and flags them in
+`refused_for`, which turns an invisible false negative into an answer
+[geocode_accept()] can drop again.
 `rate` is
 understood by all of them; `api_key` is [bc_geocode()]'s, as is anything
 else it does not recognize, which it forwards to its own service as a query
@@ -501,6 +505,11 @@ the tie either, since it is what the address claims rather than something the
 query established. Naming the unit does break it, because it narrows the
 candidates rather than choosing among them: 55 of the 5,000 corpus filings
 gain a `match_postal_code` for that reason alone.</p>
+    </div>
+    <div class="section level2">
+    <h2 id="see-also">See also<a class="anchor" aria-label="anchor" href="#see-also"></a></h2>
+    <div class="dont-index"><p>[geocode_accept()], for applying your own bar to the result without
+re-running the query.</p></div>
     </div>
 
     <div class="section level2">

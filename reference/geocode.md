@@ -129,14 +129,18 @@ geocode(
   Gazetteer arguments – \[nar_resolve_gazetteer()\]'s,
   \`mun_swap_penalty\` among them – are forwarded to
   \[normalize_address()\] when \`x\` is a character vector, and ignored
-  when it is a data frame someone else has already parsed. \`rate\` is
-  understood by all of them; \`api_key\` is \[bc_geocode()\]'s, as is
-  anything else it does not recognize, which it forwards to its own
-  service as a query parameter. \[nrcan_geocode()\] and \[qc_geocode()\]
-  are each given only the arguments they declare, so a BC-only argument
-  passed alongside \`"nrcan"\` reaches the BC tier alone rather than
-  erroring. Note that \`min_score\` is understood by \[bc_geocode()\]
-  and \[qc_geocode()\] both, and means different things to them – see
+  when it is a data frame someone else has already parsed.
+  \`keep_refused = TRUE\` is the one worth knowing about: it places the
+  matches the gazetteer's threshold would have turned away and flags
+  them in \`refused_for\`, which turns an invisible false negative into
+  an answer \[geocode_accept()\] can drop again. \`rate\` is understood
+  by all of them; \`api_key\` is \[bc_geocode()\]'s, as is anything else
+  it does not recognize, which it forwards to its own service as a query
+  parameter. \[nrcan_geocode()\] and \[qc_geocode()\] are each given
+  only the arguments they declare, so a BC-only argument passed
+  alongside \`"nrcan"\` reaches the BC tier alone rather than erroring.
+  Note that \`min_score\` is understood by \[bc_geocode()\] and
+  \[qc_geocode()\] both, and means different things to them – see
   \[qc_geocode()\] on why its score is not a ranking. Unused when
   \`method\` names no online tier.
 
@@ -399,6 +403,11 @@ address claims rather than something the query established. Naming the
 unit does break it, because it narrows the candidates rather than
 choosing among them: 55 of the 5,000 corpus filings gain a
 \`match_postal_code\` for that reason alone.
+
+## See also
+
+\[geocode_accept()\], for applying your own bar to the result without
+re-running the query.
 
 ## Examples
 

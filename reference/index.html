@@ -56,7 +56,7 @@
     <div class="section level2">
       <h2 id="geocoding">Geocoding<a class="anchor" aria-label="anchor" href="#geocoding"></a></h2>
 
-      <div class="section-desc"><p>Resolve free-text Canadian addresses to coordinates, interpolating the civic numbers NAR does not carry. <code><a href="../reference/geocode.html">geocode()</a></code> answers one row per address; <code><a href="../reference/geocode_matches.html">geocode_matches()</a></code> opens up the NAR records behind an answer, which is where the units of a multi-unit building are.</p></div>
+      <div class="section-desc"><p>Resolve free-text Canadian addresses to coordinates, interpolating the civic numbers NAR does not carry. <code><a href="../reference/geocode.html">geocode()</a></code> answers one row per address; <code><a href="../reference/geocode_matches.html">geocode_matches()</a></code> opens up the NAR records behind an answer, which is where the units of a multi-unit building are. <code><a href="../reference/geocode_accept.html">geocode_accept()</a></code> applies your own bar to a result that already exists, withdrawing the coordinates on the rows that do not clear it.</p></div>
 
       <dl></dl></div><div class="section level2">
 
@@ -76,6 +76,13 @@
 
         </dt>
         <dd>Every NAR record behind a geocoding answer</dd>
+
+        <dt>
+
+          <code><a href="geocode_accept.html">geocode_accept()</a></code>
+
+        </dt>
+        <dd>Withdraw the coordinates a result does not clear your bar</dd>
       </dl></div><div class="section level2">
       <h2 id="address-normalization">Address normalization<a class="anchor" aria-label="anchor" href="#address-normalization"></a></h2>
 
