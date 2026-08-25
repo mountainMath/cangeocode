@@ -295,6 +295,17 @@ different failures with three different consequences, and collapsing them into o
 would mean inventing exchange rates the measurements do not support. The tests stay separate
 and each one is off by default.
 
+That is an argument against *fixing* an exchange rate, not against measuring one, and stage 6
+of `data-raw/probe_pvsc.R` now has — scored against PVSC, because a bar that decides which
+answers to distrust cannot be scored against NAR. Two results bear on the code rather than on
+the documentation. `refused = FALSE` withdraws rows that are **26.2% more than a kilometre
+wrong against a 0.91% base rate**, which is a measurement of the gazetteer threshold and says
+that threshold is well placed. And `unambiguous`, `max_uncertainty = 100` and
+`method = "nar_building"` are close to the same test in practice — each spends ~2,000 rows of
+40,000 and each lands the >1 km count within ten of 130 — so a caller stacking all three is
+paying three times for most of one thing. The table is in
+[`../inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md).
+
 Three things about the implementation are load-bearing:
 
 * **It re-runs nothing.** Every column it reads is one `geocode()` already returned. A 40,000-row

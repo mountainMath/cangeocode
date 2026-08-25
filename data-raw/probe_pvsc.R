@@ -39,6 +39,9 @@
 #      the sense data-raw/eval_deepparse.R uses the word. It scores
 #      normalize_address() against them and isolates the two failure families
 #      that showed up.
+#   6. ACCEPT   -- what each of geocode_accept()'s bars costs in rows and buys
+#      in tail, scored against PVSC's coordinate. Opt-in, because it re-geocodes
+#      the sample with keep_refused = TRUE rather than reusing stage 2's bench.
 #
 # Two cautions on reading stage 5. First, the string being parsed is rendered
 # from the same fields being scored, so this measures whether the parser can
@@ -62,7 +65,7 @@
 #   PVSC_DIR     where the downloads and working files go (default <NAR_CACHE_PATH>/pvsc)
 #   PVSC_N       addresses to sample for stages 2-4      (default 40000)
 #   PVSC_N_PARSE addresses to sample for stage 5         (default 25000)
-#   PVSC_STAGES  any of "012345"                         (default 012345)
+#   PVSC_STAGES  any of "0123456"                        (default 012345; 6 is opt-in)
 #
 # The two downloads are ~66 MB together and are cached, so a re-run costs
 # nothing. Stages 2-5 take about ten minutes at the default sample sizes.
@@ -519,6 +522,114 @@ if (stage("5")) {
   print(data.frame(addr = substr(s$addr[i], 1, 44), pvsc_city = s$city[i],
                    parsed_mun = n2$MUN_NAME[i], name = n2$STREET_NAME[i],
                    type = n2$STREET_TYPE[i]), row.names = FALSE)
+}
+
+## ---------------------------------------------------------------------------
+## 6  ACCEPT
+## ---------------------------------------------------------------------------
+## What geocode_accept()'s bars cost and what they buy. Stage 2 established
+## that the far tail exists; this asks whether any of the tests can be pointed
+## at it, and PVSC is the only place in the package that question has an honest
+## answer -- every other reference here is NAR, and a bar tuned against NAR
+## would be scored by the source it is meant to catch mistakes about.
+##
+## Read as precision and recall, with recall on the left: `placed` is what
+## survives the bar and the two tail columns are the errors that survive with
+## it. A test is worth its cost when it removes tail faster than it removes
+## rows, which is what `caught` reports -- the share of the rows IT withdrew
+## that were more than a kilometre out. The base rate is what to compare that
+## against, not zero.
+##
+## Distances are computed once, off the unbarred result. A bar never moves a
+## point; it only decides whether to keep one.
+
+if (stage("6")) {
+  rule("6  ACCEPT")
+  ## keep_refused = TRUE so the `refused` bar has something to act on. Note
+  ## this makes the baseline MORE generous than a plain geocode() -- the
+  ## sub-threshold matches are in it, which is the point of measuring them.
+  g <- geocode(s$addr, prov = "NS", con = con, keep_refused = TRUE)
+  d <- hav(s$lon, s$lat, g$lon, g$lat)
+  base_placed <- !is.na(g$lon)
+  say(sprintf("baseline: placed %.1f%% of n=%d, %d of them refused matches",
+              100 * mean(base_placed), nrow(g),
+              sum(!is.na(g$refused_for) & base_placed)))
+  say(sprintf("confidence quartiles: %s",
+              paste(sprintf("%.3f", stats::quantile(g$confidence, c(.05, .25, .5), na.rm = TRUE)),
+                    collapse = "  ")))
+  say(sprintf("mun_remapped %.2f%%, of which unattested/untestable/inferred %.2f%%",
+              100 * mean(g$mun_remapped, na.rm = TRUE),
+              100 * mean(g$mun_evidence[which(g$mun_remapped)] %in%
+                           c("unattested", "untestable", "inferred"))))
+
+  BARS <- list(
+    list("(no bar)",                 function(z) z),
+    list("refused = FALSE",          function(z) geocode_accept(z, refused = FALSE)),
+    list("attested_only",            function(z) geocode_accept(z, attested_only = TRUE)),
+    list("unambiguous",              function(z) geocode_accept(z, unambiguous = TRUE)),
+    list("postal_code",              function(z) geocode_accept(z, postal_code = TRUE)),
+    list("max_uncertainty = 100",    function(z) geocode_accept(z, max_uncertainty = 100)),
+    list("min_confidence = 0.9",     function(z) geocode_accept(z, min_confidence = 0.9)),
+    list('method = "nar_building"',  function(z) geocode_accept(z, method = "nar_building")),
+    list("all seven",                function(z) geocode_accept(z, method = "nar_building",
+                                                                refused = FALSE,
+                                                                attested_only = TRUE,
+                                                                unambiguous = TRUE,
+                                                                postal_code = TRUE,
+                                                                max_uncertainty = 100,
+                                                                min_confidence = 0.9))
+  )
+
+  say("\n                        placed   n      p50   <=100m    >1km    >5km   caught")
+  base_tail <- NULL
+  for (b in BARS) {
+    keep <- !is.na(b[[2]](g)$lon)
+    y <- d[keep & is.finite(d)]
+    lost <- base_placed & !keep
+    caught <- if (any(lost)) sprintf("%5.1f%%", 100 * mean(d[lost] > 1000, na.rm = TRUE)) else "     -"
+    say(sprintf("%-22s %6.1f%% %6d %7.1f %6.1f%% %6.2f%% %6.2f%%   %s",
+                b[[1]], 100 * mean(keep), length(y), stats::median(y),
+                100 * mean(y <= 100), 100 * mean(y > 1000), 100 * mean(y > 5000),
+                caught))
+    if (is.null(base_tail)) base_tail <- c(sum(y > 1000), sum(y > 5000))
+  }
+
+  ## Combinations, because the single-test table above does not add up: the
+  ## seven spends sum to far more than the seven together cost, so most of them
+  ## are withdrawing the same rows and a caller stacking them pays once. What a
+  ## user needs is which two or three are worth stacking.
+  COMBOS <- list(
+    list("refused + attested",       function(z) geocode_accept(z, refused = FALSE,
+                                                                attested_only = TRUE)),
+    list("refused + unambiguous",    function(z) geocode_accept(z, refused = FALSE,
+                                                                unambiguous = TRUE)),
+    list("refused + att + unamb",    function(z) geocode_accept(z, refused = FALSE,
+                                                                attested_only = TRUE,
+                                                                unambiguous = TRUE)),
+    list("unamb + uncertainty 100",  function(z) geocode_accept(z, unambiguous = TRUE,
+                                                                max_uncertainty = 100))
+  )
+  say("\ncombinations:")
+  for (b in c(COMBOS, list(BARS[[9]]))) {
+    keep <- !is.na(b[[2]](g)$lon)
+    y <- d[keep & is.finite(d)]
+    say(sprintf("%-24s %6.1f%% %6d %7.1f %6.1f%% %6.2f%% %6.2f%%",
+                b[[1]], 100 * mean(keep), length(y), stats::median(y),
+                100 * mean(y <= 100), 100 * mean(y > 1000), 100 * mean(y > 5000)))
+  }
+
+  ## The exchange rate the documentation declines to invent, measured rather
+  ## than assumed: rows withdrawn per gross error removed. It is a property of
+  ## this sample and this province, not a constant.
+  say("\ntail removed against rows spent, from the baseline:")
+  for (b in BARS[-1]) {
+    keep <- !is.na(b[[2]](g)$lon)
+    y <- d[keep & is.finite(d)]
+    spent <- sum(base_placed) - sum(keep)
+    say(sprintf("  %-22s spent %5d  >1km %4d -> %4d  >5km %4d -> %4d  %6.1f rows per >1km removed",
+                b[[1]], spent, base_tail[1], sum(y > 1000), base_tail[2], sum(y > 5000),
+                if (base_tail[1] > sum(y > 1000)) spent / (base_tail[1] - sum(y > 1000)) else Inf))
+  }
 }
 
 DBI::dbDisconnect(con, shutdown = TRUE)

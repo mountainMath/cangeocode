@@ -13,7 +13,7 @@ an address that does not parse cannot be resolved — see
 
 ## Reproducing the numbers
 
-Three independent measurements, all against NAR 2026-06.
+Four independent measurements against NAR 2026-06, and a fifth against a source that is not NAR.
 
 **Tier coverage** comes from the same 5,000 Corporations Canada addresses that Part B of
 `data-raw/eval_normalize.R` draws — same file, same filter, same `set.seed(20260821)` — so
@@ -39,6 +39,14 @@ is not part of any test or check.
 `USING SAMPLE reservoir(n ROWS) REPEATABLE (42)` from NAR's own building-point addresses and
 asks the service for each one. Figures below are the 423-address run. It queries the live
 service and is likewise not part of any test or check.
+
+**What `geocode_accept()`'s bars cost and buy** comes from stage 6 of `data-raw/probe_pvsc.R`
+— `PVSC_STAGES=6`, opt-in because it re-geocodes the 40,000-address Nova Scotia sample with
+`keep_refused = TRUE` rather than reusing stage 2's cached bench. It is measured there rather
+than on the corporations draw for one reason: a bar that decides which answers to distrust
+cannot be scored against NAR, which is the source it exists to catch mistakes about. PVSC is
+the only reference in this package established to be independent of NAR; see
+[`nova-scotia-pvsc.md`](nova-scotia-pvsc.md), stage 0.
 
 **NAR is the reference here, and a reference is not ground truth.** NAR is accurate in
 general, but it has its own poor and outright wrong records, so a large distance in these
@@ -230,6 +238,89 @@ for the reason given in its own section below — the addresses NAR cannot place
 the ones no national compilation has. The road network file was the pathway that would
 actually move this number, and now does: `"rnf"` recovers 24.5% of the unplaced, three times
 what any online tier offers.
+
+## What the acceptance bar costs and buys
+
+`geocode_accept()` (`R/geocode_accept.R`) applies a bar to a result that already exists, and
+the seven tests are deliberately separate rather than one `strictness` scalar — collapsing
+three incommensurable failures into one number would mean inventing exchange rates. It does not
+follow that the exchange rates cannot be *measured*, only that they are not constants, and
+until now they had not been. This is what each test is worth.
+
+Measured on the 40,000-address Nova Scotia sample of `probe_pvsc.R`, geocoded with the shipped
+offline pair and `keep_refused = TRUE`, distances against **PVSC's own coordinate** rather than
+NAR's. Baseline places 86.7%, of which 149 rows are matches the gazetteer threshold refused;
+7.80% had the municipality remapped and a third of those on no attestation.
+
+| bar | placed | p50 | ≤100 m | >1 km | >5 km | of the rows it withdrew, >1 km |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| *(no bar)* | 86.7% | 10.8 m | 92.5% | 0.91% | 0.56% | — |
+| `refused = FALSE` | 86.3% | 10.8 m | 92.6% | 0.80% | 0.46% | **26.2%** |
+| `attested_only` | 84.5% | 10.6 m | 92.8% | 0.69% | 0.35% | 9.3% |
+| `unambiguous` | 81.7% | 10.2 m | 93.9% | 0.40% | 0.17% | 9.2% |
+| `postal_code` | 86.7% | 10.8 m | 92.5% | 0.91% | 0.56% | — |
+| `max_uncertainty = 100` | 82.0% | 10.2 m | 93.9% | 0.42% | 0.18% | 9.3% |
+| `min_confidence = 0.9` | 83.1% | 10.5 m | 93.0% | 0.63% | 0.35% | 7.3% |
+| `method = "nar_building"` | 81.6% | 10.2 m | 93.9% | 0.40% | 0.18% | 9.1% |
+| all seven | 78.0% | 9.9 m | 94.3% | **0.28%** | **0.09%** | 6.6% |
+
+The last column is the one to read first, because it is the only one that says whether a test
+is *aimed* at anything. The base rate is 0.91%, so a test whose withdrawn rows are 9% gross
+error is finding the tail nine times better than chance — and `refused = FALSE` finds it
+**twenty-nine times better than chance**.
+
+**`refused = FALSE` is the best value here by a wide margin, and that is a result about the
+gazetteer's threshold rather than about the bar.** It spends 149 rows to remove 39 errors past
+a kilometre and 35 past five — 3.8 rows per gross error against 10.7 to 13.7 for every other
+test that fires. What that measures is that the threshold `keep_refused = TRUE` reaches past is
+well placed: the matches it turns away really are a quarter gross error. So the pair is not a
+round trip. Resolving with `keep_refused = TRUE` and then taking one pass with `refused = FALSE`
+and one without is exactly the workflow the vignette recommends, and this is the number that
+justifies it — the refused rows are worth *looking at*, and worth dropping if nobody will.
+
+**`postal_code` never fires on this corpus, and that is a property of the input.** PVSC renders
+no postal code, so `POSTAL_CODE` is `NA` on every row and the test is silent by design rather
+than vacuous by defect. It prices nothing on an address list that does not state postal codes,
+which is most of them; it is the one test here whose value cannot be read off this table.
+
+**Three of the tests are largely the same test.** `unambiguous`, `max_uncertainty = 100` and
+`method = "nar_building"` each spend about 2,000 rows and each land the >1 km count within ten
+of 130 — because in Nova Scotia the rows that are ambiguous, the rows carrying uncertainty over
+100 m and the rows below the exact tier are heavily the same rows. They are not coextensive
+(stacking `unambiguous` with `max_uncertainty = 100` costs about two points more than
+either alone and buys a tenth of a point of tail), but a caller who stacks all three is paying three times for
+most of one thing. Pick one.
+
+| combination | placed | p50 | ≤100 m | >1 km | >5 km |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `refused` + `attested_only` | 84.3% | 10.6 m | 92.8% | 0.67% | 0.34% |
+| `refused` + `unambiguous` | 81.4% | 10.2 m | 93.9% | 0.38% | 0.14% |
+| `refused` + `attested_only` + `unambiguous` | 79.5% | 10.1 m | 94.1% | 0.33% | 0.10% |
+| `unambiguous` + `max_uncertainty = 100` | 79.6% | 10.0 m | 94.1% | 0.31% | 0.09% |
+| all seven | 78.0% | 9.9 m | 94.3% | 0.28% | 0.09% |
+
+The seven individual spends sum to 8,376 rows and the seven together cost 3,461, so the tests
+overlap more than half. **`refused` + `attested_only` + `unambiguous` reaches 79.5% placed and
+0.33% / 0.10% — within a rounding error of what all seven buy, for 1.5 points more coverage.**
+That is the combination to recommend when one has to be recommended.
+
+**What the whole dial is worth, and what it is not.** Turning everything on trades 8.7 points
+of coverage for a 3.2× cut in errors past a kilometre and a 6.2× cut past five. That is a real
+instrument and it is not a guarantee: **87 rows in the sample are more than a kilometre from
+PVSC's point after failing none of the seven tests**, and 28 are more than five. Every caveat
+that applies to `n_matches` applies to the bar as a whole — these tests describe the candidates
+that were found and the evidence the parse rested on, and none of them can ask whether the
+search looked in the right place. The bar narrows the tail; nothing here removes it.
+
+**The exchange rates, stated as rates so they are read as measurements and not as constants.**
+Rows withdrawn per error past a kilometre removed, from the baseline: `refused = FALSE` 3.8,
+`attested_only` 10.7, `max_uncertainty = 100` 10.8, `unambiguous` 10.9, `method` 11.0,
+`min_confidence = 0.9` 13.7, all seven 15.2. These are Nova Scotia, this sample, this NAR
+release. The ordering is what to carry elsewhere; the numbers are not.
+
+A caution on reading the table to the row: two runs of stage 6 differed by one row in 34,680,
+so the placed counts are reproducible to about a hundredth of a point and not exactly. Nothing
+below the second decimal in the percentage columns is meaningful.
 
 ## Measured and deliberately not done
 

@@ -25,6 +25,18 @@ rules out RQA for Quebec.
 This note records what the comparison says. `data-raw/probe_pvsc.R` reproduces
 all of it.
 
+That independence has since been spent on a second question this file is the
+only place in the package equipped to answer: **what each of
+`geocode_accept()`'s bars costs and buys**. A bar that decides which answers to
+distrust cannot be scored against NAR, since NAR is the source it exists to
+catch mistakes about. Stage 6 (`PVSC_STAGES=6`, opt-in) measures it, and the
+table is in
+[`geocoding-status.md`](geocoding-status.md#what-the-acceptance-bar-costs-and-buys).
+The headline: `refused = FALSE` withdraws rows that are 26.2% gross error
+against a 0.91% base rate, all seven tests together trade 8.7 points of coverage
+for a 3.2x cut past a kilometre — and 87 rows are still more than a kilometre
+out after passing every one of them.
+
 ## The source
 
 | | rows | no coordinate | no civic number |
