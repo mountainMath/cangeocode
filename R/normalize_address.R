@@ -537,10 +537,19 @@ nar_parse_one <- function(s, lang = "en", prov = NA_character_,
   }
 
   # --- leading direction, e.g. "1055 W GEORGIA ST" -----------------------
+  # The word is also recorded as it arrived, because stripping it is a guess:
+  # some 92,000 NAR addresses sit on a street whose *name* opens with a compass
+  # word -- "East Uniacke Rd", "West Beaver Creek Rd" -- and taking it off
+  # leaves a probe that matches the mirror image of the street as readily as the
+  # street. nar_parse_variants() offers the unstripped reading alongside this
+  # one; the canonical abbreviation in `dir` is no use to it, since NAR spells
+  # the word out inside the name and the match fold does not expand `E` to
+  # `EAST`, so the original token has to travel.
   dir <- NA_character_
+  dir_lead <- NA_character_
   if (length(toks) >= 3) {
     cand <- nar_lex_lookup(nar_fold(toks[1]), nar_lex_dirs, lang)
-    if (!is.na(cand)) { dir <- cand; toks <- toks[-1] }
+    if (!is.na(cand)) { dir <- cand; dir_lead <- toks[1]; toks <- toks[-1] }
   }
 
   # --- trailing direction, e.g. "QUEEN ST WEST" --------------------------
@@ -576,9 +585,14 @@ nar_parse_one <- function(s, lang = "en", prov = NA_character_,
 
   name <- if (length(toks)) paste(toks, collapse = " ") else NA_character_
 
-  data.frame(unit = unit, civic = civic, suffix = suffix, name = name,
-             type = type, dir = dir, mun = mun,
-             traits = paste(traits, collapse = ","), stringsAsFactors = FALSE)
+  out <- data.frame(unit = unit, civic = civic, suffix = suffix, name = name,
+                    type = type, dir = dir, mun = mun,
+                    traits = paste(traits, collapse = ","),
+                    stringsAsFactors = FALSE)
+  # An attribute rather than a column: every other return path above would have
+  # to carry it, and rbind() over the readings drops it in any case.
+  attr(out, "dir_lead") <- dir_lead
+  out
 }
 
 #' Split a token vector on comma tokens

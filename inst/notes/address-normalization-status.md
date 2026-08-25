@@ -64,11 +64,11 @@ against a number written down here.
 | field | exact | | recovered when the surface form dropped it |
 | --- | --- | --- | --- |
 | `CIVIC_NO` | 99.9% | `STREET_TYPE` | 88.2% |
-| `STREET_NAME` | 97.9% | `STREET_DIR` | 96.8% |
-| `STREET_TYPE` | 97.5% | `MUN_NAME` | **63.3%** |
+| `STREET_NAME` | 98.1% | `STREET_DIR` | 96.8% |
+| `STREET_TYPE` | 97.5% | `MUN_NAME` | **63.4%** |
 | `STREET_DIR` | 99.3% | `PROV_ABVN` | 95.3% |
-| `MUN_NAME` | 94.4% | `POSTAL_CODE` | 0.3% |
-| **ALL** | **97.2%** | **CORE** (civic + name) | **97.9%** |
+| `MUN_NAME` | 94.5% | `POSTAL_CODE` | 0.3% |
+| **ALL** | **97.4%** | **CORE** (civic + name) | **98.1%** |
 
 **Part B** — 5,000 Corporations Canada registered offices, i.e. addresses nobody cleaned:
 
@@ -76,7 +76,7 @@ against a number written down here.
 | --- | --- |
 | street name and civic number extracted | 98.9% |
 | joins a real NAR address (civic + name + municipality + province) | 88.8% |
-| ... and the filer's postal code confirms it | 83.7% |
+| ... and the filer's postal code confirms it | 83.8% |
 
 ### How to read these
 
@@ -90,7 +90,7 @@ against a number written down here.
   exist in NAR — `1321 Matheson Blvd E, Mississauga` (NAR has it at `L4W1R1`, the filer wrote
   `L4W0C2`), `239 Temby Private, Ottawa` (`K1T2W6` vs `K1T2V6`), `11 Crossbill Rd, Brampton`, and
   `1123 Leslie Street, Toronto`.
-- **Part A's `MUN_NAME` 63.3% is still the smallest number on the page** that means anything, and
+- **Part A's `MUN_NAME` 63.4% is still the smallest number on the page** that means anything, and
   it is mostly not a parser problem. See *Failure mode 1*. It was 46.3% until the gazetteer began
   answering with a municipality it had no way to get wrong.
 - **Part A and Part B do not always move together, and that is the harness working.** The
@@ -127,78 +127,36 @@ answered: of the 191 remaining misses where street name and province are already
 2–5 candidate municipalities, 55 have 6–20 and 66 have more than 20. So a shortlist would be short
 enough to be worth showing in about a fifth of them, and the rest are the ceiling.
 
-### 2. A leading direction word that belongs to the street name — ~100k addresses (0.58%)
+### 2. A leading direction word in the street name — fixed, and the 1.8% residual is not about directions
+
+Fixed on 2026-08-25 by `nar_dir_lead_variant()`; the full before/after is under *A stripped
+leading compass word, offered back as a parallel candidate*. What is left is small and has one
+cause, which is not the direction step.
+
+On the same 2,500-address probe the parser now keeps the compass word in the name 2,455 times and
+loses it 45. Six of those 45 lose it some other way — four are Montréal's `West Hill AV`, where
+`HILL` is a NAR street type and the type step eats it before the direction step is reached, so
+they are mode 3 wearing mode 2's clothes. The other 39 are the interesting ones: **the restored
+reading was offered, matched exactly, and lost a tie.**
 
 ```
-544 North Park Blvd, Oakville, ON   ->  name PARK,  dir N   (want: name NORTH PARK, dir none)
-96 North Point Rd, Heart's Content  ->  name POINT, dir N   (want: name NORTH POINT)
+170 North Park ST, BRANTFORD, ON  ->  Park ST N, HAMILTON       (mun_evidence "csd")
+125 East Main ST, WELLAND, ON     ->  Main ST E, PORT COLBORNE  (mun_evidence "copostal")
 ```
 
-The direction step takes a leading `NORTH`/`SOUTH`/`EAST`/`WEST` unconditionally, and the
-gazetteer does not rescue it. **This fires whether or not the street type is present**, which makes
-it the highest-severity pure parser bug on the list.
+Brantford has `North Park ST` (455 addresses) and no plain `Park`; Welland has `East Main ST`
+(327) and no plain `Main`. The baseline reading reaches 1.0 anyway by **leaving the municipality
+the string named** — and because the swap is attested, by CSD in one case and by a shared postal
+code in the other, it is exempt from the 0.88 penalty and keeps the full score. Two readings of
+one string then tie at 1.0, and the baseline wins ties by rule.
 
-3,228 NAR streets across 100,337 addresses have a name beginning with a direction word:
-`NORTH PARK` (3,537 addresses), `EAST LIBERTY` (3,323), `SOUTH PARK` (3,053), `NORTH SHORE`
-(3,038), `NORTH SERVICE` (1,740), `SOUTH MILLWAY`, `NORTH RIVER`, `WEST SAANICH`.
-
-**Fix:** the restored-direction reading has to be offered as a *parallel candidate*, scored
-against the stripped one — **not** as a fallback fired when the stripped reading finds nothing.
-That was the prescription here until 2026-08-25, and a measurement against NAR itself retired it.
-
-Draw 2,500 addresses NAR files on one of those compass-led streets *with no direction on either
-name family* — NAR stating the word is the name — and write each one exactly as NAR spells it
-(`929 North River RD, OTTAWA, ON`). The parser keeps the word in the name for 2,047 of them,
-and those place 99.4% of the time. For the other 453 it does not, and those place 68.4% of the
-time and reach the address NAR was describing **1.3%** of the time.
-
-The shape of that 453 is the finding. Only 68 are the plain unplaced case the leading-direction
-rule was assumed to cause. The other 385 — 381 of them at `parse_source = "gazetteer"` — are
-resolved onto a *different* street, and usually its mirror image:
-
-```
-90 South Edgely Ave, Scarborough, ON       ->  North Edgely
-125 East Beaver Creek Rd, Richmond Hill    ->  West Beaver Creek
-2085 North Orr Lake Rd, Elmvale, ON        ->  South Orr Lake
-161 West 19th St, Hamilton, ON             ->  East 19th
-135 East Liberty St, Toronto, ON           ->  Liberty
-```
-
-The arithmetic behind that is in `nar_gazetteer_sql()` and it is not close. Strip `East` off
-`East Beaver Creek` and the probe is `BEAVER CREEK`, which whole-word containment scores 0.90
-against *both* `East Beaver Creek` and `West Beaver Creek`. Direction agreement is worth 0.06 and
-the stripped reading has no direction left to agree with, so the two candidates are separated by
-tie-breaks and the wrong one wins about as often as the right one. Restore the word and the probe
-is `EAST BEAVER CREEK`, which matches one of them exactly at 1.0 and the other not at all.
-
-So a fallback gated on "the stripped reading found nothing" would repair 68 of the 453 and leave
-385 confidently wrong. A parallel candidate repairs both, because 1.0 beats 0.868 outright.
-
-The sample is 2,500 of 89,928, so these move by a few rows between runs: read the 99.4%/68.4%
-contrast and the 68-vs-385 split, not the third significant figure.
-
-Two properties make the parallel candidate safe here, and neither holds for the municipality
-variants that motivated the "demonstrably broken" gate in the first place:
-
-- **Both readings carry the same municipality**, so the candidate set is the same size for each
-  and the restricted-beats-unrestricted asymmetry that stops the gazetteer arbitrating a
-  municipality does not arise. This is a like-for-like comparison of two street names in one place.
-- **A street genuinely called `Park` still wins.** The restored reading only scores 1.0 when NAR
-  carries the compass word in the name; where it does not, the restored probe `NORTH PARK` matches
-  nothing and the stripped probe's exact `PARK` at 1.0 is unbeaten. The candidate cannot displace
-  a correct reading, only an under-evidenced one.
-
-The candidate framework this needs already exists (`R/normalize_variants.R`), and
-`nar_resolve_gazetteer()` already probes every candidate rather than the arbitrated one. Same
-shape as the fix for mode 3, and the two should still be built together.
-
-`data-raw/probe_direction.R` reproduces all of it in about two minutes. NAR is a fair reference
-here, which is unusual in this package: every accuracy measurement elsewhere carries the
-not-ground-truth caveat because it compares a *coordinate* to NAR's. This asks whether the parser
-reproduces the decomposition NAR itself records — name here, direction there — and NAR is by
-definition authoritative about its own columns.
-See also the `## The same street, filed two ways` section of `vignette("source-nar")`, which is
-where the 92,167-address national inventory and NAR's own 162 self-contradictions are reported.
+So the residual is not about directions at all: it is that an *attested* municipality swap costs
+nothing, which is right when it is the only reading on offer and wrong when a reading that stayed
+put scores the same. **The fix is a tie-break in `nar_gazetteer_winner()`: on equal scores, prefer
+the candidate that did not remap the municipality.** Staying where the string said is strictly
+more evidence than moving, it cannot affect a row with one candidate, and it is one term in an
+`order()` call. It has not been built or measured, and it needs its own harness run — the swap
+penalty is load-bearing elsewhere and this changes what it means when two readings compete.
 
 ### 3. A name-final type word eaten as the type, when the real type is missing — ~586k addresses (3.4%) at risk
 
@@ -215,11 +173,12 @@ That confines the damage to the 13% of type-dropped forms the harness measures a
 `PARK` (72,457 addresses), `HILL` (49,672), `RIDGE` (38,150), `BAY` (31,656), `POINT` (29,419),
 `VIEW`, `HEIGHTS`, `GROVE`, `GLEN`, `BEACH`, `COVE`, `CENTRE`.
 
-**Fix:** same arbitration as mode 2 — when stripping a trailing type leaves a name the gazetteer
-cannot find, retry with the word restored and no type. **Read the gate finding in *Fixed* first:**
-a restored-name candidate that happens to exist somewhere will outscore the baseline on the
-gazetteer's own score, so the retry has to be gated on the baseline failing rather than offered
-alongside it.
+**Fix:** the same mechanism mode 2 now uses — offer the reading in which the word was *not* taken
+as the type, and let the gazetteer choose between them. Whether it needs a gate is the open
+question and mode 2 does not settle it: there both readings named the same municipality, which is
+what made an ungated parallel candidate safe. **Read the gate finding in *Fixed* first** — a
+restored-name candidate that happens to exist *somewhere else* will outscore the baseline on the
+gazetteer's own score.
 
 ### 4. Keyboard typos in the street name — 91.9% vs 98.6% clean
 
@@ -303,6 +262,76 @@ inspection that tabulates the token following the civic number can, and
 `data-raw/diagnose_quebec.R` now prints that table. What is left of the tail is single rows
 (`BOU.`, `BV`) plus a different bug: `nar_norm_text()` strips every period at input, so
 `BOUL.DES GRANDES PRAIRIES` becomes `BOULDES ...` and the type is glued to the word after it.
+
+### A stripped leading compass word, offered back as a parallel candidate
+
+`nar_parse_one()` took a leading `NORTH`/`SOUTH`/`EAST`/`WEST` into `STREET_DIR`
+unconditionally. For some 92,000 NAR addresses that word is the *name* — `East Uniacke Rd`,
+`West Beaver Creek Rd`, `North Park St` — and NAR says so by leaving the direction column empty on
+both name families.
+
+**The measurement that decided the shape of the fix.** Draw 2,500 of those addresses and write
+each one exactly as NAR spells it (`929 North River RD, OTTAWA, ON`). The parser kept the word for
+2,047 and lost it for 453 — and only **68** of the 453 were the unplaced case the rule was assumed
+to cause. The other **385**, 381 of them at `parse_source = "gazetteer"`, were resolved onto a
+*different* street, usually its mirror image, with a clean score and nothing in the output saying
+so:
+
+```
+90 South Edgely Ave, Scarborough, ON       ->  North Edgely
+125 East Beaver Creek Rd, Richmond Hill    ->  West Beaver Creek
+2085 North Orr Lake Rd, Elmvale, ON        ->  South Orr Lake
+161 West 19th St, Hamilton, ON             ->  East 19th
+135 East Liberty St, Toronto, ON           ->  Liberty
+```
+
+The arithmetic is in `nar_gazetteer_sql()` and it is not close. Strip `East` off `East Beaver
+Creek` and the probe is `BEAVER CREEK`, which whole-word containment scores 0.90 against *both*
+halves of the pair; direction agreement is worth 0.06 and the stripped reading has no direction
+left in the name to agree with, so tie-breaks separate them and the wrong one wins about as often
+as the right one. Restore the word and the probe is `EAST BEAVER CREEK`, which matches one exactly
+at 1.0 and the other not at all.
+
+**That is why it is a parallel candidate and not a fallback.** The prescription here until
+2026-08-25 was "retry with the token restored when the stripped reading finds nothing", which
+repairs 68 of the 453 and leaves 385 confidently wrong. `nar_dir_lead_variant()` offers both
+readings to the gazetteer and lets 1.0 beat 0.868.
+
+**It needs no gate, which is the one thing that distinguishes it from the anchored readings.**
+`nar_baseline_is_defective()` exists because offering a municipality variant unconditionally costs
+rows. Neither of its two reasons applies here: both readings carry the same municipality, so it is
+a like-for-like comparison of two street names in one place and the restricted-beats-unrestricted
+asymmetry never arises; and a street genuinely called `Park` is still matched exactly at 1.0 by
+the baseline while the restored `NORTH PARK` matches nothing. There is also nothing for a gate to
+*see* — `125 East Beaver Creek Rd, Richmond Hill, ON` names a real municipality, splits on commas
+and parses cleanly.
+
+**The word travels as the token that arrived.** `dir` is canonicalized to an abbreviation and `E`
+never meets `East Uniacke`: the match fold does not expand it. So `nar_parse_one()` carries the
+original token out as an attribute — a column would have to be added to every one of its
+`return()` paths and `rbind()` over the readings drops it anyway. Abbreviations are restored too;
+`W GEORGIA` is not a name NAR carries so that candidate simply loses, and the ~2,000 addresses
+whose NAR name really does open with an abbreviated compass word are what it is there for. Only
+the *leading* word: a trailing direction and one sitting between the type and the municipality
+have not been measured.
+
+> **Measured.** On the probe, losses **453 → 45** of 2,500, and the confident-wrong-street class
+> **385 → 6**. Rows keeping the word place 99.5% of the time; rows losing it now place 35.6%,
+> down from 68.4%, which is the point — what is left of the loss set is unplaceable rather than
+> plausibly misplaced. Eval harness, same seeds: Part A ALL **97.3% → 97.4%**, CORE
+> **98.0% → 98.1%**, `STREET_NAME` **98.0% → 98.1%**, NS **98.0% → 98.7%**, ON
+> **97.6% → 97.9%**, one more row resolved at the gazetteer layer and one fewer falling back to
+> rules. Part B postal-confirmed **85.0% → 85.1%**, coverage failure **15.0% → 14.9%**. Part A's
+> `grid` and `numeric_street` pattern buckets shed rows to `civic_street`, which is the
+> reclassification working: `West 19th St` in Hamilton is a street with a name, not a grid address.
+
+`data-raw/probe_direction.R` reproduces all of it in about two minutes, and now also tabulates the
+residual. NAR is a fair reference here, which is unusual in this package: every accuracy
+measurement elsewhere carries the not-ground-truth caveat because it compares a *coordinate* to
+NAR's. This asks whether the parser reproduces the decomposition NAR itself records — name here,
+direction there — and NAR is by definition authoritative about its own columns. See also
+`## The same street, filed two ways` in `vignette("source-nar")`, where the 92,167-address
+national inventory and NAR's own 162 self-contradictions are reported.
 
 ### Québec's own register, as a second gazetteer pass
 
@@ -471,7 +500,7 @@ over all 511,848 gazetteer names rather than once per candidate per probe row.
 
 ### The parser produces candidate readings, and evidence chooses between them
 
-`R/normalize_variants.R`, and the framework modes 2 and 3 below have been waiting for. One string
+`R/normalize_variants.R`, and the framework mode 2 was built on and mode 3 is still waiting for. One string
 now yields several readings; the municipality inventory arbitrates when parsing is rules-only, the
 street gazetteer when a connection is available, and the baseline reading is candidate 1 and wins
 every tie. The design is in [`.claude/normalization.md`](../../.claude/normalization.md).
@@ -785,24 +814,30 @@ the largest number on this list has now twice been the one that moved least.
    through the particule and the hyphen), so what is left is the part folding cannot do: former
    names, and génériques that are part of the name rather than the type. Six of RQA's génériques
    have no counterpart in NAR's observed types, so they must not be promoted to canonical types.
-2. **Candidate readings for the direction and type steps** (modes 2 and 3). The framework and the
-   arbitration now exist; what is missing is the two strategies and their gates. One mechanism
-   fixes both: when a stripped reading finds nothing in the gazetteer, retry with the token
-   restored to the name. Affects ~686k addresses' worth of street forms; the direction half fires
-   even on clean input. The name gate now recovers some of this incidentally — whole-word
-   containment catches a type the parser ate whenever the gazetteer has the fuller name — so
-   re-measure the remaining size before building it.
-3. **Reject a province name as a municipality** (mode 6). An afternoon.
-4. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
+2. **A tie-break on the municipality the reading kept** (what is left of mode 2). Every one of
+   the 39 residual rows is two readings of one string tied at 1.0, where the baseline got there by
+   an *attested* municipality swap and so paid no penalty. Prefer the candidate that did not
+   remap. One term in `order()` inside `nar_gazetteer_winner()`, and it cannot touch a row with a
+   single candidate — but the swap penalty is load-bearing elsewhere, so it needs its own harness
+   run.
+3. **A candidate reading for the type step** (mode 3). The direction half of this item is built
+   and measured; the type half is not, and it is the same mechanism — offer the reading in which
+   the name-final word was *not* taken as the type, and let the gazetteer choose. ~586k addresses'
+   worth of street forms at risk, and Montréal's `West Hill AV` shows it can also swallow a
+   direction case whole. The name gate recovers some of it incidentally — whole-word containment
+   catches a type the parser ate whenever the gazetteer has the fuller name — so re-measure the
+   remaining size before building it.
+4. **Reject a province name as a municipality** (mode 6). An afternoon.
+5. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
    determined case is now answered; this is the 157 rows with 2 or more candidates. Either
    document `NA` as the honest answer or return candidates. A design decision, not a bug fix.
-5. **A period-abbreviated type glued to the next word.** `nar_norm_text()` strips every period at
+6. **A period-abbreviated type glued to the next word.** `nar_norm_text()` strips every period at
    input, so `BOUL.DES GRANDES PRAIRIES` arrives as one token `BOULDES` and no type is found.
    Single-digit row counts in the Québec residual, and probably the same anywhere French
    abbreviations are typed without a space; splitting on a period *before* stripping it, where the
    left side is a known type surface, would cover it. Cheap, and worth doing whenever the file is
    open for another reason.
-6. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
+7. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
 
 ## Deferred
 

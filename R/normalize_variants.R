@@ -14,8 +14,12 @@
 #' Every reading of one address string worth arbitrating between
 #'
 #' @description Candidate 1 is the ordinary left-to-right parse, unchanged.
-#' The rest come from [nar_mun_anchor_variants()], which finds the municipality
-#' first and hands the parser the remainder.
+#' The rest come from two places. [nar_mun_anchor_variants()] finds the
+#' municipality first and hands the parser the remainder, and it fires only
+#' when [nar_baseline_is_defective()] says the baseline is visibly broken.
+#' [nar_dir_lead_variant()] puts a stripped leading compass word back into the
+#' street name, and it fires whenever there was one -- the whole point of that
+#' defect is that the baseline looks perfectly well-formed.
 #'
 #' Identical readings are collapsed, which is the common case: a
 #' comma-delimited string already puts the municipality in a segment of its own,
@@ -27,22 +31,27 @@
 #' @keywords internal
 nar_parse_variants <- function(s, lang = "en", prov = NA_character_) {
   base <- nar_parse_one(s, lang, prov)
+  lead <- attr(base, "dir_lead")
+  attr(base, "dir_lead") <- NULL
   base$strategy <- "baseline"
   toks <- nar_tokens(s)
 
+  restored <- nar_dir_lead_variant(base, lead)
+
   # The overwhelmingly common case is one reading, and the collapse machinery
   # below costs more than the parse itself -- leave before paying for it.
-  if (!nar_baseline_is_defective(base, toks, prov)) {
-    base$.cand <- 1L
-    return(base)
+  anchored <- if (nar_baseline_is_defective(base, toks, prov)) {
+    nar_mun_anchor_variants(toks, lang, prov)
+  } else {
+    list()
   }
-  anchored <- nar_mun_anchor_variants(toks, lang, prov)
-  if (!length(anchored)) {
+  if (!length(restored) && !length(anchored)) {
     base$.cand <- 1L
     return(base)
   }
 
-  cands <- do.call(rbind, c(list(base), anchored, list(stringsAsFactors = FALSE)))
+  cands <- do.call(rbind, c(list(base), restored, anchored,
+                            list(stringsAsFactors = FALSE)))
 
   keys <- do.call(paste, c(cands[, setdiff(names(cands), "strategy")], sep = "\r"))
   cands <- cands[!duplicated(keys), , drop = FALSE]
@@ -50,6 +59,52 @@ nar_parse_variants <- function(s, lang = "en", prov = NA_character_) {
   cands$.cand <- seq_len(nrow(cands))
   row.names(cands) <- NULL
   cands
+}
+
+#' The reading in which a leading compass word is part of the street name
+#'
+#' @description `East Beaver Creek Rd` and `West Beaver Creek Rd` are two
+#' streets in Richmond Hill; `North Edgely Ave` and `South Edgely Ave` are two
+#' streets in Scarborough. The left-to-right parse reads the opening word as a
+#' direction and hands the gazetteer `BEAVER CREEK`, which whole-word
+#' containment scores 0.90 against *both* halves of the pair. Direction
+#' agreement is worth 0.06 and the stripped reading has no direction left in the
+#' name to agree with, so the mirror image wins about as often as the street
+#' does -- and it wins *confidently*, with nothing in the output to say so. Some
+#' 92,000 NAR addresses are on a street NAR itself spells with the word in the
+#' name and no direction on either name family.
+#'
+#' So the unstripped reading is offered as a parallel candidate rather than as a
+#' fallback fired when the stripped one finds nothing: a fallback repairs only
+#' the addresses that end up unplaced, which measured as 68 of 453 losses, and
+#' leaves the other 385 confidently on the wrong street. As a candidate the
+#' restored probe `EAST BEAVER CREEK` matches one of the pair exactly at 1.0 and
+#' the other not at all, so it beats 0.868 outright.
+#'
+#' Two things keep it from displacing a correct reading. Both candidates carry
+#' the same municipality, so the comparison is like-for-like and the
+#' restricted-beats-unrestricted asymmetry that governs
+#' [nar_baseline_is_defective()] never arises -- which is why this one needs no
+#' gate. And a street genuinely called `Park` still wins, because the baseline
+#' probe `PARK` matches it exactly at 1.0 while the restored probe `NORTH PARK`
+#' matches nothing; when neither exists the restored probe falls under the name
+#' threshold and is refused, leaving today's answer untouched.
+#'
+#' The word is restored verbatim, abbreviations included. `W GEORGIA` is not a
+#' street name NAR carries, so that candidate simply loses; the ~2,000
+#' addresses whose NAR name really does open with an abbreviated compass word
+#' are the ones it is there for.
+#' @param base The baseline reading, one row, with `strategy` already set
+#' @param word The leading direction token as it arrived, or `NA`/`NULL`
+#' @return A list holding one candidate row, or an empty list
+#' @keywords internal
+nar_dir_lead_variant <- function(base, word) {
+  if (is.null(word) || is.na(word) || is.na(base$name)) return(list())
+  v <- base
+  v$name <- paste(word, base$name)
+  v$dir <- NA_character_
+  v$strategy <- "dir_in_name"
+  list(v)
 }
 
 #' Has the ordinary parse produced a reading worth offering an alternative to?

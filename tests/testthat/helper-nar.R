@@ -30,7 +30,7 @@ nar_address_header <- function(blockface = FALSE) {
 # offset from the even one. It is opt-in because every other test in the suite
 # counts the rows in this table.
 nar_address_rows <- function(blockface = FALSE, run = FALSE, qc = FALSE,
-                             units = FALSE) {
+                             units = FALSE, compass = FALSE) {
   # PROV_CODE is the SGC code, as it is in the release: it is what MUN_KEY is
   # built from, and the road network file spells its own municipality key with
   # the same code, so a fixture that said "BC" here would make the two
@@ -93,6 +93,20 @@ nar_address_rows <- function(blockface = FALSE, run = FALSE, qc = FALSE,
     unit[3] <- "202"
     rows <- c(rows, list(unit))
   }
+  if (compass) {
+    # A mirrored pair whose compass word is part of the *name*, with no
+    # direction on either name family -- which is how NAR spells some 92,000
+    # of its addresses. Stripping the leading word off the input leaves ARM,
+    # which matches both halves equally, so this pair is what tells the
+    # restored reading apart from the mirror image of the street asked for.
+    # Opt-in, like `run`: it changes every row count in test-import.R.
+    arm <- function(guid, civic, street) {
+      base(guid, civic, "4012400", "2007200", street = street, type = "RD",
+           dir = "", postal = "V6N1A1")
+    }
+    rows <- c(rows, list(arm("addr12", "6001", "NORTH ARM"),
+                         arm("addr13", "6002", "SOUTH ARM")))
+  }
   if (blockface) {
     bf <- list(c("4012086.46456561", "2006838.65510961"),
                c("4012086.46456561", "2006838.65510961"),
@@ -103,11 +117,16 @@ nar_address_rows <- function(blockface = FALSE, run = FALSE, qc = FALSE,
   rows
 }
 
-nar_location_lines <- function(run = FALSE) {
+nar_location_lines <- function(run = FALSE, compass = FALSE) {
   lines <- c("LOC_GUID,CSD_CODE,FED_CODE,FED_ENG_NAME,FED_FRE_NAME,ER_CODE,ER_ENG_NAME,ER_FRE_NAME,BG_LATITUDE,BG_LONGITUDE",
     "loc1,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2501,-123.1999",
     "loc2,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2504,-123.1995",
     "loc3,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2500,-123.2000")
+  if (compass) {
+    lines <- c(lines,
+      "loc12,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2506,-123.1990",
+      "loc13,5915022,59001,Van,Van,5920,Mainland,Mainland,49.2506,-123.1989")
+  }
   if (!run) return(lines)
   # The run's locations, emitted only alongside the run's addresses. Not
   # unconditionally: test-import.R reads every lon/lat out of this table.
@@ -122,13 +141,14 @@ nar_location_lines <- function(run = FALSE) {
 
 #' Write a miniature NAR release to a directory and return its path
 local_nar_fixture <- function(blockface = FALSE, run = FALSE, qc = FALSE,
-                              units = FALSE, env = parent.frame()) {
+                              units = FALSE, compass = FALSE,
+                              env = parent.frame()) {
   dir <- withr::local_tempdir(.local_envir = env)
   lines <- c(paste(nar_address_header(blockface), collapse = ","),
-             vapply(nar_address_rows(blockface, run, qc, units), paste,
+             vapply(nar_address_rows(blockface, run, qc, units, compass), paste,
                     character(1), collapse = ","))
   writeLines(lines, file.path(dir, "Address_BC.csv"))
-  writeLines(nar_location_lines(run), file.path(dir, "Location_BC.csv"))
+  writeLines(nar_location_lines(run, compass), file.path(dir, "Location_BC.csv"))
   dir
 }
 
@@ -155,9 +175,10 @@ local_nar_env <- function(exdir, env = parent.frame()) {
 
 #' Import the fixture and hand back an open connection
 local_nar_connection <- function(blockface = TRUE, run = FALSE, qc = FALSE,
-                                 units = FALSE, env = parent.frame()) {
-  local_nar_env(local_nar_fixture(blockface, run, qc, units, env = env),
-                env = env)
+                                 units = FALSE, compass = FALSE,
+                                 env = parent.frame()) {
+  local_nar_env(local_nar_fixture(blockface, run, qc, units, compass,
+                                  env = env), env = env)
   con <- suppressMessages(nar_connection(version = "test-01"))
   withr::defer(DBI::dbDisconnect(con), envir = env)
   con

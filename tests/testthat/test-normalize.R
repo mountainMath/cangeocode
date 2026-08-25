@@ -766,6 +766,57 @@ test_that("rules alone will not take a direction back off a municipality", {
   expect_equal(as.character(r$STREET_DIR), "N")
 })
 
+test_that("a leading compass word is offered back to the street name", {
+  # The parse commits to reading it as a direction, and that commitment is a
+  # guess: NAR spells some 92,000 addresses with the word inside the name and
+  # no direction on either name family. Both readings go forward.
+  cand <- attr(nar_parse_rules("125 East Beaver Creek Rd, Richmond Hill, ON"),
+               "nar_candidates")
+  expect_equal(cand$STREET_NAME, c("BEAVER CREEK", "EAST BEAVER CREEK"))
+  expect_equal(as.character(cand$STREET_DIR), c("E", NA))
+
+  # It is restored as it arrived, not as `dir` canonicalized it: NAR writes the
+  # word out inside a street name and the match fold does not expand E to EAST.
+  cand <- attr(nar_parse_rules("1055 W Georgia St, Vancouver, BC"),
+               "nar_candidates")
+  expect_equal(cand$STREET_NAME, c("GEORGIA", "W GEORGIA"))
+
+  # A direction that trails the name, or the type, is a different shape and
+  # gets no second reading -- this is the leading word only.
+  cand <- attr(nar_parse_rules("100 Queen St West, Toronto, ON"),
+               "nar_candidates")
+  expect_equal(nrow(cand), 1L)
+
+  # And the rules alone cannot choose: both readings name the same
+  # municipality and carry the same fields, so the baseline wins the tie by
+  # rule and nothing moves without a gazetteer.
+  r <- normalize_address("125 East Beaver Creek Rd, Richmond Hill, ON")
+  expect_equal(r$STREET_NAME, "BEAVER CREEK")
+  expect_equal(as.character(r$STREET_DIR), "E")
+})
+
+test_that("the gazetteer picks the named street over its mirror image", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(blockface = TRUE, compass = TRUE)
+
+  # NORTH ARM and SOUTH ARM are one street each, not two halves of one. The
+  # stripped reading hands the gazetteer ARM, which scores the same against
+  # both, so the direction alone decides -- and it is worth 0.06. The restored
+  # reading matches one of them exactly and the other not at all.
+  r <- normalize_address(c("6001 North Arm Rd, Vancouver, BC",
+                           "6002 South Arm Rd, Vancouver, BC"), con = con)
+  expect_equal(r$STREET_NAME, c("NORTH ARM", "SOUTH ARM"))
+  expect_true(all(is.na(r$STREET_DIR)))
+  expect_equal(r$parse_source, rep("gazetteer", 2))
+
+  # The safety property: an address that really is on a directional street is
+  # untouched, because the baseline probe matches KING EDWARD exactly at 1.0
+  # while the restored W KING EDWARD matches nothing.
+  r <- normalize_address("4001 W King Edward Ave, Vancouver, BC", con = con)
+  expect_equal(r$STREET_NAME, "KING EDWARD")
+  expect_equal(as.character(r$STREET_DIR), "W")
+})
+
 test_that("anchoring never fires on a parse that is not broken", {
   # The guard that matters. These strings name no municipality at all, and
   # every one ends in a word that is a real place -- Albanel, Nantes and Trail

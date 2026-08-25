@@ -84,3 +84,18 @@ message("\n--- what the gazetteer answered instead")
 print(tibble(input = substr(samp$addr, 1, 46),
              nar_name = samp$nm, parsed = norm$STREET_NAME)[lost, ] |> head(15),
       n = 15)
+
+# The other half: the word did go into STREET_DIR, so the restored reading was
+# offered and lost. Since nar_dir_lead_variant() went in this is the larger of
+# the two residual classes, and it is the benign one -- an unplaced row, or one
+# placed on the same street NAR names, rather than a confident wrong answer.
+held <- !kept & !is.na(norm$STREET_DIR)
+message("\n--- kept in STREET_DIR anyway: ", sum(held),
+        " (of ", sum(!kept), " total losses)")
+print(table(parse_source = norm$parse_source[held],
+            placed = !is.na(geo$lon[held])))
+
+message("\n--- what those resolved to")
+print(tibble(input = substr(samp$addr, 1, 46), nar_name = samp$nm,
+             parsed = norm$STREET_NAME, dir = norm$STREET_DIR,
+             src = norm$parse_source)[held, ] |> head(15), n = 15)

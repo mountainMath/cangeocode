@@ -152,7 +152,9 @@ outscores an unrestricted one *by construction*, so the worse parse wins on a sc
 never meant to compare two different parses of the same string. Arbitration cannot repair a
 candidate that should not have been offered — which is why the fix belongs at generation.
 
-So exactly three conditions open the gate, and nothing else may be added without re-running the
+**The gate governs the anchored readings only.** `nar_dir_lead_variant()` is the second source
+of candidates and it deliberately sits outside it — see below for why a gate would be the wrong
+shape there. Three conditions open the gate, and nothing else may be added without re-running the
 harness:
 
 - the proposed municipality **is not a place**. `TH25 VANCOUVER` is not, `100 MILE HOUSE` is, and
@@ -201,6 +203,43 @@ guards, and the last two are what let the gate open this wide:
   terrace` is the first, and the only thing separating them is whether a type survives in the
   remainder. Without this guard the gate's third condition turns every street ending in a type
   that is also a place into an address with no type and a municipality it never named.
+
+**A leading compass word gets a second reading unconditionally, and that is not an exception to
+the gate — it is a different situation.** `nar_dir_lead_variant()` puts the stripped word back
+into the street name, and the whole point of the defect is that the baseline looks perfectly
+well-formed: `125 East Beaver Creek Rd, Richmond Hill, ON` names a real municipality, splits on
+commas, and parses cleanly to `BEAVER CREEK` + `E`. There is nothing for a gate to see. NAR spells
+some 92,000 addresses with the compass word inside the name and no direction on either name
+family, and the parse commits to the other reading before it has any evidence.
+
+**What made it urgent is that the failure is not an unplaced row.** Strip `East` off
+`East Beaver Creek` and the probe is `BEAVER CREEK`, which whole-word containment scores 0.90
+against *both* halves of the pair; direction agreement is worth 0.06 and the stripped reading has
+no direction left in the name to agree with, so the mirror image wins about as often as the street
+does — and it wins with a clean score. Measured on 2,500 NAR-spelled compass-led addresses, 385 of
+453 losses were a confident wrong street and only 68 were unplaced, which is why this is a
+*parallel candidate* and not a fallback fired when the stripped reading finds nothing. A fallback
+repairs the 68.
+
+**The two reasons it needs no gate are the two reasons the anchored readings do.** Both readings
+carry the same municipality, so it is a like-for-like comparison of two street names in one place
+and the restricted-beats-unrestricted asymmetry never arises. And it cannot displace a correct
+reading: a street genuinely called `Park` is matched exactly at 1.0 by the baseline probe, while
+the restored `NORTH PARK` matches nothing and — where neither exists — falls under the name gate
+and is refused, leaving today's answer untouched.
+
+**The word is restored verbatim, which is the part that is easy to get wrong.** `nar_parse_one()`
+canonicalizes the direction to an abbreviation, and `E` is no use to a probe that has to meet
+`East Uniacke` in NAR's own spelling — the match fold does not expand it. So the original token
+has to travel out of the parse, and it does so as an attribute (`dir_lead`) rather than a column,
+because every other `return()` path in `nar_parse_one()` would otherwise have to carry it and
+`rbind()` over the readings drops it anyway. Abbreviations are restored too: `W GEORGIA` is not a
+name NAR carries so that candidate simply loses, and the ~2,000 addresses whose NAR name really
+does open with an abbreviated compass word are what it is there for.
+
+**Only the *leading* word.** A trailing direction (`100 Queen St West`) and one sitting between the
+type and the municipality get no second reading — those shapes have not been measured, and NAR's
+own inventory of them is a different size.
 
 **Rules alone will not undo a direction.** `3908 loraine ave north vancouver` yields two readings
 that both name a real municipality, both score the same completeness, and the baseline wins ties
