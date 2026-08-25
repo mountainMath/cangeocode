@@ -154,7 +154,8 @@ canonicalized against a register NAR does not carry it in, and a join against
 <span>  threshold <span class="op">=</span> <span class="fl">0.85</span>,</span>
 <span>  name_threshold <span class="op">=</span> <span class="fl">0.9</span>,</span>
 <span>  mun_swap_penalty <span class="op">=</span> <span class="fl">0.88</span>,</span>
-<span>  keep_refused <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>  keep_refused <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  known <span class="op">=</span> <span class="cn">NULL</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -193,6 +194,13 @@ and so changes the municipality by design.</p></dd>
 <dt id="arg-keep-refused">keep_refused<a class="anchor" aria-label="anchor" href="#arg-keep-refused"></a></dt>
 <dd><p>Whether to report the matches the combined `threshold`
 turned away instead of discarding them. See the section below.</p></dd>
+
+
+<dt id="arg-known">known<a class="anchor" aria-label="anchor" href="#arg-known"></a></dt>
+<dd><p>The recycled `known` frame, or `NULL`. An asserted `CSD_NAME`
+replaces the municipality the alias set is looked up on; an asserted
+`MUN_NAME` narrows what the alias set returns to streets NAR files under that
+exact mailing name. See [nar_known()].</p></dd>
 
 </dl></div>
     <div class="section level2">

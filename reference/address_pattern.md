@@ -14,7 +14,7 @@ This is the same value \[normalize_address()\] returns in its
 ## Usage
 
 ``` r
-address_pattern(x, prov = NULL, ...)
+address_pattern(x, known = NULL, ...)
 ```
 
 ## Arguments
@@ -23,12 +23,18 @@ address_pattern(x, prov = NULL, ...)
 
   A character vector of address strings
 
-- prov:
+- known:
 
-  Optional two-letter province code (recycled against \`x\`) to use when
-  the string does not name one. Canonicalization is
-  language-conditioned, so this materially changes the result:
-  \`"avenue"\` normalizes to \`AVE\` in Ontario and \`AV\` in Quebec.
+  Components the caller already has, as a named list of vectors each
+  length 1 or \`length(x)\` – \`list(PROV_ABVN = "NS", MUN_NAME = "Howie
+  Centre")\`. Authoritative: each one overrides what the string parsed
+  to, lands on the returned row, and restricts the gazetteer.
+  \`MUN_NAME\` is the mailing city and \`CSD_NAME\` the administrative
+  one, and they are different searches; see \[nar_known()\] for the full
+  key list and for why the two are separate. \`PROV_ABVN\` additionally
+  reaches the parser, where it materially changes the result:
+  canonicalization is language-conditioned, so \`"avenue"\` normalizes
+  to \`AVE\` in Ontario and \`AV\` in Quebec.
 
 - ...:
 

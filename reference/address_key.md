@@ -17,7 +17,7 @@ them got right.
 ## Usage
 
 ``` r
-address_key(x, unit = FALSE, sep = "|", prov = NULL, con = NULL)
+address_key(x, unit = FALSE, sep = "|", known = NULL, con = NULL)
 ```
 
 ## Arguments
@@ -43,7 +43,7 @@ address_key(x, unit = FALSE, sep = "|", prov = NULL, con = NULL)
   components cannot contain; the default is fine unless a downstream
   tool treats \`\|\` specially.
 
-- prov, con:
+- known, con:
 
   Passed to \[normalize_address()\], and only allowed when \`x\` is a
   character vector – a data frame has already been parsed.

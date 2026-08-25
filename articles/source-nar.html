@@ -415,11 +415,10 @@ produces the misplacement in the first place.</li>
 <p><strong>What the package does.</strong> Nothing repairs these, and no
 tier reads that analysis — it is a measurement, not a correction. What
 is available to a caller is the constraint arguments and the validators:
-<code>prov</code>, <code>mun</code> and <code>within</code> are
-assertions that force the search into a region you know, and
-<code><a href="../reference/bc_validate.html">bc_validate()</a></code> and <code><a href="../reference/qc_validate.html">qc_validate()</a></code> re-ask a
-provincial authority about an answer you already have.
-<code><a href="../articles/geocoding.html">vignette("geocoding")</a></code> covers both.</p>
+<code>known</code> and <code>within</code> are assertions that force the
+search into a region you know, and <code><a href="../reference/bc_validate.html">bc_validate()</a></code> and
+<code><a href="../reference/qc_validate.html">qc_validate()</a></code> re-ask a provincial authority about an answer
+you already have. <code><a href="../articles/geocoding.html">vignette("geocoding")</a></code> covers both.</p>
 </div>
 <div class="section level2">
 <h2 id="addresses-nar-does-not-have">Addresses NAR does not have<a class="anchor" aria-label="anchor" href="#addresses-nar-does-not-have"></a>
@@ -501,9 +500,9 @@ under-specified question.</p>
 <p><strong>What the package does.</strong> <code>n_matches</code> is on
 every row, <code>uncertainty_m</code> grows to cover the spread of the
 candidates rather than reporting the first one’s precision, and
-<code>prov</code> / <code>mun</code> / <code>within</code> let you
-supply what the string did not. Filtering on <code>uncertainty_m</code>
-catches this class before it reaches a map.</p>
+<code>known</code> / <code>within</code> let you supply what the string
+did not. Filtering on <code>uncertainty_m</code> catches this class
+before it reaches a map.</p>
 </div>
 <div class="section level2">
 <h2 id="the-same-street-filed-two-ways">The same street, filed two ways<a class="anchor" aria-label="anchor" href="#the-same-street-filed-two-ways"></a>
@@ -633,8 +632,8 @@ Toronto, 234,568 addresses — a name that stopped being a municipality in
 1998 and is still a perfectly good mailing address.
 <code>PRINCE RUPERT</code> as a postal city reaches 47 of them.</p>
 <p><code>MunAlias</code> is the mapping between the two, built at
-import, and both <code><a href="../reference/normalize_address.html">normalize_address()</a></code> and the
-<code>mun</code> argument resolve through it rather than comparing
+import, and both <code><a href="../reference/normalize_address.html">normalize_address()</a></code> and
+<code>known$CSD_NAME</code> resolve through it rather than comparing
 strings. It is honest as a candidate set and dishonest as an assignment:
 measured on 55,833 rows that carry both a postal city and a census
 subdivision label, the alias set contains the right municipality every

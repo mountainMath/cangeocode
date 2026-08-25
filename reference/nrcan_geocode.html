@@ -78,7 +78,7 @@ on accuracy it is far behind the NAR tiers.</p>
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nrcan_geocode</span><span class="op">(</span></span>
 <span>  <span class="va">x</span>,</span>
-<span>  prov <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  known <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  rate <span class="op">=</span> <span class="fl">5</span>,</span>
 <span>  retries <span class="op">=</span> <span class="fl">3</span>,</span>
 <span>  geometry <span class="op">=</span> <span class="cn">FALSE</span>,</span>
@@ -98,9 +98,9 @@ way, since the floors compare the answer against them; passing a parsed
 frame just avoids parsing twice.</p></dd>
 
 
-<dt id="arg-prov">prov<a class="anchor" aria-label="anchor" href="#arg-prov"></a></dt>
-<dd><p>Optional province, passed to [normalize_address()] when `x` is a
-character vector.</p></dd>
+<dt id="arg-known">known<a class="anchor" aria-label="anchor" href="#arg-known"></a></dt>
+<dd><p>Components the caller already has, passed to
+[normalize_address()] when `x` is a character vector. See [nar_known()].</p></dd>
 
 
 <dt id="arg-rate">rate<a class="anchor" aria-label="anchor" href="#arg-rate"></a></dt>

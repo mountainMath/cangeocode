@@ -11,7 +11,7 @@ Canada.
 ``` r
 osm_geocode(
   x,
-  prov = NULL,
+  known = NULL,
   rate = 1,
   retries = 3,
   limit = 10,
@@ -31,10 +31,10 @@ osm_geocode(
   either way, since the floors compare the answer against them; passing
   a parsed frame just avoids parsing twice.
 
-- prov:
+- known:
 
-  Optional province, passed to \[normalize_address()\] when \`x\` is a
-  character vector.
+  Components the caller already has, passed to \[normalize_address()\]
+  when \`x\` is a character vector. See \[nar_known()\].
 
 - rate:
 

@@ -14,7 +14,7 @@ to check NAR against – see \[qc_validate()\].
 ``` r
 qc_geocode(
   x,
-  prov = NULL,
+  known = NULL,
   min_score = 0,
   batch_size = 1000,
   rate = 5,
@@ -33,10 +33,10 @@ qc_geocode(
   either way, since the floor compares the answer against them; passing
   a parsed frame just avoids parsing twice.
 
-- prov:
+- known:
 
-  Optional province, passed to \[normalize_address()\] when \`x\` is a
-  character vector.
+  Components the caller already has, passed to \[normalize_address()\]
+  when \`x\` is a character vector. See \[nar_known()\].
 
 - min_score:
 

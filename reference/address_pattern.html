@@ -82,7 +82,7 @@ column; use that instead when you want the components too.</p>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">address_pattern</span><span class="op">(</span><span class="va">x</span>, prov <span class="op">=</span> <span class="cn">NULL</span>, <span class="va">...</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">address_pattern</span><span class="op">(</span><span class="va">x</span>, known <span class="op">=</span> <span class="cn">NULL</span>, <span class="va">...</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -93,11 +93,16 @@ column; use that instead when you want the components too.</p>
 <dd><p>A character vector of address strings</p></dd>
 
 
-<dt id="arg-prov">prov<a class="anchor" aria-label="anchor" href="#arg-prov"></a></dt>
-<dd><p>Optional two-letter province code (recycled against `x`) to use
-when the string does not name one. Canonicalization is language-conditioned,
-so this materially changes the result: `"avenue"` normalizes to `AVE` in
-Ontario and `AV` in Quebec.</p></dd>
+<dt id="arg-known">known<a class="anchor" aria-label="anchor" href="#arg-known"></a></dt>
+<dd><p>Components the caller already has, as a named list of vectors
+each length 1 or `length(x)` – `list(PROV_ABVN = "NS", MUN_NAME = "Howie
+Centre")`. Authoritative: each one overrides what the string parsed to,
+lands on the returned row, and restricts the gazetteer. `MUN_NAME` is the
+mailing city and `CSD_NAME` the administrative one, and they are different
+searches; see [nar_known()] for the full key list and for why the two are
+separate. `PROV_ABVN` additionally reaches the parser, where it materially
+changes the result: canonicalization is language-conditioned, so `"avenue"`
+normalizes to `AVE` in Ontario and `AV` in Quebec.</p></dd>
 
 
 <dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>

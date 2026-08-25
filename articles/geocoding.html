@@ -520,23 +520,49 @@ there.</p>
 <div class="section level2">
 <h2 id="constraining-the-search">Constraining the search<a class="anchor" aria-label="anchor" href="#constraining-the-search"></a>
 </h2>
-<p><code>prov</code>, <code>mun</code> and <code>within</code> are
-assertions about where the address is, not hints. They override whatever
-the string said, and the override lands on the returned row too.</p>
+<p><code>known</code> and <code>within</code> are assertions about where
+the address is, not hints. <code>known</code> takes whatever components
+you already have, named as the output names them, and every one of them
+overrides what the string said, constrains the search, and lands on the
+returned row.</p>
 <div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"100 Queen St W, Vancouver, BC"</span>, prov <span class="op">=</span> <span class="st">"ON"</span>, mun <span class="op">=</span> <span class="st">"Toronto"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
-<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">PROV_ABVN</span>, <span class="va">MUN_NAME</span>, <span class="va">match_method</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
-<span><span class="co">#&gt;                           input PROV_ABVN MUN_NAME match_method      lon     lat</span></span>
-<span><span class="co">#&gt; 1 100 Queen St W, Vancouver, BC        ON  Toronto nar_building -79.3825 43.6515</span></span></code></pre></div>
-<p>The string names Vancouver; the arguments say Toronto, Ontario; the
-search runs in Toronto and the row reports Toronto. A result that
+<code class="sourceCode R"><span><span class="fu"><a href="../reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"100 Queen St W, Vancouver, BC"</span>,</span>
+<span>        known <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>PROV_ABVN <span class="op">=</span> <span class="st">"ON"</span>, CSD_NAME <span class="op">=</span> <span class="st">"Toronto"</span><span class="op">)</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu"><a href="https://dplyr.tidyverse.org/reference/select.html" class="external-link">select</a></span><span class="op">(</span><span class="va">input</span>, <span class="va">PROV_ABVN</span>, <span class="va">MUN_NAME</span>, <span class="va">CSD_NAME</span>, <span class="va">match_method</span>, <span class="va">lon</span>, <span class="va">lat</span><span class="op">)</span></span>
+<span><span class="co">#&gt;                           input PROV_ABVN MUN_NAME CSD_NAME match_method      lon     lat</span></span>
+<span><span class="co">#&gt; 1 100 Queen St W, Vancouver, BC        ON  TORONTO  TORONTO nar_building -79.3825 43.6515</span></span></code></pre></div>
+<p>The string names Vancouver; <code>known</code> says Toronto, Ontario;
+the search runs in Toronto and the row reports Toronto. A result that
 reported a municipality different from the one it was constrained to
 would misdescribe what was actually searched.</p>
-<p><code>mun</code> resolves through NAR’s alias set rather than
-matching the mailing city directly, which matters more than it sounds:
-NAR files a great many Toronto addresses under <code>SCARBOROUGH</code>,
-<code>ETOBICOKE</code> and <code>NORTH YORK</code>, and a direct
-comparison would drop every one of them.</p>
+<div class="section level3">
+<h3 id="two-kinds-of-city">Two kinds of city<a class="anchor" aria-label="anchor" href="#two-kinds-of-city"></a>
+</h3>
+<p><code>MUN_NAME</code> and <code>CSD_NAME</code> are different
+questions, and this is where the difference bites. <code>MUN_NAME</code>
+is the <strong>mailing city</strong> — the name on the envelope,
+compared straight at NAR’s own. <code>CSD_NAME</code> is the
+<strong>census subdivision</strong>, the administrative unit, resolved
+through NAR’s alias set. That matters more than it sounds: NAR files a
+great many Toronto addresses under <code>SCARBOROUGH</code>,
+<code>ETOBICOKE</code> and <code>NORTH YORK</code>, so
+<code>CSD_NAME = "Toronto"</code> reaches them and
+<code>MUN_NAME = "Toronto"</code> does not.</p>
+<p>The two do not nest — one mailing city can span several jurisdictions
+and one jurisdiction carries many mailing cities — so asking for the
+wrong one is not a near miss. Supply both and both constrain, which is
+how you narrow to one community inside an amalgamated city. A parsed
+mailing city that contradicts a <code>CSD_NAME</code> you asserted is
+dropped rather than left to veto it.</p>
+<p><code>CSD_NAME</code> is also an output column, and there it means
+something weaker: the census subdivision the record that matched happens
+to be in, not a jurisdiction the search was confined to. The two are
+deliberately not the same claim, so a parse handed back to
+<code><a href="../reference/geocode.html">geocode()</a></code> answers exactly as the string did.</p>
+<p>The same list is how you hand over an address that never was one
+string. An assessment roll with the civic number, the street and the
+community in columns of their own can be passed as <code>known</code>
+directly, and only the parts you do not have are read off the text.</p>
 <p><code>within</code> takes an <code>sf</code> polygon, an
 <code>st_bbox</code>, or a bare <code>c(xmin, ymin, xmax, ymax)</code>,
 and is close to free — the bounding box is compared against stored
@@ -553,6 +579,7 @@ than scanning.</p>
 <span><span class="co">#&gt; 1      1055 W Georgia St, Vancouver, BC nar_building</span></span>
 <span><span class="co">#&gt; 2 4001 W King Edward Ave, Vancouver, BC         none</span></span></code></pre></div>
 <p>Both addresses exist; only one is downtown.</p>
+</div>
 </div>
 <div class="section level2">
 <h2 id="working-with-the-parse">Working with the parse<a class="anchor" aria-label="anchor" href="#working-with-the-parse"></a>

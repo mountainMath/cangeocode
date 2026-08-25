@@ -81,7 +81,8 @@ which is why they are arguments rather than two copies of this.</p>
 <span>  name_threshold <span class="op">=</span> <span class="fl">0.9</span>,</span>
 <span>  prepare <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  keep_refused <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  mun_swap_penalty <span class="op">=</span> <span class="fl">1</span></span>
+<span>  mun_swap_penalty <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>  known <span class="op">=</span> <span class="cn">NULL</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
 
@@ -133,6 +134,10 @@ flagged in `refused_for`</p></dd>
 <dt id="arg-mun-swap-penalty">mun_swap_penalty<a class="anchor" aria-label="anchor" href="#arg-mun-swap-penalty"></a></dt>
 <dd><p>The multiplier this pass\'s query applied, used only
 to tell a refusal the penalty caused from a refusal it did not</p></dd>
+
+
+<dt id="arg-known">known<a class="anchor" aria-label="anchor" href="#arg-known"></a></dt>
+<dd><p>The recycled `known` frame, or `NULL`; see [nar_known()]</p></dd>
 
 </dl></div>
     <div class="section level2">

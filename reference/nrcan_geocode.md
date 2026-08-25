@@ -12,7 +12,7 @@ it exists here, since on accuracy it is far behind the NAR tiers.
 ``` r
 nrcan_geocode(
   x,
-  prov = NULL,
+  known = NULL,
   rate = 5,
   retries = 3,
   geometry = FALSE,
@@ -30,10 +30,10 @@ nrcan_geocode(
   either way, since the floors compare the answer against them; passing
   a parsed frame just avoids parsing twice.
 
-- prov:
+- known:
 
-  Optional province, passed to \[normalize_address()\] when \`x\` is a
-  character vector.
+  Components the caller already has, passed to \[normalize_address()\]
+  when \`x\` is a character vector. See \[nar_known()\].
 
 - rate:
 

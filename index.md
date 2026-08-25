@@ -295,17 +295,27 @@ belong last in the list.
 
 ### Constraining the search
 
-`prov`, `mun` and `within` are **authoritative**: they override whatever
-the address string said, and the override lands on the returned row too.
+`known` is what you already know about the address, in the same column
+names the output uses: `CIVIC_NO`, `STREET_NAME`, `STREET_TYPE`,
+`STREET_DIR`, `APT_NO_LABEL`, `CIVIC_NO_SUFFIX`, `MUN_NAME`, `CSD_NAME`,
+`PROV_ABVN`, `POSTAL_CODE`. Every component is **authoritative**: it
+overrides whatever the address string said, it constrains the search,
+and it lands on the returned row too. So does `within`.
 
 ``` r
 
 # A bounding box, an sf polygon, or an st_bbox all work.
-geocode(addresses, prov = "BC", within = sf::st_bbox(vancouver))
+geocode(addresses, known = list(PROV_ABVN = "BC"),
+        within = sf::st_bbox(vancouver))
 ```
 
-`mun` resolves through NAR’s municipality aliases, so `mun = "TORONTO"`
-still finds the addresses NAR files under `SCARBOROUGH`.
+The two municipality components are two different questions. `MUN_NAME`
+is the **mailing city**, compared straight at the name on the envelope.
+`CSD_NAME` is the **census subdivision**, resolved through NAR’s alias
+set, so `CSD_NAME = "Toronto"` finds the addresses NAR files under
+`SCARBOROUGH`, `ETOBICOKE` and `NORTH YORK` and `MUN_NAME = "Toronto"`
+does not. Supply both to narrow to one community inside an amalgamated
+city.
 
 ## Address normalization
 
@@ -332,10 +342,17 @@ rule could — `29 HPCKING AVE, SAULT STE. MARIE` comes back as `Hocking`,
 the one real street in that city close enough to be meant — and
 `parse_source` says which rows cleared it.
 
+[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+takes the same `known` list as
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md),
+which is how an address that was never one string — a roll with the
+community and the postal code in columns of their own — reaches the
+parser with its structure intact.
+
 **Canonical forms are province-conditioned.** NAR writes `AVE` in
 Ontario and `AV` in Quebec, `BLVD` against `BOUL`, `W` against `O`, so
-`prov` is not a hint but a choice of vocabulary. Pass it if your data
-has it.
+`known$PROV_ABVN` is not a hint but a choice of vocabulary. Pass it if
+your data has it.
 
 [`address_pattern()`](https://mountainmath.github.io/cangeocode/reference/address_pattern.md)
 sorts a string into one of twelve structural shapes and needs no

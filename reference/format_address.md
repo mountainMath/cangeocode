@@ -21,7 +21,7 @@ throughout.
 ## Usage
 
 ``` r
-format_address(x, prov = NULL, con = NULL)
+format_address(x, known = NULL, con = NULL)
 ```
 
 ## Arguments
@@ -32,7 +32,7 @@ format_address(x, prov = NULL, con = NULL)
   \[normalize_address()\], or a character vector of address strings to
   normalize first.
 
-- prov, con:
+- known, con:
 
   Passed to \[normalize_address()\], and only allowed when \`x\` is a
   character vector – a data frame has already been parsed.

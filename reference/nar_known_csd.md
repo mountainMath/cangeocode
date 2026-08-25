@@ -1,0 +1,47 @@
+# Which municipality-as-jurisdiction actually restricts the search
+
+\`CSD_NAME\` is both an input and an output, and the two must not be
+confused. As an input it is a \*\*constraint\*\* – the caller naming the
+jurisdiction. As an output it is a \*\*report\*\* – the census
+subdivision the street or record that matched happens to belong to,
+which is not the same claim: the search was never restricted to it.
+
+Feeding a reported one back in as a constraint narrows the next search
+to something no one asked for. \`5491 Route 11, Brantville, NB\` is the
+case that found this: the gazetteer resolves the street inside
+\`13:MRM:Tracadie\`, while NAR files Brantville's Route 11 addresses
+across that key, \`13:RCR:Alnwick\` and a blank one. Restricting to
+Tracadie drops the flanking civic numbers the interpolation tier needs,
+and a row that placed becomes a row that does not. So
+\`geocode(normalize_address(x, con = con))\` would answer differently
+from \`geocode(x, con = con)\`, which is the one thing the two forms may
+not do.
+
+A frame the caller built themselves is input, not a report, so its own
+\`CSD_NAME\` does constrain. \`parse_source\` is what tells the two
+apart – every \[normalize_address()\] result carries it and nothing else
+does.
+
+## Usage
+
+``` r
+nar_known_csd(res, k, from_frame = FALSE)
+```
+
+## Arguments
+
+- res:
+
+  The components being searched on
+
+- k:
+
+  The recycled \`known\` frame, or \`NULL\`
+
+- from_frame:
+
+  Whether \`res\` is a frame the caller built rather than a parse
+
+## Value
+
+A character vector, or \`NULL\` if nothing constrains

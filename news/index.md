@@ -262,6 +262,60 @@ additions are both about the reporting.
   – that gate is applied inside the query, so a name too far from every
   candidate never comes back at all.
 
+### Structured input, and two kinds of city
+
+- **Breaking: `prov` and `mun` are gone**, absorbed into a single
+  `known` argument on
+  [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md),
+  [`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md),
+  [`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md),
+  [`address_pattern()`](https://mountainmath.github.io/cangeocode/reference/address_pattern.md),
+  [`address_key()`](https://mountainmath.github.io/cangeocode/reference/address_key.md),
+  [`format_address()`](https://mountainmath.github.io/cangeocode/reference/format_address.md)
+  and the online geocoders. `known` is a named list of components the
+  caller already has – `geocode(x, known = list(PROV_ABVN = "BC"))`
+  where 0.2.0 said `geocode(x, prov = "BC")`. Each component is still
+  authoritative: it overrides what the string parsed to, constrains the
+  search, and lands on the returned row.
+
+- **It takes the whole address, not just the two constraints.**
+  `APT_NO_LABEL`, `CIVIC_NO`, `CIVIC_NO_SUFFIX`, `STREET_NAME`,
+  `STREET_TYPE`, `STREET_DIR`, `MUN_NAME`, `CSD_NAME`, `PROV_ABVN` and
+  `POSTAL_CODE`, keyed by the names the *output* uses, so an assessment
+  roll that carries the community and the postal code in columns of
+  their own reaches the parser with its structure intact instead of
+  being concatenated into a string for the parser to take apart again. A
+  key that is not one of the ten is an **error**, not a silently dropped
+  constraint.
+
+- **The two municipality grains are now separable.** `MUN_NAME` is the
+  mailing city, compared straight at NAR’s `MAIL_MUN_NAME`; `CSD_NAME`
+  is the census subdivision, resolved through NAR’s alias set.
+  `CSD_NAME = "Toronto"` reaches an address NAR files under
+  `SCARBOROUGH` and `MUN_NAME = "Toronto"` does not. They do not nest,
+  so supplying both narrows to one community inside an amalgamated city.
+  Before this the choice was made by provenance – a supplied
+  municipality went through the alias set and a parsed one did not –
+  which is the right default for each but gave the caller no way to ask
+  the other question.
+
+- **`CSD_NAME` is also an output column now**, on
+  [`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+  and
+  [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+  alike, so a result says which census subdivision it landed in rather
+  than reporting only a mailing city that an administrative search
+  produced. As an output it is a *report* and not a constraint – the
+  search was never restricted to it – which is why handing a parse back
+  to
+  [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+  answers exactly as the original string did.
+
+- A municipality supplied through `known` reports
+  `mun_evidence = "kept"` and `mun_remapped = FALSE`: the caller settled
+  what the swap penalty exists to arbitrate, so those rows take no
+  uncertainty floor for a substitution that never happened.
+
 ### Forward geocoding
 
 - **New

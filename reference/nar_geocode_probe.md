@@ -8,7 +8,7 @@ would instead make every comparison against it unknown.
 ## Usage
 
 ``` r
-nar_geocode_probe(res, auth_mun = FALSE)
+nar_geocode_probe(res)
 ```
 
 ## Arguments
@@ -16,11 +16,6 @@ nar_geocode_probe(res, auth_mun = FALSE)
 - res:
 
   Parsed components, as \[normalize_address()\] returns
-
-- auth_mun:
-
-  Whether \`MUN_NAME\` is the caller's authoritative value, which sends
-  it down the \`MunAlias\` route instead of the direct one
 
 ## Value
 

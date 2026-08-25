@@ -17,17 +17,7 @@ surface on one batch and stay silent on the next.
 ## Usage
 
 ``` r
-nar_geocode_setup(
-  x,
-  prov,
-  mun,
-  within,
-  method,
-  crs,
-  version,
-  con,
-  dots = list()
-)
+nar_geocode_setup(x, known, within, method, crs, version, con, dots = list())
 ```
 
 ## Arguments
@@ -36,7 +26,7 @@ nar_geocode_setup(
 
   Address strings, or a parsed data frame
 
-- prov, mun, within:
+- known, within:
 
   Constraints, as in \[geocode()\]
 

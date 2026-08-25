@@ -22,7 +22,6 @@ nar_geocode_match(
   method = c("nar", "nar_interpolate"),
   bounds = "",
   bounds_geom = NULL,
-  auth_mun = FALSE,
   ...
 )
 ```
@@ -49,10 +48,6 @@ nar_geocode_match(
 
   The same restriction as an \`sfc\`, for the tiers that run outside the
   database
-
-- auth_mun:
-
-  Whether \`MUN_NAME\` is the caller's authoritative value
 
 - ...:
 

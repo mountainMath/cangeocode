@@ -20,7 +20,8 @@ nar_gazetteer_pass(
   name_threshold = 0.9,
   prepare = NULL,
   keep_refused = FALSE,
-  mun_swap_penalty = 1
+  mun_swap_penalty = 1,
+  known = NULL
 )
 ```
 
@@ -71,6 +72,10 @@ nar_gazetteer_pass(
 
   The multiplier this pass\\s query applied, used only to tell a refusal
   the penalty caused from a refusal it did not
+
+- known:
+
+  The recycled \`known\` frame, or \`NULL\`; see \[nar_known()\]
 
 ## Value
 

@@ -94,17 +94,7 @@ one batch and stay silent on the next.</p>
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_geocode_setup</span><span class="op">(</span></span>
-<span>  <span class="va">x</span>,</span>
-<span>  <span class="va">prov</span>,</span>
-<span>  <span class="va">mun</span>,</span>
-<span>  <span class="va">within</span>,</span>
-<span>  <span class="va">method</span>,</span>
-<span>  <span class="va">crs</span>,</span>
-<span>  <span class="va">version</span>,</span>
-<span>  <span class="va">con</span>,</span>
-<span>  dots <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span></span>
-<span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_geocode_setup</span><span class="op">(</span><span class="va">x</span>, <span class="va">known</span>, <span class="va">within</span>, <span class="va">method</span>, <span class="va">crs</span>, <span class="va">version</span>, <span class="va">con</span>, dots <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -115,7 +105,7 @@ one batch and stay silent on the next.</p>
 <dd><p>Address strings, or a parsed data frame</p></dd>
 
 
-<dt id="arg-prov-mun-within">prov, mun, within<a class="anchor" aria-label="anchor" href="#arg-prov-mun-within"></a></dt>
+<dt id="arg-known-within">known, within<a class="anchor" aria-label="anchor" href="#arg-known-within"></a></dt>
 <dd><p>Constraints, as in [geocode()]</p></dd>
 
 

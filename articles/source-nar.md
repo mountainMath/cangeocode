@@ -301,7 +301,7 @@ repaired automatically:
 
 **What the package does.** Nothing repairs these, and no tier reads that
 analysis — it is a measurement, not a correction. What is available to a
-caller is the constraint arguments and the validators: `prov`, `mun` and
+caller is the constraint arguments and the validators: `known` and
 `within` are assertions that force the search into a region you know,
 and
 [`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md)
@@ -405,9 +405,9 @@ question.
 
 **What the package does.** `n_matches` is on every row, `uncertainty_m`
 grows to cover the spread of the candidates rather than reporting the
-first one’s precision, and `prov` / `mun` / `within` let you supply what
-the string did not. Filtering on `uncertainty_m` catches this class
-before it reaches a map.
+first one’s precision, and `known` / `within` let you supply what the
+string did not. Filtering on `uncertainty_m` catches this class before
+it reaches a map.
 
 ## The same street, filed two ways
 
@@ -552,7 +552,7 @@ reaches 47 of them.
 
 `MunAlias` is the mapping between the two, built at import, and both
 [`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
-and the `mun` argument resolve through it rather than comparing strings.
+and `known$CSD_NAME` resolve through it rather than comparing strings.
 It is honest as a candidate set and dishonest as an assignment: measured
 on 55,833 rows that carry both a postal city and a census subdivision
 label, the alias set contains the right municipality every single time —
