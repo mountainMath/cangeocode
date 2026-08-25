@@ -149,7 +149,7 @@ and what to watch out for:
 
 | vignette | source | role | licence |
 |----|----|----|----|
-| [`source-nar`](https://mountainmath.github.io/cangeocode/articles/source-nar.html) | National Address Repository | the base, and the yardstick everything else is measured against | StatCan Open Licence |
+| [`source-nar`](https://mountainmath.github.io/cangeocode/articles/source-nar.html) | National Address Repository | the default tier that does most of the heavy lifting | StatCan Open Licence |
 | [`source-rqa`](https://mountainmath.github.io/cangeocode/articles/source-rqa.html) | Répertoire québécois des adresses | offline `"rqa"` tier, via [`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md) | CC-BY 4.0 |
 | [`source-rnf`](https://mountainmath.github.io/cangeocode/articles/source-rnf.html) | Statistics Canada Road Network File | offline `"rnf"` tier, via [`rnf_import()`](https://mountainmath.github.io/cangeocode/reference/rnf_import.md) | StatCan Open Licence |
 | [`source-bc`](https://mountainmath.github.io/cangeocode/articles/source-bc.html) | BC Address Geocoder | online tier, and [`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md) | OGL – British Columbia |
