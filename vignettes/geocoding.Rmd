@@ -694,6 +694,78 @@ far from every candidate never comes back at all — which is deliberate, since 
 is the gate that stops a matching street type from carrying an unrelated street
 over the line.
 
+### How to actually use this
+
+The pattern that works is **geocode once with everything on, then split three
+ways**. Resolve with `keep_refused = TRUE` — it costs nothing extra and can only
+add rows — and let `geocode_accept()` do the deciding afterwards, as many times
+as it takes:
+
+
+``` r
+r <- geocode(hard, keep_refused = TRUE)
+
+a <- geocode_accept(r, refused = FALSE, attested_only = TRUE,
+                    unambiguous = TRUE, max_uncertainty = 100)
+
+a |>
+  mutate(outcome = case_when(!is.na(lon)          ~ "use",
+                             !is.na(rejected_for) ~ "review",
+                             TRUE                 ~ "not placed")) |>
+  count(outcome, rejected_for)
+#>      outcome   rejected_for n
+#> 1 not placed           <NA> 1
+#> 2     review      ambiguous 2
+#> 3     review        refused 1
+#> 4     review unattested_mun 1
+#> 5        use           <NA> 6
+```
+
+Three outcomes, not two, and the middle one is the reason to bother:
+
+* **use** — cleared your bar. Coordinates present.
+* **review** — an answer exists and you turned it down. `rejected_for` says
+  why, and every column the decision rested on is still there. This is the pile
+  worth hand-checking, and it is usually small.
+* **not placed** — nothing was ever found. No amount of loosening the bar helps;
+  these need a better address string, a different tier, or nothing.
+
+Filtering with `filter(!is.na(lon))` collapses the last two together and throws
+away the distinction, which is the one piece of information you cannot recover
+afterwards.
+
+### Choosing a bar
+
+There is no universally right setting, but the task usually decides it:
+
+| what you are doing | a reasonable starting bar |
+| --- | --- |
+| aggregating to a census geography — DA, CSD, health region | `attested_only = TRUE`, and nothing else. At that scale 100 m of positional error is invisible and a 118 km municipality swap is not. |
+| mapping points, neighbourhood scale | `attested_only = TRUE, unambiguous = TRUE, max_uncertainty = 100` |
+| anything address-exact — dispatch, service eligibility, joining to a parcel | add `method = "nar_building"`. Nothing interpolated, nothing online, nothing that resolved to a street rather than a building. |
+| maximum recall, hand-checked after | `keep_refused = TRUE` and no bar at all. Sort by `confidence` and work down; `refused_for == "mun_swap"` is where local knowledge pays. |
+| matching two address lists to each other | don't geocode at all — `vignette("address-normalization")` does this without a coordinate. |
+
+Three things to keep in mind while tuning:
+
+* **`attested_only` is the one to reach for first.** It is the cheapest test by
+  a wide margin: in a 40,000-address Nova Scotia sample the unverified evidence
+  classes are 2.3% of the rows and roughly a third of everything landing more
+  than five kilometres out. The other tests trade far more recall per error
+  removed.
+* **A row is charged only to the *first* test it fails.** So the counts in
+  `table(rejected_for)` are not what each test costs on its own — run them one at
+  a time if you need to attribute the loss.
+* **Don't use `min_confidence` as a stand-in for positional accuracy.** It scores
+  how well the string matched a street name, not where the point landed. The
+  Kelry row above scores 0.833 and sits on an exact building point; the
+  Howie Centre row scores 0.900 and is 388 km out.
+
+Finally, report what the bar cost. `mean(is.na(a$lon)) - mean(is.na(r$lon))` is
+the share of addresses you gave up, and it belongs next to whatever the
+coordinates were used for — a study that geocodes 94% of its subjects and one
+that geocodes 71% of them are not describing the same population.
+
 ## Geometry
 
 `geometry = TRUE` returns an `sf` object instead of `lon`/`lat` columns, with an
