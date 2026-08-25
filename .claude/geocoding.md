@@ -7,6 +7,10 @@
 
 ## `R/geocode.R` — the forward query layer
 
+`R/known.R` (the `known` argument and everything it validates) and `R/geocode_accept.R` are
+covered here too: both exist only to serve this layer, and splitting them off would separate a
+constraint from the query it constrains.
+
 `geocode()` parses with `normalize_address()` and then runs the tiers named in **`method`**,
 **in the order given** — that order *is* the priority, since each tier is offered only the
 rows its predecessors left without a position. `match_method` reports which one answered and

@@ -11,28 +11,23 @@ matching two address lists to each other needs the parse and never needs a coord
 carries its own vignette, its own README section, its own pkgdown group and its own status
 note. Do not fold it back into the geocoding story.
 
-The current implementation is built entirely on Statistics Canada's **NAR**
-(National Address Repository) bulk CSV releases, imported into a local **DuckDB** database with
-the `spatial` extension. Three online geocoders are wired up as fallback tiers: NRCan's national
-geolocator, the Province of British Columbia's Address Geocoder, and Quebec's MRNF geocoder over
-the Répertoire québécois des adresses — the latter two provincial-only and also validation
-sources. Quebec's register, the *Répertoire québécois des adresses*, can also be imported into the same
-DuckDB file **as its own tables** by `rqa_import()`, which adds an offline `"rqa"` tier for
-Quebec. It is kept beside NAR rather than merged into it, and that is a load-bearing
-decision.
-A fourth online geocoder, the Government of Canada's OpenStreetMap (Nominatim) instance, is
-bound as `osm_geocode()` but is deliberately **not** a tier — its data is ODbL where everything else here
-is OGL. Reverse geocoding is NAR-backed and local except for `qc_reverse_geocode()`, the one
-online reverse geocoder here. Statistics Canada's **Road Network File** is imported into the
-same DuckDB file **as its own tables** by `rnf_import()`, which adds an offline `"rnf"` tier
-that interpolates a civic number along the street segment whose address range contains it —
-the one tier that reaches streets NAR does not carry at all.
+Everything offline lives in one local **DuckDB** database (`spatial` extension) built from
+Statistics Canada's **NAR** (National Address Repository) bulk CSVs. Two optional imports write
+**their own tables** beside it — Quebec's *Répertoire québécois des adresses* (`rqa_import()`,
+the `"rqa"` tier) and StatCan's **Road Network File** (`rnf_import()`, the `"rnf"` tier, the one
+tier that reaches streets NAR does not carry at all). Keeping each *beside* NAR rather than
+merged into it is load-bearing; see [`rqa.md`](rqa.md) and [`rnf.md`](rnf.md). Online:
+NRCan's national geolocator, BC's Address Geocoder and Quebec's MRNF geocoder are fallback
+tiers, the last two provincial-only and also validation sources. `osm_geocode()` is bound but is
+deliberately **not** a tier — its data is ODbL where everything else here is OGL. Reverse
+geocoding is NAR-backed and local except for `qc_reverse_geocode()`.
 
 Public API (see `NAMESPACE`): `nar_connection()`, `open_nar()`, `close_nar()`, `nar_provinces()`,
 `available_nar_versions()`, `collect_nar()`, `reverse_geocode()`, `normalize_address()`,
-`address_pattern()`, `address_key()`, `format_address()`, `geocode()`,
-`geocode_accept()`, `geocode_matches()`, `nrcan_geocode()`, `bc_geocode()`, `bc_validate()`, `qc_geocode()`, `qc_reverse_geocode()`, `qc_validate()`,
-`osm_geocode()`, `rqa_import()`, `rqa_attribution()`, `rnf_import()`.
+`address_pattern()`, `address_key()`, `format_address()`, `geocode()`, `geocode_accept()`,
+`geocode_matches()`, `nrcan_geocode()`, `bc_geocode()`, `bc_validate()`, `qc_geocode()`,
+`qc_reverse_geocode()`, `qc_validate()`, `osm_geocode()`, `rqa_import()`, `rqa_attribution()`,
+`rnf_import()`.
 
 This file records the repo-wide facts: what to run, what the environment needs, how the tests
 and vignettes are built, and the conventions. **Why each component is shaped the way it is lives
@@ -47,7 +42,7 @@ devtools::load_all()      # load package for interactive work
 devtools::document()      # regenerate NAMESPACE + man/ from roxygen comments
 devtools::check()         # full R CMD check
 devtools::install()
-devtools::test()                          # run the whole suite
+devtools::test()                            # run the whole suite
 devtools::test(filter = "reverse-geocode")  # one file (matches tests/testthat/test-<filter>.R)
 ```
 
@@ -94,22 +89,21 @@ boundary tests key off.
 
 ## Vignettes
 
-The vignettes are one per objective, plus support, plus **one per data source**:
-`cangeocode` (getting started, reverse geocoding), `geocoding` (`geocode()`),
-`address-normalization` (`normalize_address()` as a task in its own right, including address
-matching), `querying-nar` (the database directly), and the source family -- `data-sources`
-(the parent: how the seven relate, what each tier layer is worth, which can check another,
-and why one is not a tier) over `source-nar`, `source-rqa`, `source-rnf`, `source-bc`,
-`source-nrcan`, `source-qc`, `source-osm`. Each child opens with a one-line backlink to the
-parent, and the parent's table is the index -- **add a row there when a source is added**, or
-the new vignette is unreachable from anywhere but the navbar. The source family is where the measurements in `inst/notes/` are surfaced to a
-user, and **every one of them carries a `## What this adds to the package` section and a
-`## Licence` section** -- those two are the contract for the family, not decoration, since the
-licences are what decide which sources may be default tiers (OGL and CC-BY compose; ODbL does
-not, which is why `osm_geocode()` is not a tier). `source-osm` is the only one with no live
-chunks, because its accuracy probe has not been run. `_pkgdown.yml` groups the vignettes under
-those headings in the navbar, with the source family under **Data sources**, and the reference
-index puts Address normalization directly below Geocoding for the same reason.
+One per objective, plus support, plus **one per data source**: `cangeocode` (getting started,
+reverse geocoding), `geocoding`, `address-normalization` (a task in its own right, including
+address matching), `querying-nar`, and the source family — `data-sources` (the parent: how the
+seven relate, what each tier is worth, which can check another, and why one is not a tier) over
+`source-nar`, `source-rqa`, `source-rnf`, `source-bc`, `source-nrcan`, `source-qc`, `source-osm`.
+
+Contract for the source family: each child opens with a one-line backlink to the parent, and the
+parent's table is the index — **add a row there when a source is added**, or the new vignette is
+reachable only from the navbar. Each child also carries a `## What this adds to the package` and
+a `## Licence` section; the licences are what decide which sources may be default tiers (OGL and
+CC-BY compose, ODbL does not). `source-osm` is the only one with no live chunks, its accuracy
+probe never having been run. The family is where the measurements in `inst/notes/` are surfaced
+to a user. `_pkgdown.yml` groups the vignettes under those headings, the source family under
+**Data sources**, and orders Address normalization directly below Geocoding in the reference
+index — the same first-class claim the objectives make.
 
 All vignettes query the real ~5 GB database, which `R CMD build` cannot do, so they are
 **pre-computed**: the sources are `vignettes/<name>.Rmd.orig`, `vignettes/precompute.R` knits them
@@ -130,119 +124,71 @@ against the installed package, not `load_all()`.
 ## Architecture
 
 Every component carries its own note in `.claude/`, recording the constraints that are not
-visible in the code and that have been re-derived — and re-broken — before. **Read the note that
-covers the code you are about to touch.**
+visible in the code and that have been re-derived — and re-broken — before. The third column is a
+**list of hooks, not the facts themselves**: each clause is a trap the note explains in full.
+**Read the note that covers the code you are about to touch.**
 
-| note | covers | what you cannot guess from the code |
+| note | covers | hooks |
 | --- | --- | --- |
-| **[`spatial.md`](spatial.md)** — start here | `R/geo_helpers.R`, `R/reverse_geocode.R`, `collect_nar()`, CRS handling | all spatial SQL is TEMP macros defined once; geometry is stored *untagged* so the RTREE index can exist and the CRS is re-attached at query time; the zonemap prefilter is the biggest win in the package and is not an index; every lon/lat transform needs `always_xy = TRUE` |
-| **[`nar-database.md`](nar-database.md)** | `R/nar.R`, `R/nar_zip.R`, `R/nar_provinces.R`, `R/nar_session.R` — download, schema, partial imports, version discovery, the session connection | `nar_schema_version()` is 6 and older databases must keep working; a single province is fetched by HTTP range over the archive's own central directory; `BG` is Building and `BF` is Blockface, and a blockface distance is not comparable to a building one; an unsupplied `con` resolves to a *parked* connection that is never closed by the call that opened it, `"latest"` stops meaning "ask StatCan" the moment one is parked, and every write path has to call `nar_session_release()` or the read-only handle blocks its own import |
-| **[`normalization.md`](normalization.md)** | `R/normalize_address.R`, `R/normalize_pattern.R`, `R/normalize_variants.R`, `R/normalize_gazetteer.R`, `R/address_format.R` | numbered rural roads carry no street type at all; `STE` is Suite *and* Sainte, and all three unit paths must know it; `name_sim` is not a similarity, and its whole-word-containment award does not rescue a name the type step ate -- the same eaten word is charged twice, once capping `name_sim` at the 0.90 floor and once forfeiting `type_match`, because a *wrong* type scores 0 where an absent one scores full, which lands the right street at 0.828 against a 0.85 bar; the fuzzy branch compares on a *match fold* that spells `ST` out to `SAINT` and turns the hyphen into a word boundary, and the R and SQL halves of it must stay identical or matching silently degrades; an alternative reading is generated only when the baseline is *demonstrably* broken, because the gazetteer scores a municipality-restricted match higher by construction and so cannot arbitrate a bad candidate away — and the third thing that counts as broken, a trailing run longer than the municipality claimed that also names one, is what segments a comma-free string and cannot fire on a delimited one -- but a stripped leading compass word gets its reading back *unconditionally*, outside that gate, because the baseline it contradicts looks perfectly well-formed and the failure it causes is a confident answer on the mirror-image street rather than an unplaced row, and the word has to travel out of the parse as the token that arrived since `E` never meets `East Uniacke` -- and where that reading matches *exactly* and still loses, it is losing a tie to an **attested** municipality swap, which pays no penalty, so `nar_gazetteer_winner()` orders on `mun_kept` between the score and the candidate index: the exemption is a decision about a swap competing against nothing, and it is wrong only when a reading that stayed put scored the same; every civic-number rule anchors on a number at the *front* of the string, so `nar_strip_lead_prose()` cuts a prose prefix off before anything else reads it, and each of its four guards is holding back a real address form; the gazetteer runs a *second* pass over Quebec's own register where NAR left the row unresolved, and the R and SQL folds differ on the en dash unless the SQL half is told about it; `MunAlias` restricts at *census subdivision* grain, so a locality restriction can be 127 km wide and the fuzzy branch will answer in the wrong community with a clean score, which is why a municipality the resolved one shares no full postal code with is fined 0.88 -- a signal read out of NAR, never an assumed alias list, and never the FSA -- while an amalgamation or legacy name is attested by `CSD_ENG_NAME` instead, since the merger never merged the delivery names; the same `CASE` is emitted as `mun_evidence` so the arm that decided is an output column, and the swap is scored against the *baseline* reading because an alternative one that truncates the municipality can otherwise manufacture its own attestation; a refused match is invisible from outside -- indistinguishable from the street not existing -- which is what `keep_refused` fixes, and `"mun_swap"` is separable from `"score"` in R *only* because the penalty fines exactly one evidence class, while the name gate lives inside the query so nothing that failed it can ever be reported |
-| **[`rqa.md`](rqa.md)** | `R/rqa.R` — the RQA import and the `"rqa"` tier | RQA is kept beside NAR and not merged into it because merging spends the only instrument Quebec's coverage is measurable with; `nar_schema_version()` is deliberately *not* bumped, since the tables are optional and additive and a bump forces a re-download; NAR keeps the particule inside the street name and RQA in a column of its own, so comparing raw reads 1.27M missing where there are 358K; `IN_NAR` is fold equality and knowingly over-reports by ~14%; the tier joins on the *match* fold, not the plain one, because the addresses it exists for are exactly the ones the gazetteer could not resolve; the normalization pass reuses NAR's `MunAlias` rather than an alias table of its own, which is why RQA's `BOROUGH` is needed by the tier and not by the parser |
-| **[`rnf.md`](rnf.md)** | `R/rnf.R` — the road network file import and the `"rnf"` tier | the file carries no provenance flag on its address ranges, so every threshold rests on measurement rather than on the file; take the shapefile, which is the only format published for every release *and* the one without the 13 CircularStrings DuckDB refuses; `N/A` is a literal string beside real nulls in TYPE/DIR; an absent type or direction constrains nothing on either side; the municipality needs both `MunAlias` and a direct CSD comparison because 8.3% of RNF's ranged pairs are not in NAR at all; ambiguity refuses and a parity mismatch does not, and the reasons are different |
-| **[`geocoding.md`](geocoding.md)** | `R/geocode.R`, `R/known.R`, `R/geocode_bc.R`, `R/geocode_nrcan.R`, `R/geocode_qc.R`, `R/geocode_osm.R` | `known` is one named list keyed by the *output* column names, absorbing what `prov` and `mun` used to be, and an unrecognized key is an error because a constraint that does not bind produces a confident wrong answer; `MUN_NAME` and `CSD_NAME` are two different questions rather than one with a mode -- mailing city compared straight at `MAIL_MUN_NAME` against census subdivision resolved through `MunAlias` -- they do not nest, both constrain when both are given, and the choice used to be made by *provenance* (`auth_mun <- !is.null(mun)`) so a caller could not ask the other question; `MunAlias` is asymmetric on purpose, carrying mailing names as routes into a jurisdiction, so `CSD_NAME = "Southlands"` answers where `MUN_NAME = "Vancouver"` on the same record does not; an asserted `CSD_NAME` *clears* a parsed mailing city that contradicts it, once and before the gazetteer, or the contradicted reading vetoes the assertion and the search runs in an empty intersection; `CSD_NAME` is both an input and an output and they are **not** the same claim -- the output reports which subdivision the match landed in, the search was never restricted to it, and feeding it back would make `geocode(normalize_address(x, con))` differ from `geocode(x, con)`, which is why the probe reads it off the `nar_csd_constraint` attribute rather than off the column; `method` names the tiers *in priority order*; "unplaced" is `is.na(x)`, never `match_method == "none"`, and both `ADDR_GUID` and `match_postal_code` survive from the tier that matched the record into whichever tier places the row; `POSTAL_CODE` is the parse and `match_postal_code` is the lookup, and the second is an aggregate over the candidates that reports nothing unless they agree, which is what a candidate set the input gave no unit for leaves it unable to do; `n_matches` counts points and `n_records` counts addresses, 47% of NAR's placed addresses share a point, and the two failures are different -- wrong place versus more than one thing in the right place, so a record count is never widened into `uncertainty_m`; a supplied unit narrows the candidates and 27.5% of the units real filings supply are not in NAR at that civic number, which is why the filter narrows *or does nothing* rather than being enforced, and why the unit vocabulary is translated on the input side only; `geocode_matches()` is that *same* candidate set read without the collapse, sharing the rank and the civic key so `match_rank == 1` is the answered row by construction, and it takes no `method` because no other tier has a set to enumerate; matching both NAR name families with `OR` instead of a `UNION` is a 99x slowdown; BC, the geolocator and Quebec always answer, so a response is not a match, while Nominatim genuinely refuses; a returned title must be re-parsed *without* the gazetteer or the floor launders the error it exists to catch; Quebec's locator needs the query spelled French-canonical (`Rue Notre-Dame Ouest`, not NAR's `NOTRE-DAME RUE O`) or it silently stops matching, and its `Score` is not a precision ranking; `osm_geocode()` is exported but is not a tier, and the reason is the ODbL licence rather than accuracy; BC's `locationDescriptor` is a request and not an instruction, three of its six values return the same point as the default, and the default is already the closest to NAR; `uncertainty_m` is floored per `mun_evidence` and not per `mun_remapped` -- an attested swap gets no floor at all because it measures *better* than an untouched municipality, an unattested one gets 118 m, and both are entries in that table not readable off the tier's own definition, describing the bulk while `mun_remapped` is what carries the tail; `...` has to reach inward as well as outward, and `nar_geocode_setup()` dropping it silently parsed at the default penalty while reporting nothing; the precision/recall dial is at *report* time in `geocode_accept()` and not a `strictness` argument on `geocode()`, because a false negative is visible and a false positive is not, and because collapsing three incommensurable tests into one scalar would mean inventing exchange rates the measurements do not support -- it withdraws the coordinate and keeps the evidence, a never-placed row is not a rejection, and `attested_only` reads its partition off `nar_remap_uncertainty_m()` so the bar and the floor cannot drift; those exchange rates are now *measured* even though they are not fixed, and two of the numbers bear on the code -- `refused = FALSE` withdraws rows that are 26.2% gross error against a 0.91% base rate, which is a verdict on the gazetteer threshold rather than on the bar, and `unambiguous`, `max_uncertainty = 100` and `method = "nar_building"` are close to the same test, so stacking all three pays three times for most of one thing |
+| **[`spatial.md`](spatial.md)** — start here | `R/geo_helpers.R`, `R/reverse_geocode.R`, `collect_nar()`, CRS handling | all spatial SQL is TEMP macros defined once; geometry is stored *untagged* so the RTREE index can exist, and the CRS is re-attached at query time; the zonemap prefilter is the biggest win in the package and is not an index; every lon/lat transform needs `always_xy = TRUE` |
+| **[`nar-database.md`](nar-database.md)** | `R/nar.R`, `R/nar_zip.R`, `R/nar_provinces.R`, `R/nar_session.R` — download, schema, partial imports, version discovery, the session connection | `nar_schema_version()` is 6 and older databases must keep working; a single province is fetched by HTTP range over the archive's own central directory; `BG` is Building and `BF` is Blockface, and their distances are not comparable; an unsupplied `con` resolves to a *parked* connection the call that opened it never closes, `"latest"` stops meaning "ask StatCan" once one is parked, and every write path must call `nar_session_release()` |
+| **[`normalization.md`](normalization.md)** | `R/normalize_address.R`, `R/normalize_pattern.R`, `R/normalize_variants.R`, `R/normalize_gazetteer.R`, `R/normalize_lexicon.R`, `R/address_format.R` | numbered rural roads carry no street type at all; `STE` is Suite *and* Sainte, and all three unit paths must know it; `name_sim` is not a similarity, and a type word the parser ate is charged twice — landing the right street at 0.828 against a 0.85 bar, which is not answered by moving the bar; the fuzzy branch compares on a *match fold* whose R and SQL halves must stay identical; an alternative reading is generated only where the baseline is *demonstrably* broken, the restored leading compass word being the one unconditional exception; a tie breaks toward the reading that kept the municipality it was given; `nar_strip_lead_prose()` runs before every civic-number rule; a municipality swap is fined 0.88 unless NAR itself attests it, and `mun_evidence` reports which arm decided; a refused match is invisible from outside without `keep_refused` |
+| **[`rqa.md`](rqa.md)** | `R/rqa.R` — the RQA import and the `"rqa"` tier | merging RQA into NAR would spend the only instrument Quebec's coverage is measurable with; `nar_schema_version()` is deliberately *not* bumped, since the tables are optional and a bump forces a re-download; NAR keeps the particule inside the street name and RQA in a column of its own; `IN_NAR` is fold equality and over-reports by ~14%; the tier joins on the *match* fold; the normalization pass reuses NAR's `MunAlias` rather than an alias table of its own |
+| **[`rnf.md`](rnf.md)** | `R/rnf.R` — the road network file import and the `"rnf"` tier | the file carries no provenance flag on its address ranges, so every threshold rests on measurement; take the shapefile, the only format published for every release; `N/A` is a literal string beside real nulls in TYPE/DIR; an absent type or direction constrains nothing on either side; the municipality needs both `MunAlias` and a direct CSD comparison; ambiguity refuses and a parity mismatch does not, for different reasons |
+| **[`geocoding.md`](geocoding.md)** | `R/geocode.R`, `R/known.R`, `R/geocode_accept.R`, `R/geocode_bc.R`, `R/geocode_nrcan.R`, `R/geocode_qc.R`, `R/geocode_osm.R` | `known` is one named list keyed by the *output* column names, and an unrecognized key is an error rather than a dropped constraint; `MUN_NAME` (mailing city, compared straight) and `CSD_NAME` (census subdivision, resolved through the asymmetric `MunAlias`) are two different questions, not one with a mode, and they do not nest; `CSD_NAME` is an input *and* an output and the two are not the same claim, so the constraint travels on the `nar_csd_constraint` attribute and never off the column; `method` names the tiers *in priority order*, and "unplaced" is `is.na(x)`, never `match_method == "none"`; `n_matches` counts points and `n_records` addresses, and only the first may widen `uncertainty_m`; `POSTAL_CODE` is the parse where `match_postal_code` is a lookup that reports nothing unless the candidates agree; a supplied unit narrows the candidates *or does nothing*; `geocode_matches()` is that same candidate set read without the collapse; matching both NAR name families with `OR` instead of a `UNION` is a 99x slowdown; `...` has to reach inward as well as outward; `uncertainty_m` is floored per `mun_evidence`, not per `mun_remapped`; the precision/recall dial is at *report* time in `geocode_accept()` and deliberately not a `strictness` argument; each online binding has a trap of its own — BC, NRCan and Quebec always answer so a response is not a match, Quebec needs the query spelled French-canonical, and OSM is excluded on licence rather than accuracy |
 
 ### Status notes
 
 Longer-form notes live in **`inst/notes/`** and ship with the package. They record what has been
 *measured*, where the component falls short today, and what to do next — the component notes above
-record the design.
+record the design. Each names the `data-raw/` script that reproduces it.
 
-- **[`inst/notes/geocoding-status.md`](../inst/notes/geocoding-status.md)**
-  — what `geocode()` resolves and what it does not: tier coverage, the interpolation
-  accuracy tables, how far its points sit from a second source and why that is not a
-  benchmark, what the online tiers add, and the pathways sized but not built (road network file, centroid tier).
-- **[`inst/notes/road-network-file.md`](../inst/notes/road-network-file.md)**
-  — Statistics Canada's Road Network File measured against NAR, which is how the missing
-  provenance flag on its address ranges got replaced by a number: 89.7% of NAR civic numbers
-  fall inside the range their own side claims, interpolation lands p50 24.3 m from NAR's
-  building point, and the shipped tier places 24.5% of the filings `geocode()` fails —
-  the largest recovery any tier has offered. It is also where the overlap-vs-residual
-  correction bites again, now decomposed against a third baseline into what the tier costs
-  (43 → 60 m from the filer's own postal code) and what the residual costs (60 → 149 m). The
-  tier is only safe if it refuses when `n_matches > 1` — and that refusal is **necessary and
-  not sufficient**: every recovered row past 2 km is unambiguous, and the one real error
-  among them is a bad parse the tier placed faithfully, which is the failure mode a tier
-  reaching streets NAR lacks cannot check for. Carries the download contract (shapefile only, across releases), the 13
-  CircularStrings that fail the read, and the `max(95, 0.35 × len_m)` uncertainty model.
-  Read it before building the RNF tier; `data-raw/probe_rnf.R` reproduces all of it.
-- **[`inst/notes/nrcan-geolocator.md`](../inst/notes/nrcan-geolocator.md)**
-  — what NRCan's geolocator does on the other end of the wire, read from its own source: why a
-  fuzzy match over one string answers a different question, what `INTERPOLATED_POSITION`
-  certifies, which of the floor's checks are vacuous, the one-in-twelve requests the
-  service drops that a retry gets back, and the Canada-hosted Nominatim sibling that
-  `osm_geocode()` now binds. Read it before touching `R/geocode_nrcan.R` or `R/geocode_osm.R`.
-- **[`inst/notes/quebec-addresses.md`](../inst/notes/quebec-addresses.md)**
-  — NAR's Quebec rows measured against the Répertoire québécois des adresses they come from:
-  the 2.5-million-address point comparison that shows NAR is carrying RQA's own coordinates,
-  why Quebec's 99.8% "building" coverage is not a quality statement, the six-way split of what
-  is left of Québec's normalization failures (41.3% of them addresses NAR does not carry — and
-  why the previous split understated that by keying on the full postal code), what importing
-  those ~308,000 addresses would and would not buy for each of the package's two objectives,
-  and the odonyme decomposition — which the gazetteer's match fold has
-  since made a smaller prize than it looked, and — since 2026-08-23 — what `rqa_import()` and
-  the `"rqa"` tier actually delivered against those projections -- including the correction that
-  the 81.8% -> 88.3% normalization figure was a *confirmation-set* effect and not a parser gain,
-  which is the standing warning against reading a coverage share off NAR's residual. Read it
-  before trusting any Quebec comparison, `qc_validate()` included.
-- **[`inst/notes/nova-scotia-pvsc.md`](../inst/notes/nova-scotia-pvsc.md)**
-  -- Nova Scotia's PVSC assessment addresses measured against the package, and the first
-  reference here established by measurement to be **independent of NAR** rather than NAR
-  checked against itself: two separately produced building points for the same house agree to
-  p50 10.3 m and are within 50 m 88.2% of the time, the strongest accuracy result here. That
-  independence is *earned in stage 0 and cannot be assumed* -- StatCan's Statistical Building
-  Register, which NAR is extracted from, names property assessment rolls among its inputs, so
-  the suspicion that PVSC is upstream of NAR is correct in mechanism and wrong in target:
-  assessment rolls feed NAR's **attributes** (`BU_USE`, `BU_N_CIVIC_ADD`, 100% populated in
-  every province) while the universe and the geocoding come from Canada Post Point-of-Call and
-  the provincial **911 file**. In NS that is NSCAF, and NAR sits **1.04 m** from it with 95.2%
-  of 361K pairs in one 1--2 m bucket and a 3.5 cm residual once a single vector is removed --
-  the same coordinate re-datumed, which is the Quebec/RQA result with a different donor. So
-  **NSCAF cannot check NAR in NS and PVSC can**, and the general trap is that the more
-  authoritative a provincial address file is, the more likely NAR already contains it. It is also
-  where `n_matches == 1` is shown *not* to be a safety guarantee -- one exact unambiguous match
-  in 180 is over a kilometre wrong, 85% of everything past 5 km is the gazetteer having
-  **remapped** the community name, and `uncertainty_m` reports 0 m for every one of them
-  because it describes the spread of the candidates found and not whether the search looked in
-  the right place. Carries the two parser defects PVSC's split components expose -- a spurious
-  `STREET_DIR` stripped off a name that genuinely starts with a compass word (1.14% of rows,
-  82% of them unplaced) and a truncated multi-word municipality (2.32%) -- together 13.0% of
-  everything the pipeline fails to place in NS, and the correction that both cost *matches* and
-  not metres, which the vivid 165 km examples made easy to get backwards. The licence is an OGL
-  variant that would permit a tier; the note argues for an `ns_validate()` instead, which must
-  be built on PVSC and not on the larger, more authoritative NSCAF for the provenance reason
-  above. `data-raw/probe_pvsc.R` reproduces all of it, stage 0 being the provenance test.
-- **[`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)**
-  — where address normalization currently falls short: the measured failure modes, the things
-  tried and rejected, and the ranked next steps. Read it before changing the parser or the
-  gazetteer, and re-run the eval harness (instructions are in that file) before and after any
-  such change. Two failure modes are too rare in a uniform sample for the harness to see and carry
-  a probe of their own -- `data-raw/probe_direction.R` and `data-raw/probe_type.R`, each drawing
-  from its own at-risk population and comparing against NAR's *own columns* rather than its
-  coordinates, which is the one measurement here that carries no not-ground-truth caveat.
-- **[`inst/notes/deepparse.md`](../inst/notes/deepparse.md)**
-  — the neural tagger measured against this parser on four corpora, two of which the parser
-  was never tuned on: why it loses on knowledge and wins on *segmentation*, the two generated
-  classes that carried its entire advantage, the leading-prose prefix that took this parser from
-  98% to 0%, the two guarded rules the benchmark produced — `nar_strip_lead_prose()` and
-  segmenting a comma-free string on the municipality inventory — each of which reversed the one
-  result the tagger still led, and why a fine-tune and a from-scratch model are both unwarranted
+- **[`geocoding-status.md`](../inst/notes/geocoding-status.md)** — what `geocode()` resolves and
+  what it does not: tier coverage, the interpolation accuracy tables, what each online tier adds,
+  what the acceptance bar costs and buys, and the one pathway still sized but not built (a street
+  or municipality centroid tier).
+- **[`road-network-file.md`](../inst/notes/road-network-file.md)** — the RNF measured against NAR,
+  which is how its missing provenance flag got replaced by numbers: the download contract, the 13
+  CircularStrings that fail the read, the `max(95, 0.35 × len_m)` uncertainty model, and why
+  refusing on `n_matches > 1` is **necessary and not sufficient**. Read it before moving any RNF
+  threshold. `data-raw/probe_rnf.R`.
+- **[`nrcan-geolocator.md`](../inst/notes/nrcan-geolocator.md)** — what NRCan's geolocator does on
+  the other end of the wire, read from its own source: what `INTERPOLATED_POSITION` certifies,
+  which of the floor's checks are vacuous, the one-in-twelve requests it drops that a retry gets
+  back, and the Canada-hosted Nominatim sibling. Read before touching `R/geocode_nrcan.R` or
+  `R/geocode_osm.R`.
+- **[`quebec-addresses.md`](../inst/notes/quebec-addresses.md)** — NAR's Quebec rows measured
+  against the register they come from: NAR is carrying RQA's own coordinates, so Quebec's 99.8%
+  "building" coverage is not a quality statement; what `rqa_import()` and the `"rqa"` tier
+  actually delivered against the projections; and the standing warning against reading a coverage
+  share off NAR's residual (the 81.8% → 88.3% figure was a *confirmation-set* effect, not a parser
+  gain). Read before trusting any Quebec comparison, `qc_validate()` included.
+- **[`nova-scotia-pvsc.md`](../inst/notes/nova-scotia-pvsc.md)** — the first reference here
+  *established by measurement* to be independent of NAR, and the strongest accuracy result:
+  p50 10.3 m. That independence is earned in stage 0 and cannot be assumed — the more
+  authoritative a provincial address file is, the more likely NAR already contains it (NSCAF sits
+  1.04 m from NAR and so cannot check it). Also where `n_matches == 1` is shown *not* to be a
+  safety guarantee, and where the two parser defects PVSC's split components expose are sized —
+  both costing *matches* rather than metres. `data-raw/probe_pvsc.R`, stage 0 being the
+  provenance test.
+- **[`address-normalization-status.md`](../inst/notes/address-normalization-status.md)** — where
+  normalization falls short: the measured failure modes, what was tried and rejected, and the
+  ranked next steps. Read it before changing the parser or the gazetteer, and re-run the eval
+  harness (instructions are in the file) before and after. Two modes are too rare for a uniform
+  sample to see and carry their own at-risk probes — `data-raw/probe_direction.R` and
+  `data-raw/probe_type.R`, both comparing against NAR's *own columns* rather than its coordinates,
+  the one measurement here with no not-ground-truth caveat.
+- **[`deepparse.md`](../inst/notes/deepparse.md)** — the neural tagger measured against this
+  parser on four corpora: why it loses on knowledge and wins on *segmentation*, the two guarded
+  rules the benchmark produced, and why neither a fine-tune nor a from-scratch model is warranted
   on the evidence. It closes the open question at the end of the normalization status note.
-- **[`inst/notes/nar-consistency.md`](../inst/notes/nar-consistency.md)**
-  — finding NAR's misplaced addresses using nothing but NAR: why a row's postal code and
-  coordinate disagreeing is an *internal* contradiction and so escapes the not-ground-truth
-  caveat every other measurement here carries; that the CSD label is **not** a third witness —
-  point-in-polygon against the 2021 digital CSDs agrees with it 98.8% of the time, because it is
-  derived from the coordinate, which leaves two sides and no majority to appeal to; that a postal
-  code is a *delivery route* and may legitimately be disconnected, so distance-from-the-group's-
-  median is the wrong statistic and `d_own`/`d_other` replace it — a ratio, which is what lets
-  rural postal codes stay in instead of being excluded wholesale; why `d_other` has to be
-  re-measured **along the road network** or Georgian Bay and Whistler supply the flags; and the
-  one extra question — is the street at the point or at the postal code — that turns 17,224 flags
-  into 653 rows whose *coordinate* is the part to disbelieve, plus the Amos row that shows a
-  shared street name fooling that same arbiter. Read it before treating any flag as an error: the
-  84,282-address blind spot and the false-positive families are named there, and nothing has been
-  repaired. `data-raw/probe_consistency.R` reproduces all of it.
+- **[`nar-consistency.md`](../inst/notes/nar-consistency.md)** — finding NAR's misplaced addresses
+  using nothing but NAR, which is the one measurement escaping the not-ground-truth caveat: why
+  the CSD label is not a third witness, why `d_own`/`d_other` replace distance-from-the-median and
+  must be measured *along the road network*, and the extra question that turns 17,224 flags into
+  653 rows whose coordinate is the part to disbelieve. Read it before treating any flag as an
+  error — the blind spot and the false-positive families are named there, and nothing has been
+  repaired. `data-raw/probe_consistency.R`.
 
 ## Package-level plumbing (`R/misc.R`)
 

@@ -4,7 +4,9 @@
 > Known failure modes, the eval harness, and what to fix next live in
 > [`../inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md)
 > — read it before changing the parser or the gazetteer, and re-run the eval harness
-> before and after any such change.
+> before and after any such change. The lexicon tables themselves are built by
+> `data-raw/build_lexicons.R` into `R/sysdata.rda`; `R/normalize_lexicon.R` is the matching
+> machinery over them (`nar_fold()` and friends) and is covered here rather than separately.
 
 ## Numbered rural roads and the pattern recognizer
 
