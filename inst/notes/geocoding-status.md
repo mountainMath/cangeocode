@@ -569,7 +569,7 @@ Nominatim's bindings here are forward only.
 ## The OpenStreetMap binding
 
 `osm_geocode()` queries **`https://maps.canada.ca/nominatim/search`**, the Nominatim instance
-the Government of Canada hosts — not the volunteer-funded `nominatim.openstreetmap.org`, whose
+Natural Resources Canada hosts — not the volunteer-funded `nominatim.openstreetmap.org`, whose
 usage policy forbids bulk geocoding. It is exported and is **not** a `geocode()` tier.
 
 **Nothing in this section is measured yet, and that is the point of the section.**
@@ -581,7 +581,8 @@ coverage figure, no p90, and no basis for placing it in a `method` chain.
 
 **Why it is not a tier is a licence question, not an accuracy one.** OSM data is ODbL —
 attribution plus share-alike, with the obligation attaching to a derived *database* — where
-NAR, the BC geocoder and the geolocator are all Open Government Licence. A default tier would
+NAR and the road network file are the Statistics Canada Open Licence, and the BC geocoder and
+the geolocator the Open Government Licence. A default tier would
 fold a handful of ODbL rows into a result table and change what the caller may do with the
 whole of it, silently. So the service's own licence string rides along as `osm_licence` on
 every row, and using it is an explicit call. If the probe shows it recovers a useful part of

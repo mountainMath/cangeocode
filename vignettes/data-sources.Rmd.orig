@@ -27,13 +27,13 @@ library(dplyr)
 
 | source | vignette | where it lives | tier | licence |
 | --- | --- | --- | --- | --- |
-| National Address Repository | `vignette("source-nar")` | local, imported | `"nar"`, `"nar_interpolate"` | OGL – Canada |
+| National Address Repository | `vignette("source-nar")` | local, imported | `"nar"`, `"nar_interpolate"` | StatCan Open Licence |
 | Répertoire québécois des adresses | `vignette("source-rqa")` | local, `rqa_import()` | `"rqa"` | CC-BY 4.0 |
 | Road Network File | `vignette("source-rnf")` | local, `rnf_import()` | `"rnf"` | StatCan Open Licence |
 | BC Address Geocoder | `vignette("source-bc")` | online | `"bc"` | OGL – British Columbia |
 | NRCan national geolocator | `vignette("source-nrcan")` | online | `"nrcan"` | OGL – Canada |
 | Quebec MRNF geocoder | `vignette("source-qc")` | online | `"qc"` | CC-BY 4.0 |
-| GoC Nominatim (OpenStreetMap) | `vignette("source-osm")` | online | **none** | ODbL |
+| NRCan Nominatim (OpenStreetMap) | `vignette("source-osm")` | online | **none** | ODbL |
 
 Three things about that table are worth reading twice, and the rest of this
 vignette is those three: **NAR is not one source among seven**, the licence
@@ -154,8 +154,8 @@ Every source here is openly licensed, and that is not enough on its own — what
 matters is whether the licences **compose**, because `geocode()` returns one
 table with rows from several of them.
 
-Open Government Licence (Canada, and British Columbia), the Statistics Canada
-Open Licence and CC-BY 4.0 are all attribution licences. They compose: mixing
+The Statistics Canada Open Licence, the Open Government Licence (Canada, and
+British Columbia) and CC-BY 4.0 are all attribution licences. They compose: mixing
 them obliges you to attribute each, and nothing more. Six of the seven sources
 here are in that group, which is why all six are tiers.
 

@@ -10,7 +10,7 @@ rqa_attribution()
 A character scalar
 }
 \description{
-RQA is CC-BY 4.0 where NAR is the Open Government Licence.
+RQA is CC-BY 4.0 where NAR is the Statistics Canada Open Licence.
 Both are attribution licences and they compose, which is what makes this
 import possible at all -- unlike the ODbL data behind [osm_geocode()], which
 is why that function exists but is not a geocoding tier. Attribution is the

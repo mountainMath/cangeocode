@@ -63,9 +63,9 @@ tbl(con, "nar_metadata") |>
 #> # A tibble: 3 × 2
 #>   key             value                           
 #>   <chr>           <chr>                           
-#> 1 rnf_source      lrnf000r25a_e.shp               
-#> 2 rnf_imported_at 2026-08-23T21:22:24-0700        
-#> 3 rnf_licence     Open Government Licence - Canada
+#> 1 rnf_source      lrnf000r25a_e.shp             
+#> 2 rnf_imported_at 2026-08-23T21:22:24-0700      
+#> 3 rnf_licence     Statistics Canada Open Licence
 ```
 
 ## Using it

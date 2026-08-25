@@ -57,7 +57,8 @@ The register is **CC-BY 4.0**, the same terms `rqa_import()` carries, and
 rqa_attribution()
 ```
 
-That composes with the Open Government Licence covering NAR, which is why this
+That composes with the Statistics Canada Open Licence covering NAR, which is why
+this
 can be a default tier where `osm_geocode()`'s ODbL data cannot.
 
 ## Using it

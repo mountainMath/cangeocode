@@ -397,7 +397,7 @@ rnf_write_metadata <- function(con, release, shp) {
     value = c(as.character(release), as.character(n$n), as.character(n$pairs),
               as.character(n$km), basename(shp),
               format(Sys.time(), "%Y-%m-%dT%H:%M:%S%z"),
-              "Open Government Licence - Canada")))
+              "Statistics Canada Open Licence")))
   invisible(con)
 }
 
