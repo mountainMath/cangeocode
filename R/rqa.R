@@ -449,7 +449,7 @@ rqa_geocode_sql <- function(probe, bounds = "") {
   mun <- "replace(a.MUN_FOLD, '.', '')"
   borough <- "replace(strip_accents(upper(coalesce(a.BOROUGH, ''))), '.', '')"
   cand <- sprintf(
-    "SELECT p.row_id, a.RQA_ID, a.POS_QUALITY, a.POSTAL_CODE, a.x, a.y
+    "SELECT p.row_id, a.RQA_ID, a.POS_QUALITY, a.POSTAL_CODE, a.x, a.y, %5$s
         FROM %1$s p
         JOIN RqaAddresses a
           ON a.MATCH_FOLD = p.match_fold
@@ -460,7 +460,10 @@ rqa_geocode_sql <- function(probe, bounds = "") {
          AND (p.mun_auth = '' OR %2$s = p.mun_auth OR %3$s = p.mun_auth)
          AND (p.type = '' OR p.type = strip_accents(upper(a.STREET_TYPE)))
          AND (p.dir  = '' OR p.dir  = coalesce(a.STREET_DIR, ''))%4$s",
-    probe, mun, borough, bounds)
+    probe, mun, borough, bounds, nar_geocode_unit_hit("a.UNIT_NO"))
+  # Quebec's register carries a unit on 1,665,467 of its 5,315,435 rows, so the
+  # same narrowing applies, through the same filter.
+  cand <- nar_geocode_unit_filter(cand)
   # The surrounding shape -- pick one, then measure the set it came from -- is
   # shared with the NAR tier; only the candidates, the quality order and the
   # column names are Quebec's.

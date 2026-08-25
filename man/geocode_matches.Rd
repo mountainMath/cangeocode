@@ -69,6 +69,11 @@ addresses it places share a coordinate with at least one other, so the
 collapse is the normal case rather than the exceptional one. What varies is
 whether the collapsed records differ in a way that matters to you, and the
 only way to find out is to look at them.
+
+A unit in the input narrows this set exactly as it narrows [geocode()]'s
+answer, because it is the same candidate set:
+`geocode_matches("49321 Range Road 72, Unit 9")` returns that one record,
+and a unit NAR does not carry there returns all nineteen.
 }
 \section{What it does not do}{
  This is the **exact NAR tier only** -- the same

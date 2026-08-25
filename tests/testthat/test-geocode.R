@@ -319,6 +319,53 @@ test_that("n_records counts addresses where n_matches counts points", {
   expect_equal(g2$n_records, 1L)
 })
 
+test_that("a supplied unit narrows the records it matches", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(units = TRUE)
+
+  # Naming the unit answers the question the two records disagreed on, so the
+  # postal code the aggregate had to decline on is now reportable.
+  g <- geocode("202-4001 King Edward Ave W, Vancouver, BC", con = con)
+  expect_equal(g$match_method, "nar_building")
+  expect_equal(g$n_records, 1L)
+  expect_equal(g$match_postal_code, "V6S1N4")
+
+  # The other unit is the blank one, which is a unit like any other here.
+  expect_equal(nrow(geocode_matches("202-4001 King Edward Ave W",
+                                    prov = "BC", con = con)), 1L)
+})
+
+test_that("a unit NAR does not carry narrows nothing", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(units = TRUE)
+
+  # 27.5% of the units supplied by real filings are not in NAR at that civic
+  # number. Narrowing unconditionally would take every one of those addresses
+  # from placed to unplaced, so a unit that matches nothing is dropped rather
+  # than enforced -- the filter narrows or it does nothing.
+  g <- geocode("999-4001 King Edward Ave W, Vancouver, BC", con = con)
+  expect_equal(g$match_method, "nar_building")
+  expect_equal(g$n_records, 2L)
+  expect_true(is.na(g$match_postal_code))
+
+  # And the point is the one the address would have had anyway.
+  base <- geocode("4001 King Edward Ave W, Vancouver, BC", con = con)
+  expect_equal(g$x, base$x)
+})
+
+test_that("the unit fold spells the words NAR abbreviates", {
+  # NAR writes a basement as BSMT and a filing writes it as Basement, or as
+  # Sous-sol in Quebec. Comparing the two raw would match neither, and these
+  # are the only unit labels that are words rather than numbers.
+  expect_equal(nar_unit_fold(c("202", "2 02", "Apt. 3")), c("202", "202", "APT3"))
+  expect_equal(nar_unit_fold(c("Basement", "SOUS-SOL", "Sous sol")),
+               c("BSMT", "BSMT", "BSMT"))
+  expect_equal(nar_unit_fold(c("Upper", "lower")), c("UPPR", "LWR"))
+  # An absent unit stays absent; the probe blanks it, and a blank one is what
+  # the filter reads as "no unit was supplied".
+  expect_true(is.na(nar_unit_fold(NA_character_)))
+})
+
 test_that("a tier that matched no record reports no records", {
   skip_if_no_duckdb_spatial()
   con <- local_nar_connection(run = TRUE)
@@ -476,7 +523,16 @@ test_that("both readings of the candidate set share their ordering", {
   expect_true(grepl(civic, nar_geocode_exact_sql("probe"), fixed = TRUE))
   expect_true(grepl(civic, nar_geocode_matches_sql("probe"), fixed = TRUE))
 
-  # The enumeration ranks without filtering; the answer filters on the rank.
-  expect_no_match(nar_geocode_matches_sql("probe"), "QUALIFY")
-  expect_match(nar_geocode_exact_sql("probe"), "QUALIFY")
+  # The unit narrowing is shared for the same reason: an enumeration that kept
+  # the units the answer dropped would not be showing what was answered from.
+  unit <- nar_geocode_unit_hit("a.APT_NO_LABEL")
+  expect_true(grepl(unit, nar_geocode_exact_sql("probe"), fixed = TRUE))
+  expect_true(grepl(unit, nar_geocode_matches_sql("probe"), fixed = TRUE))
+
+  # The enumeration ranks without collapsing to the best row; the answer
+  # collapses on that rank. Both carry the unit filter's own QUALIFY, so what
+  # separates them is the collapse and not the keyword.
+  collapse <- paste0("QUALIFY ", rank, " = 1")
+  expect_false(grepl(collapse, nar_geocode_matches_sql("probe"), fixed = TRUE))
+  expect_true(grepl(collapse, nar_geocode_exact_sql("probe"), fixed = TRUE))
 })

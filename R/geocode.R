@@ -197,15 +197,29 @@ nar_blockface_uncertainty_m <- function() 176
 #' own address, all at the building's one coordinate. `49321 Range Road 72` in
 #' Brazeau County, Alberta returns `n_matches = 1` and `n_records = 19`: there
 #' is exactly one place to put it and nineteen addresses there, units 1 through
-#' 29, and `geocode()` parses `APT_NO_LABEL` but does not match on it. This is
-#' not a corner case -- **47% of the addresses NAR places share their
-#' coordinate with at least one other address.**
+#' 29, and the input named none of them. This is not a corner case -- **47% of
+#' the addresses NAR places share their coordinate with at least one other
+#' address.**
+#'
+#' Naming the unit is what closes the gap. Where the input carries an
+#' `APT_NO_LABEL` and NAR holds that unit at that civic number, the candidates
+#' are narrowed to it: `49321 Range Road 72, Unit 9` is one record rather than
+#' nineteen. The narrowing **narrows or it does nothing** -- a unit NAR has no
+#' row for is dropped rather than enforced, and the address is placed as though
+#' it had been written without one. That fallback is not defensive tidiness.
+#' Over 5,000 Corporations Canada filings, 27.6% supply a unit; of those the
+#' tier can match, 72.5% find that unit in NAR and **every one of them narrows
+#' to exactly one record**, while the remaining 27.5% name a unit NAR does not
+#' carry there -- enforcing it would take those 327 addresses from placed to
+#' unplaced. Over the whole corpus the narrowing cuts 118,937 matched records
+#' to 25,955, and the inputs reporting more than one record from 1,422 to 578.
 #'
 #' A record count above 1 is therefore not a warning by itself. It is a warning
 #' when the collapsed records disagree about something you care about, and the
 #' one such disagreement reported today is the postal code: `match_postal_code`
 #' goes `NA` rather than pick one. The Brazeau County address is `NA` for that
-#' reason -- its nineteen units carry four postal codes between them.
+#' reason -- its nineteen units carry four postal codes between them, and
+#' naming one of the nineteen fills it in.
 #'
 #' `n_records` is 0 wherever no record was matched: every interpolated row that
 #' did not first hit the `nar` or `rqa` tier, and every online tier.
@@ -232,12 +246,14 @@ nar_blockface_uncertainty_m <- function() 176
 #' It is also `NA` when the candidates disagree. NAR holds one row per address,
 #' so a civic number with units contributes many rows, and 1.4% of civic numbers
 #' -- 4.2% of addresses, since the buildings this happens to are large -- span
-#' more than one postal code. The tier does not match on unit, so where those
-#' rows disagree there is nothing in the query that says which of them was
-#' meant, and reporting one of them would be a coin flip. `100 Queen St W,
-#' Toronto` is one: NAR carries it as `M5H2N1` and `M5H2N2` both. A postal code
-#' in the *input* does not break the tie either, since it is what the address
-#' claims rather than something the query established.
+#' more than one postal code. Where the input names no unit -- the usual case --
+#' nothing in the query says which of those rows was meant, and reporting one of
+#' them would be a coin flip. `100 Queen St W, Toronto` is one: NAR carries it
+#' as `M5H2N1` and `M5H2N2` both. A postal code in the *input* does not break
+#' the tie either, since it is what the address claims rather than something the
+#' query established. Naming the unit does break it, because it narrows the
+#' candidates rather than choosing among them: 55 of the 5,000 corpus filings
+#' gain a `match_postal_code` for that reason alone.
 #'
 #' @param x A character vector of address strings, or a data frame of already
 #' parsed components as returned by [normalize_address()]. Passing the data
@@ -341,6 +357,11 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
 #' collapse is the normal case rather than the exceptional one. What varies is
 #' whether the collapsed records differ in a way that matters to you, and the
 #' only way to find out is to look at them.
+#'
+#' A unit in the input narrows this set exactly as it narrows [geocode()]'s
+#' answer, because it is the same candidate set:
+#' `geocode_matches("49321 Range Road 72, Unit 9")` returns that one record,
+#' and a unit NAR does not carry there returns all nineteen.
 #'
 #' @section What it does not do: This is the **exact NAR tier only** -- the same
 #' candidate set [geocode()]'s `"nar"` tier collapses, built by the same code.
@@ -741,6 +762,7 @@ nar_geocode_probe <- function(res, auth_mun = FALSE) {
     type      = blank("STREET_TYPE"),
     dir       = blank("STREET_DIR"),
     suffix    = nar_fold(blank("CIVIC_NO_SUFFIX")),
+    apt       = nar_unit_fold(blank("APT_NO_LABEL")),
     civic     = as.integer(res$CIVIC_NO[keep]),
     stringsAsFactors = FALSE
   )
@@ -844,6 +866,89 @@ nar_geocode_nar_rank <- function() {
                  ADDR_GUID"
 }
 
+#' Put a parsed unit into the vocabulary the address files use
+#'
+#' @description NAR stores a unit as Canada Post spells one -- `BSMT`, `UPPR`,
+#' `LWR` -- and a person types `Basement`, `Sous-sol`, `Upper`. Those are the
+#' bare labels [normalize_address()] already goes out of its way to recognize,
+#' so failing to match them afterwards would be recognizing a word in order to
+#' throw it away.
+#'
+#' **The translation runs one way only, and that is the point.** It is applied
+#' to the *input* and never to the stored column, because the stored column
+#' does not need it: of NAR's 5.96M units, `BASEMENT` appears zero times,
+#' `UPPER` once and `GROUND` once, against 137,413 `BSMT` and 22,757 `UPPR`.
+#' So this is a translation into NAR's vocabulary, not a fold both sides share
+#' -- which means it carries none of the keep-the-two-halves-identical hazard
+#' that [nar_match_fold()] does.
+#'
+#' Zero padding is **not** normalized, having been measured and declined: 11,966
+#' of 5.96M units carry an interior leading zero, essentially all of them
+#' `PH01`-style penthouse labels, and a rule that turned `PH01` into `PH1` would
+#' be reaching for 0.2% of units while acquiring an opinion about every unit
+#' whose label is meaningfully padded.
+#' @param x A parsed `APT_NO_LABEL`, or `""` for none
+#' @return The unit as NAR would spell it
+#' @keywords internal
+nar_unit_fold <- function(x) {
+  u <- gsub("[. ]", "", nar_fold(x))
+  from <- c("BASEMENT", "SOUS-SOL", "SOUSSOL", "UPPER", "LOWER")
+  to   <- c("BSMT",     "BSMT",     "BSMT",    "UPPR",  "LWR")
+  i <- match(u, from)
+  ifelse(is.na(i), u, to[i])
+}
+
+#' The stored side of the unit comparison
+#'
+#' @description Case, spaces and periods only -- 592,561 of NAR's units are
+#' not upper case and 16 are untrimmed. The vocabulary translation happens on
+#' the input, in [nar_unit_fold()].
+#' @param col The stored unit column, qualified
+#' @return A SQL fragment
+#' @keywords internal
+nar_unit_sql <- function(col) {
+  sprintf("replace(replace(strip_accents(upper(%s)), '.', ''), ' ', '')", col)
+}
+
+#' Narrow a candidate set to the unit that was asked for, when there is one
+#'
+#' @description A supplied apartment number is what tells the difference between
+#' the 19 addresses at `49321 Range Road 72`, and without it `geocode()` reports
+#' all 19 as the record count of an answer the caller had already disambiguated.
+#'
+#' **It narrows or it does nothing; it never refuses.** The filter keeps the
+#' matching records when there are any and the whole set when there are none,
+#' which is not defensive coding but the measured majority case: over 5,000
+#' Corporations Canada filings, 1,189 supplied a unit and matched NAR records,
+#' and **27.5% of those units are not in NAR at that civic number**. Filtering
+#' unconditionally would take 327 addresses in 5,000 from placed to unplaced --
+#' trading a wrong record count, which is visible, for a lost coordinate, which
+#' is worse. What it does buy where the unit is there is total: all 862 hits
+#' narrow to exactly one record, from 93,844 candidates between them.
+#'
+#' The consequence worth knowing is that `n_records` is the report on this. A
+#' unit that was found leaves `n_records = 1`; a unit that was not leaves it at
+#' the full count, unchanged from what it would have been with no unit at all.
+#' Nothing else says which happened.
+#' @param cand SQL producing a candidate set with `row_id` and `unit_hit`
+#' @return A SQL fragment producing the narrowed set, without `unit_hit`
+#' @keywords internal
+nar_geocode_unit_filter <- function(cand) {
+  sprintf("SELECT * EXCLUDE (unit_hit)
+        FROM (%s)
+      QUALIFY unit_hit OR NOT bool_or(unit_hit) OVER (PARTITION BY row_id)",
+          cand)
+}
+
+#' The candidate column that says whether a record is the unit asked for
+#'
+#' @param col The stored unit column, qualified
+#' @return A SQL fragment ending in `AS unit_hit`
+#' @keywords internal
+nar_geocode_unit_hit <- function(col) {
+  sprintf("(p.apt <> '' AND %s = p.apt) AS unit_hit", nar_unit_sql(col))
+}
+
 #' The civic-number half of an exact match
 #'
 #' @description Shared by the query that answers and the query that enumerates,
@@ -932,10 +1037,11 @@ nar_geocode_ranked_sql <- function(cand, rank) {
 #' @keywords internal
 nar_geocode_exact_sql <- function(probe, bounds = "") {
   nar_geocode_best_sql(
-    nar_geocode_candidates(
+    nar_geocode_unit_filter(nar_geocode_candidates(
       probe,
-      "p.row_id, a.ADDR_GUID, a.geom_source, a.x, a.y, a.MAIL_POSTAL_CODE",
-      nar_geocode_civic_key(), bounds),
+      paste("p.row_id, a.ADDR_GUID, a.geom_source, a.x, a.y, a.MAIL_POSTAL_CODE,",
+            nar_geocode_unit_hit("a.APT_NO_LABEL")),
+      nar_geocode_civic_key(), bounds)),
     nar_geocode_nar_rank(),
     "b.row_id, b.ADDR_GUID, b.geom_source, b.x, b.y",
     "ADDR_GUID", "MAIL_POSTAL_CODE")
@@ -971,9 +1077,11 @@ nar_geocode_match_cols <- function() {
 nar_geocode_matches_sql <- function(probe, bounds = "") {
   cols <- paste0("a.", nar_geocode_match_cols(), collapse = ", ")
   nar_geocode_ranked_sql(
-    nar_geocode_candidates(probe,
-                           paste0("p.row_id, ", cols, ", a.x, a.y"),
-                           nar_geocode_civic_key(), bounds),
+    nar_geocode_unit_filter(nar_geocode_candidates(
+      probe,
+      paste0("p.row_id, ", cols, ", a.x, a.y, ",
+             nar_geocode_unit_hit("a.APT_NO_LABEL")),
+      nar_geocode_civic_key(), bounds)),
     nar_geocode_nar_rank())
 }
 
@@ -992,6 +1100,10 @@ nar_geocode_matches_sql <- function(probe, bounds = "") {
 #' otherwise. The empty-string fold makes a missing postal code participate in
 #' that agreement rather than being skipped by `count(DISTINCT)`: a set that is
 #' half `NULL` reports nothing, not the half that had a value.
+#'
+#' It is an aggregate over whatever `cand` holds by the time it runs, so
+#' [nar_geocode_unit_filter()] having narrowed the set to one unit is what turns
+#' a declined postal code into a reported one -- 55 of 5,000 corpus filings.
 #' @param col The postal-code column, qualified with the candidate alias
 #' @return A SQL fragment, aliased `match_postal_code`
 #' @keywords internal

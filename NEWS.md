@@ -225,10 +225,37 @@ gains a tier when you run the import.
 * It is also `NA` when the candidates disagree. NAR holds one row per address,
   so a civic number with units contributes many, and 1.4% of civic numbers —
   4.2% of addresses, since the buildings this happens to are large — span more
-  than one postal code. The tier does not match on unit, so nothing in the query
-  says which of them was meant. `100 Queen St W, Toronto` is one of them, and a
+  than one postal code. Where the input names no unit, nothing in the query says
+  which of them was meant. `100 Queen St W, Toronto` is one of them, and a
   postal code in the input does not break the tie: that is what the address
-  claims, not something the lookup established.
+  claims, not something the lookup established. Naming the unit does break it,
+  by narrowing the candidates rather than choosing among them — worth 55 of the
+  5,000 filings.
+
+* **A unit in the address now narrows the records it matches.** `49321 Range
+  Road 72` resolves to 19 NAR records; `49321 Range Road 72, Unit 9` resolves to
+  one. Where the parse produced an `APT_NO_LABEL` and NAR carries that unit at
+  that civic number, the candidate set is cut to it, which is what `n_records`
+  and `match_postal_code` are then computed over. Across the 5,000-filing draw
+  the matched records fall from 118,937 to 25,955, and the addresses reporting
+  more than one record from 1,422 to 578.
+
+* **The narrowing narrows or it does nothing.** A unit NAR has no row for at
+  that civic number is dropped rather than enforced, so no address is made
+  unplaceable by a unit label. This is not caution: **27.5% of the units these
+  filings supply are not in NAR at the civic number they were written against**,
+  and an unconditional filter would take 327 of 5,000 addresses from placed to
+  unplaced. Where the unit is there the narrowing is total — all 862 such
+  inputs collapse to exactly one record.
+
+* The comparison is folded asymmetrically, on purpose. `Basement`, `Sous-sol`,
+  `Upper` and `Lower` are translated into the `BSMT`/`UPPR`/`LWR` that NAR
+  actually stores, on the *input* side only — of NAR's 5.96M units, `BASEMENT`
+  appears zero times against 137,413 `BSMT`. Zero padding was measured and left
+  alone: 0.20% of units carry an interior leading zero, almost all `PH01`-style
+  penthouses, and normalizing it would mean holding an opinion about every
+  deliberately padded label. Quebec's `"rqa"` tier narrows through the same
+  code, over the 1.67M of its 5.32M rows that carry a unit.
 
 ## Fixes
 

@@ -118,14 +118,42 @@ correctly saying "one place"; a reader hearing "one match" heard "one address".
 They are not two grades of the same warning. `n_matches > 1` means the point may be **in the
 wrong place** and is what widens `uncertainty_m`. `n_records > 1` means the point is in the
 right place and **stands for more than one thing**, which is usually the correct answer to the
-question asked — `geocode()` parses `APT_NO_LABEL` and does not match on it, and matching on it
-would return the same coordinate anyway. So `n_records` is not widened into `uncertainty_m` and
+question asked — narrowing to the unit returns the same coordinate anyway, since NAR files
+every unit at the building's one point. So `n_records` is not widened into `uncertainty_m` and
 must not be: the units of a building are 0 m apart. It only becomes a defect when the collapsed
 records **disagree** about a field being read off them, and the one such field today is
 `match_postal_code` — which is exactly why the Brazeau County row reports none.
 
 `n_records` is `0`, not `NA`, wherever no record was resolved — a bare interpolation, `rnf`,
 every online tier — which keeps it parallel with `n_matches`'s `0` for `none`.
+
+**A supplied unit narrows the candidate set, and the fallback when NAR does not carry that unit
+is mandatory rather than defensive.** `nar_geocode_unit_hit()` adds a `unit_hit` boolean to the
+candidates and `nar_geocode_unit_filter()` keeps the rows where it is true — but only where at
+least one is: `QUALIFY unit_hit OR NOT bool_or(unit_hit) OVER (PARTITION BY row_id)`. So the
+filter **narrows or it does nothing**, and it cannot turn a placed address into an unplaced one.
+That is measured rather than cautious: over the 5,000-filing corpus, 1,189 inputs supply a unit
+*and* match NAR records, and **327 of them (27.5%) name a unit NAR has no row for at that civic
+number** — an unconditional filter would take all 327 from placed to unplaced, a far worse trade
+than a wide `n_records`. Where the unit is there the narrowing is total: all 862 hits go from
+93,844 candidate records to exactly 862, one each. Corpus-wide 118,937 matched records become
+25,955, inputs reporting `n_records > 1` fall 1,422 → 578, and 55 inputs gain a
+`match_postal_code` the aggregate had to decline before.
+
+**The two sides of the unit comparison are folded differently, and the asymmetry is the
+finding.** `nar_unit_fold()` (R, on the parse) strips case, spaces and periods *and* translates
+the words Canada Post abbreviates — `Basement`/`Sous-sol` → `BSMT`, `Upper` → `UPPR`, `Lower` →
+`LWR`; `nar_unit_sql()` (DuckDB, on the stored column) does case, spaces and periods only. So
+this is **not** a fold both halves must keep identical the way `nar_match_fold()` is — it is a
+translation into NAR's vocabulary, and it runs one way because the stored side does not need it:
+of NAR's 5.96M units, `BASEMENT` appears zero times and `UPPER` once, against 137,413 `BSMT` and
+22,757 `UPPR`. Zero padding was measured and **declined**: 11,966 units (0.20%) carry an interior
+leading zero, essentially all `PH01`-style, and a rule turning `PH01` into `PH1` would acquire an
+opinion about every deliberately padded label to reach 0.2% of them.
+
+Quebec's tier gets the same narrowing through the same function — RQA carries a unit on 1,665,467
+of its 5,315,435 rows, and `rqa_geocode_sql()` wraps its candidates in `nar_geocode_unit_filter()`
+before `nar_geocode_best_sql()` collapses them.
 
 **`geocode_matches()` is the same query read a second way, and the sharing is load-bearing
 rather than tidiness.** `nar_geocode_best_sql()` collapses a candidate set to one row per input
@@ -167,9 +195,9 @@ skipped them would list the records of a different search.
 
 **`match_postal_code` is an aggregate over the candidate set, not a column read off the row
 that was returned**, and that distinction is the whole of it. NAR carries one row per address,
-so a civic number with units contributes many rows to `cand`; the tier already picks one of
-them for its coordinates, and picking one of them for a postal code as well would be a coin
-flip wherever a building's units do not share one. Measured: 98.6% of civic numbers carry a
+so a civic number with units contributes many rows to `cand` wherever the input named no unit;
+the tier already picks one of them for its coordinates, and picking one of them for a postal
+code as well would be a coin flip wherever a building's units do not share one. Measured: 98.6% of civic numbers carry a
 single postal code, but the 1.4% that do not are **4.2% of addresses**, because a building
 large enough to split across postal codes is large. So `nar_geocode_postal_sql()` reports the
 value only when every candidate agrees and `NULL` otherwise, and it folds `NULL` to `''`

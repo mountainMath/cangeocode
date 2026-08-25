@@ -267,15 +267,29 @@ They come apart because NAR files every unit of a multi-unit building as its
 own address, all at the building's one coordinate. `49321 Range Road 72` in
 Brazeau County, Alberta returns `n_matches = 1` and `n_records = 19`: there
 is exactly one place to put it and nineteen addresses there, units 1 through
-29, and `geocode()` parses `APT_NO_LABEL` but does not match on it. This is
-not a corner case -- **47% of the addresses NAR places share their
-coordinate with at least one other address.**
+29, and the input named none of them. This is not a corner case -- **47% of
+the addresses NAR places share their coordinate with at least one other
+address.**
+
+Naming the unit is what closes the gap. Where the input carries an
+`APT_NO_LABEL` and NAR holds that unit at that civic number, the candidates
+are narrowed to it: `49321 Range Road 72, Unit 9` is one record rather than
+nineteen. The narrowing **narrows or it does nothing** -- a unit NAR has no
+row for is dropped rather than enforced, and the address is placed as though
+it had been written without one. That fallback is not defensive tidiness.
+Over 5,000 Corporations Canada filings, 27.6% supply a unit; of those the
+tier can match, 72.5% find that unit in NAR and **every one of them narrows
+to exactly one record**, while the remaining 27.5% name a unit NAR does not
+carry there -- enforcing it would take those 327 addresses from placed to
+unplaced. Over the whole corpus the narrowing cuts 118,937 matched records
+to 25,955, and the inputs reporting more than one record from 1,422 to 578.
 
 A record count above 1 is therefore not a warning by itself. It is a warning
 when the collapsed records disagree about something you care about, and the
 one such disagreement reported today is the postal code: `match_postal_code`
 goes `NA` rather than pick one. The Brazeau County address is `NA` for that
-reason -- its nineteen units carry four postal codes between them.
+reason -- its nineteen units carry four postal codes between them, and
+naming one of the nineteen fills it in.
 
 `n_records` is 0 wherever no record was matched: every interpolated row that
 did not first hit the `nar` or `rqa` tier, and every online tier.
@@ -304,12 +318,14 @@ indistinguishable from a looked-up one.
 It is also `NA` when the candidates disagree. NAR holds one row per address,
 so a civic number with units contributes many rows, and 1.4% of civic numbers
 -- 4.2% of addresses, since the buildings this happens to are large -- span
-more than one postal code. The tier does not match on unit, so where those
-rows disagree there is nothing in the query that says which of them was
-meant, and reporting one of them would be a coin flip. `100 Queen St W,
-Toronto` is one: NAR carries it as `M5H2N1` and `M5H2N2` both. A postal code
-in the *input* does not break the tie either, since it is what the address
-claims rather than something the query established.
+more than one postal code. Where the input names no unit -- the usual case --
+nothing in the query says which of those rows was meant, and reporting one of
+them would be a coin flip. `100 Queen St W, Toronto` is one: NAR carries it
+as `M5H2N1` and `M5H2N2` both. A postal code in the *input* does not break
+the tie either, since it is what the address claims rather than something the
+query established. Naming the unit does break it, because it narrows the
+candidates rather than choosing among them: 55 of the 5,000 corpus filings
+gain a `match_postal_code` for that reason alone.
 }
 
 \examples{

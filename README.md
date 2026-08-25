@@ -166,6 +166,14 @@ is not an error, and 47% of NAR's placed addresses share their coordinate with
 another. It matters when the collapsed records disagree about something you were
 using, which today means the postal code.
 
+**Naming the unit narrows the records.** `49321 Range Road 72` is 19 records;
+`49321 Range Road 72, Unit 9` is one, with a postal code the wider set had to
+decline. The narrowing **narrows or it does nothing** — a unit NAR does not
+carry at that civic number is dropped rather than enforced, so an address is
+never made unplaceable by a unit label. That matters more than it sounds:
+across 5,000 Corporations Canada filings, 27.5% of the units supplied are not
+in NAR at the civic number they were written against.
+
 `geocode_matches()` opens those records up — one row each, ranked so the first
 is the one `geocode()` answered with:
 
@@ -189,7 +197,7 @@ are typed without one — and `match_postal_code` is what the matched record
 carries. Only the tiers that resolve to a record fill the second one, and it is
 left empty rather than guessed: an interpolated point sits between two addresses
 that need not share a postal code, and a building whose units span two reports
-neither, since `geocode()` does not match on unit.
+neither unless the input said which unit it meant.
 
 Interpolation is deliberately conservative: same side of the street only, and
 it **refuses to extrapolate** past the last known civic rather than guessing.
