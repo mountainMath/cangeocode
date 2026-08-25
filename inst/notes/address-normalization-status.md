@@ -53,6 +53,21 @@ R_ENVIRON_USER=/dev/null NAR_CACHE_PATH=/Users/jens/data/nar \
 Unlike the two above it is **not** fully reproducible: the corpus is a local model's output, and
 regenerating it will move the numbers. `<EVAL_CACHE>/dirty_corpus.csv` is the corpus of record.
 
+Two failure modes have a probe of their own, because the harness samples NAR uniformly and neither
+population is large enough in a uniform sample to measure. Each draws 2,500 rows from its own
+at-risk population and asks whether the parser reproduces the decomposition **NAR itself records**
+— name here, type and direction there — which is the one comparison in this package that carries
+no not-ground-truth caveat, since it never looks at a coordinate:
+
+```sh
+R_ENVIRON_USER=/dev/null NAR_CACHE_PATH=/Users/jens/data/nar \
+  Rscript data-raw/probe_direction.R                     # mode 2, ~2 min
+R_ENVIRON_USER=/dev/null NAR_CACHE_PATH=/Users/jens/data/nar \
+  Rscript data-raw/probe_type.R                          # mode 3, ~3 min
+```
+
+Both seed their sample with `USING SAMPLE ... (reservoir, 11)` for the same reason Part A does.
+
 Two consecutive full runs of `eval_normalize.R` are byte-identical apart from timing. **Any change to the parser
 should be evaluated by running the harness before and after on the same seed**, not by comparing
 against a number written down here.
@@ -168,7 +183,7 @@ The remaining 2 are single rows with no shared cause — `695 South Shore RD, NA
 a longer street of a similar name, and `11 South Country RD, RM OF DUNDURN` losing the word
 outright.
 
-### 3. A name-final type word eaten as the type, when the real type is missing — ~586k addresses (3.4%) at risk
+### 3. A name-final type word eaten as the type, when the real type is missing — re-measured
 
 ```
 3 Aspen Cove Rd, Fort McMurray, AB  ->  name ASPEN COVE, type RD   correct
@@ -177,18 +192,77 @@ outright.
 
 Note the pairing: **this only bites when the input omits the street type.** With the type present
 the longest-match is unambiguous and `Wharton Glen Way` and `Park Lawn Rd` both parse correctly.
-That confines the damage to the 13% of type-dropped forms the harness measures at 86.9%.
+Re-measured on 2026-08-25 by `data-raw/probe_type.R`, which renders the same 2,500 at-risk
+addresses twice — once as NAR spells them and once with the type removed.
 
-21,589 NAR streets across 586,346 addresses end their *name* in a word that is also a street type:
-`PARK` (72,457 addresses), `HILL` (49,672), `RIDGE` (38,150), `BAY` (31,656), `POINT` (29,419),
-`VIEW`, `HEIGHTS`, `GROVE`, `GLEN`, `BEACH`, `COVE`, `CENTRE`.
+**The at-risk inventory.** 487,391 addresses over 8,821 distinct street names end their *name* in
+a word the parser would recognize as a type: `PARK` (65,582 addresses), `HILL` (42,891), `BAY`
+(28,369), `POINT` (27,225), `RIDGE` (25,991), `VIEW`, `GROVE`, `HEIGHTS`, `BEACH`, `COVE`, `PARC`,
+`CENTRE`. That is a stricter population than the 586,346 quoted before — it requires NAR to carry
+a type of its *own*, so the name-final word is unambiguously name; it requires a multi-word name,
+since a street called only `Park` is a different problem; and it excludes rows with a direction,
+where two rules compete and the measurement stops being about one of them.
 
-**Fix:** the same mechanism mode 2 now uses — offer the reading in which the word was *not* taken
-as the type, and let the gazetteer choose between them. Whether it needs a gate is the open
-question and mode 2 does not settle it: there both readings named the same municipality, which is
-what made an ungated parallel candidate safe. **Read the gate finding in *Fixed* first** — a
-restored-name candidate that happens to exist *somewhere else* will outscore the baseline on the
-gazetteer's own score.
+**When it fires it is near-total.** Same rows, both renderings:
+
+| rendering | street name kept | placed | right address |
+| --- | --- | --- | --- |
+| `81 Navy Wharf Crt, Toronto, ON` | 99.8% | 99.6% | 67.4% |
+| `81 Navy Wharf, Toronto, ON` | **4.2%** | **16.4%** | **3.4%** |
+
+**But the failure is a refusal, not a wrong answer, and that is the finding.** Of the 2,394 losses,
+**1,720 — 71.8% — are rows where the gazetteer found the right street and declined it.** Every one
+of them for `score`, in a band from 0.828 to 0.850 with a median of exactly **0.828** against a
+threshold of 0.85. They ship as `parse_source = "rules"`, which from the outside is
+indistinguishable from the street not existing; only `keep_refused = TRUE` shows what was thrown
+away. 414 (17.3%) accepted a *different* street — the confidently-wrong class, 305 of them with a
+coordinate — and 260 refused something that was wrong anyway.
+
+```
+> normalize_address("81 Navy Wharf, Toronto, ON", keep_refused = TRUE)
+  STREET_NAME  STREET_TYPE  MUN_NAME  confidence  parse_source  refused_for
+   Navy Wharf          CRT   TORONTO       0.828     gazetteer        score
+```
+
+**0.828 is arithmetic, not luck, and the eaten word is charged twice.**
+
+```
+0.72 x 0.90   name_sim, at the whole-word-containment floor: NAVY is *inside*
+              NAVY WHARF, which is worth 0.90 and never more
+0.10 x 0      type_match: the probe says WHARF and the street says CRT
+0.06 x 1      no direction in the probe, so full credit
+0.12 x 1      the civic number is inside the street's range
+= 0.828       against threshold 0.85
+```
+
+The second line is the one worth staring at. An *absent* type gets full credit by design — the
+last three terms only ever add. A *wrong* type gets zero. So the same eaten word both caps the
+name similarity and forfeits the type term, and the pair of penalties lands 0.022 under the bar.
+**Do not respond to this by moving the threshold**: 0.828 is where these right answers sit, and it
+is also where a great many wrong ones do.
+
+**In the wild it is small.** On 5,000 real Corporations Canada filings the signature — the
+pipeline handing back a name one word shorter than a real street it found and declined — fires on
+**6 rows, 0.12%**, all scoring 0.828–0.834. Real filers write the street type. The shape that
+survives is the one where there is no type to write: Toronto's `The Esplanade` and Squamish's
+`The Crescent`, streets literally *named* `The <type word>`, where NAR's own type column is empty
+and the parser takes `THE` as the name.
+
+**On a corpus that drops types it is the largest single cause left.** In Part A's own 4,982 rows,
+165 (3.3%) are in the at-risk population, the noise grammar dropped the type on 26 of them, and
+**24 of those 26 lost the street name** — 24% of Part A's 98 `STREET_NAME` misses.
+
+**Fix:** unchanged in shape — offer the reading in which the word was *not* taken as the type, and
+let the gazetteer choose. That reading scores a clean 1.0: exact name, no type asserted so the
+type term pays in full. What the re-measurement adds is the size on both sides. It is worth about
+half a point of Part A `STREET_NAME` and roughly nothing on filings, so it is a robustness fix for
+corpora that omit types rather than a coverage win — and it would take 22 of the 27 remaining
+mode-2 losses with it, which is the rest of its case. On the gate question mode 2 does now say
+something: both readings carry the same municipality here too, since the split is inside the
+street, so the like-for-like argument that made an ungated candidate safe in mode 2 applies
+unchanged. Where both readings name real streets in the same place the tie falls to the baseline,
+which is the Lethbridge outcome — defensible, and no worse than today. That is a prediction to
+test, not a conclusion.
 
 ### 4. Keyboard typos in the street name — 91.9% vs 98.6% clean
 
@@ -883,16 +957,20 @@ the largest number on this list has now twice been the one that moved least.
    through the particule and the hyphen), so what is left is the part folding cannot do: former
    names, and génériques that are part of the name rather than the type. Six of RQA's génériques
    have no counterpart in NAR's observed types, so they must not be promoted to canonical types.
-2. **A candidate reading for the type step** (mode 3). The direction half of this mechanism is
-   built and measured twice over; the type half is not, and it is the same move — offer the
-   reading in which the name-final word was *not* taken as the type, and let the gazetteer choose.
-   ~586k addresses' worth of street forms at risk. It has also become the *only* thing left in
-   failure mode 2: 22 of the 27 remaining direction losses are a type word eaten early, 17 of them
-   Montréal's `West Hill AV`, so this item would take them with it. The name gate recovers some of
-   it incidentally — whole-word containment catches a type the parser ate whenever the gazetteer
-   has the fuller name — so re-measure the remaining size before building it. Note the one thing
-   it will not fix: where NAR files the same city both ways with overlapping civic ranges, the tie
-   is in the register and no reading can break it.
+2. **A candidate reading for the type step** (mode 3), now measured on both sides. Same move as
+   mode 2 — offer the reading in which the name-final word was *not* taken as the type. The
+   re-measurement (`data-raw/probe_type.R`) settled what it is worth and it is **not** the 3.4%
+   the inventory suggested: the mode only fires when the input omits the type, so the payoff is a
+   property of the corpus. On a type-dropping corpus it is the largest single cause left — 24% of
+   Part A's `STREET_NAME` misses, about half a point. On real filings it is 6 rows in 5,000. It
+   also takes 22 of the 27 remaining mode-2 losses with it, which is the rest of its case.
+   Build it for robustness, not for coverage.
+
+   The re-measurement also found the mechanism, and it is worth reading before writing any code:
+   71.8% of the failures are rows where the gazetteer **found the right street and refused it at
+   0.828**, because the eaten word is charged twice — it caps `name_sim` at the containment floor
+   and forfeits the type term, which an *absent* type would have been paid in full. The candidate
+   reading fixes that honestly, at 1.0. Moving the threshold does not.
 3. **Reject a province name as a municipality** (mode 6). An afternoon.
 4. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
    determined case is now answered; this is the 157 rows with 2 or more candidates. Either

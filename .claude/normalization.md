@@ -311,6 +311,18 @@ what asking for stricter should do.
   `PARK LAWN` — which similarity ranks nowhere near the top (679th, for the first). It cannot
   displace a street actually called `PARK`, which scores an exact 1.0 and wins.
 
+**Whole-word containment does not save a name the type step ate — it lands it at 0.828, which is
+0.022 under the bar.** This is arithmetic and it is worth having in front of you before touching
+either the weights or the threshold. `81 Navy Wharf, Toronto` parses as name `NAVY`, type `CRT`'s
+surface `WHARF`. Containment then finds `Navy Wharf CRT` and pays the flat 0.90 — but the same
+eaten word is charged a second time on the next line, because the probe now asserts a type that is
+*wrong*, and a wrong type scores 0 where an **absent** one scores the full 0.10. So
+`0.72 x 0.90 + 0.10 x 0 + 0.06 + 0.12 = 0.828`, and the row ships as `parse_source = "rules"` with
+the right street sitting in a refusal nobody sees unless they pass `keep_refused = TRUE`. Measured
+at 71.8% of the failures in `data-raw/probe_type.R`. The fix is a candidate reading that does not
+assert the wrong type — it scores a clean 1.0 — and **not** a lower threshold: 0.828 is where
+these right answers sit and where a great many wrong ones do too.
+
 **Both prefilters are required, and both were measured.** Edit distance is asked only of
 candidates already at `jw_sim >= 0.70` (one edit cannot go below that: worst case is a substituted
 first character of a three-letter word, 0.778), and containment only of candidates *longer* than
