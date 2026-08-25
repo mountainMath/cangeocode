@@ -59,10 +59,10 @@ warning below before reading more into that than it says.
 
 ## Licence
 
-RQA is **CC-BY 4.0**, where NAR is the Open Government Licence. Both are
-attribution licences and they compose, which is exactly what makes RQA
-usable as a default tier where OpenStreetMap’s ODbL is not. The
-obligation is real, and
+RQA is **CC-BY 4.0**, where NAR is the Statistics Canada Open Licence.
+Both are attribution licences and they compose, which is exactly what
+makes RQA usable as a default tier where OpenStreetMap’s ODbL is not.
+The obligation is real, and
 [`rqa_attribution()`](https://mountainmath.github.io/cangeocode/reference/rqa_attribution.md)
 is the string that discharges it:
 

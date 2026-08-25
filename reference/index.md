@@ -37,7 +37,7 @@ Online services that place an address without a local database: NRCan’s
 national geolocator, the Province of British Columbia’s Address
 Geocoder, Quebec’s geocoder over the Repertoire quebecois des adresses,
 the two provincial ones also a second source to check a result against,
-and the OpenStreetMap geocoder the Government of Canada hosts. All make
+and the OpenStreetMap geocoder Natural Resources Canada hosts. All make
 network requests, and the OpenStreetMap one returns data under a
 share-alike licence – read
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)

@@ -51,9 +51,9 @@ the fallback.
 ## Licence
 
 Results are subject to NRCan’s terms and the **Open Government Licence –
-Canada**, the same family of licence as NAR and the road network file.
-It composes with the rest of the package’s data without further
-conditions, unlike the ODbL data behind
+Canada**, an attribution licence like the Statistics Canada Open Licence
+covering NAR and the road network file. It composes with the rest of the
+package’s data without further conditions, unlike the ODbL data behind
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
 — see
 [`vignette("source-osm")`](https://mountainmath.github.io/cangeocode/articles/source-osm.md).

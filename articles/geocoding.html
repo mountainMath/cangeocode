@@ -57,7 +57,7 @@
     <li><a class="dropdown-item" href="../articles/source-bc.html">Source: the BC Address Geocoder</a></li>
     <li><a class="dropdown-item" href="../articles/source-nrcan.html">Source: NRCan's national geolocator</a></li>
     <li><a class="dropdown-item" href="../articles/source-qc.html">Source: the Quebec MRNF geocoder</a></li>
-    <li><a class="dropdown-item" href="../articles/source-osm.html">Source: the Government of Canada Nominatim instance</a></li>
+    <li><a class="dropdown-item" href="../articles/source-osm.html">Source: the NRCan-hosted Nominatim instance</a></li>
   </ul>
 </li>
 <li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
@@ -822,7 +822,7 @@ See <code><a href="../reference/nrcan_geocode.html">?nrcan_geocode</a></code>.</
 <p>There is a third online service bound in this package, and it is
 deliberately not something <code>method</code> can name.
 <code><a href="../reference/osm_geocode.html">osm_geocode()</a></code> queries the <a href="https://maps.canada.ca/nominatim/search" class="external-link">Nominatim</a> instance
-the Government of Canada hosts — not the volunteer-funded
+Natural Resources Canada hosts — not the volunteer-funded
 <code>nominatim.openstreetmap.org</code>, whose usage policy forbids
 bulk geocoding.</p>
 <div class="sourceCode" id="cb29"><pre class="downlit sourceCode r">
@@ -830,10 +830,10 @@ bulk geocoding.</p>
 <p>The reason it is a separate call rather than a tier is the licence,
 not the accuracy. OpenStreetMap data is ODbL: attribution plus
 share-alike, with obligations that attach to a derived database. Every
-other source here is under an Open Government Licence, and a default
-tier would fold a handful of ODbL rows into your result table and
-quietly change what you may do with the whole of it. So the choice is
-yours to make, and every row carries the service’s own
+other source here is under an attribution-only open licence, and a
+default tier would fold a handful of ODbL rows into your result table
+and quietly change what you may do with the whole of it. So the choice
+is yours to make, and every row carries the service’s own
 <code>osm_licence</code> string.</p>
 <p>It behaves unlike the other two in one welcome respect: <strong>it
 refuses.</strong> Given an address it does not have, it returns nothing

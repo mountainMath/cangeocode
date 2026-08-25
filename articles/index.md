@@ -33,5 +33,5 @@
   geolocator](https://mountainmath.github.io/cangeocode/articles/source-nrcan.md):
 - [Source: the Quebec MRNF
   geocoder](https://mountainmath.github.io/cangeocode/articles/source-qc.md):
-- [Source: the Government of Canada Nominatim
+- [Source: the NRCan-hosted Nominatim
   instance](https://mountainmath.github.io/cangeocode/articles/source-osm.md):

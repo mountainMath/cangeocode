@@ -56,9 +56,9 @@ Every response carries its own copyright notice and licence link:
 > Copyright © 2024 Province of British Columbia
 
 under the **Open Government Licence – British Columbia**. That composes
-with the Open Government Licence covering NAR, so BC coordinates can be
-mixed into a result without further conditions — unlike the ODbL data
-behind
+with the Statistics Canada Open Licence covering NAR, so BC coordinates
+can be mixed into a result without further conditions — unlike the ODbL
+data behind
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md),
 which is why that one is not a tier.
 

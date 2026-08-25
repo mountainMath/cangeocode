@@ -1,4 +1,4 @@
-# Source: the Government of Canada Nominatim instance
+# Source: the NRCan-hosted Nominatim instance
 
 *One of this package’s seven data sources — the one source bound but not
 wired as a tier.
@@ -7,14 +7,14 @@ is the overview and puts it in context.*
 
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
 queries **`https://maps.canada.ca/nominatim/search`** — the Nominatim
-instance the Government of Canada hosts over OpenStreetMap data, and the
-one NRCan’s own aggregator queries internally under its `nominatim`
-service key.
+instance **Natural Resources Canada** hosts over OpenStreetMap data on
+the Federal Geospatial Platform, and the one NRCan’s own aggregator
+queries internally under its `nominatim` service key.
 
 It is **not** `nominatim.openstreetmap.org`, and that matters: the
 volunteer instance’s usage policy forbids bulk geocoding outright, so
 pointing this package at it would make every user of the package a
-violation. The GC instance is keyless, national, and under no such
+violation. The NRCan instance is keyless, national, and under no such
 restriction.
 
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
@@ -60,9 +60,10 @@ used as one by default.
 ## Licence: why this is not a tier
 
 **OpenStreetMap data is ODbL** — attribution plus share-alike, with the
-obligation attaching to a derived **database**. NAR, the BC geocoder and
-NRCan’s geolocator are all Open Government Licence; RQA is CC-BY. Those
-compose freely. ODbL does not compose with them the same way.
+obligation attaching to a derived **database**. NAR and the road network
+file are the Statistics Canada Open Licence, the BC geocoder and NRCan’s
+geolocator the Open Government Licence, RQA and Quebec’s geocoder CC-BY.
+Those compose freely. ODbL does not compose with them the same way.
 
 A default tier would fold a handful of ODbL rows into a result table and
 change what the caller may do with **the whole of it**, silently, for

@@ -55,10 +55,9 @@ rule-based half of the parser.
 
 ## Licence
 
-**Open Government Licence – Canada**, and NAR’s own product page carries
-the attribution wording. It composes with the CC-BY covering Quebec’s
-register and the Statistics Canada Open Licence covering the Road
-Network File — which is what lets
+**Statistics Canada Open Licence** — the same terms as the Road Network
+File — and NAR’s own product page carries the attribution wording. It
+composes with the CC-BY covering Quebec’s register, which is what lets
 [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
 mix all three tiers into one result table by default, and why the ODbL
 data behind

@@ -66,8 +66,8 @@ rqa_attribution()
 #> [1] "Contains information licensed under CC-BY 4.0 from the Repertoire quebecois des adresses, Ministere des Ressources naturelles et des Forets, Gouvernement du Quebec."
 ```
 
-That composes with the Open Government Licence covering NAR, which is
-why this can be a default tier where
+That composes with the Statistics Canada Open Licence covering NAR,
+which is why this can be a default tier where
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)’s
 ODbL data cannot.
 

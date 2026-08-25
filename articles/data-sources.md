@@ -16,13 +16,13 @@ library(dplyr)
 
 | source | vignette | where it lives | tier | licence |
 |----|----|----|----|----|
-| National Address Repository | [`vignette("source-nar")`](https://mountainmath.github.io/cangeocode/articles/source-nar.md) | local, imported | `"nar"`, `"nar_interpolate"` | OGL – Canada |
+| National Address Repository | [`vignette("source-nar")`](https://mountainmath.github.io/cangeocode/articles/source-nar.md) | local, imported | `"nar"`, `"nar_interpolate"` | StatCan Open Licence |
 | Répertoire québécois des adresses | [`vignette("source-rqa")`](https://mountainmath.github.io/cangeocode/articles/source-rqa.md) | local, [`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md) | `"rqa"` | CC-BY 4.0 |
 | Road Network File | [`vignette("source-rnf")`](https://mountainmath.github.io/cangeocode/articles/source-rnf.md) | local, [`rnf_import()`](https://mountainmath.github.io/cangeocode/reference/rnf_import.md) | `"rnf"` | StatCan Open Licence |
 | BC Address Geocoder | [`vignette("source-bc")`](https://mountainmath.github.io/cangeocode/articles/source-bc.md) | online | `"bc"` | OGL – British Columbia |
 | NRCan national geolocator | [`vignette("source-nrcan")`](https://mountainmath.github.io/cangeocode/articles/source-nrcan.md) | online | `"nrcan"` | OGL – Canada |
 | Quebec MRNF geocoder | [`vignette("source-qc")`](https://mountainmath.github.io/cangeocode/articles/source-qc.md) | online | `"qc"` | CC-BY 4.0 |
-| GoC Nominatim (OpenStreetMap) | [`vignette("source-osm")`](https://mountainmath.github.io/cangeocode/articles/source-osm.md) | online | **none** | ODbL |
+| NRCan Nominatim (OpenStreetMap) | [`vignette("source-osm")`](https://mountainmath.github.io/cangeocode/articles/source-osm.md) | online | **none** | ODbL |
 
 Three things about that table are worth reading twice, and the rest of
 this vignette is those three: **NAR is not one source among seven**, the
@@ -170,8 +170,8 @@ Every source here is openly licensed, and that is not enough on its own
 [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
 returns one table with rows from several of them.
 
-Open Government Licence (Canada, and British Columbia), the Statistics
-Canada Open Licence and CC-BY 4.0 are all attribution licences. They
+The Statistics Canada Open Licence, the Open Government Licence (Canada,
+and British Columbia) and CC-BY 4.0 are all attribution licences. They
 compose: mixing them obliges you to attribute each, and nothing more.
 Six of the seven sources here are in that group, which is why all six
 are tiers.

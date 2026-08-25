@@ -1,21 +1,28 @@
 # cangeocode
 
-`cangeocode` does two things with Canadian addresses: it **geocodes**
-them, in both directions, and it **normalizes** them — turning free text
-into structured components. Normalization is a step inside geocoding,
-but it stands on its own: most of what people need addresses for is
-matching them to each other, not putting them on a map.
-
-Both are built on Statistics Canada’s [National Address
+`cangeocode` is designed to provide open **geocoding**, **reverse
+geocoding**, and **address normalization** for Canadian addresses built
+on data under a permissive license. At the core sits Statistics Canada’s
+[National Address
 Repository](https://www.statcan.gc.ca/en/lode/databases/nar) (NAR), a
-national list of civic addresses with coordinates, which the package
-imports into a local [DuckDB](https://duckdb.org) database. Two more
-sources can be imported into the same database alongside it, each in
-tables of its own: Quebec’s [Répertoire québécois des
-adresses](https://www.donneesquebec.ca/recherche/dataset/adresses-quebec),
-and Statistics Canada’s [Road Network
+national list of structured civic addresses with coordinates. While a
+solid base, the NAR on it’s own can’t provide robust geocoding. Some
+records in the NAR lack spatial coordinates, some are sparially
+mis-located, and a range of addresses are missing entirely. `cangeocode`
+provides a multi-tiered approach to geocoding that uses NAR as the base,
+and adds additional sources to fill in the gaps.
+
+Two important additions are Quebec’s [Répertoire québécois des
+adresses](https://www.donneesquebec.ca/recherche/dataset/adresses-quebec)
+which fills some impotant coverage gaps of the NAR, and Statistics
+Canada’s [Road Network
 File](https://www150.statcan.gc.ca/n1/en/catalogue/92-500-X), which is
 what reaches streets NAR does not carry.
+
+The data is imported into a local [DuckDB](https://duckdb.org) database
+for fast, offline access. The package provides a set of functions to
+query the database and geocode addresses, as well as a set of functions
+to normalize addresses and parse them into their components.
 
 Everything runs on your own machine: no API keys, no rate limits, and no
 address ever leaves it. The exceptions are opt-in —
@@ -24,8 +31,34 @@ Columbia’s public geocoder, `geocode(method = c(..., "qc"))` calls
 Quebec’s, `geocode(method = c(..., "nrcan"))` calls NRCan’s national
 one, and
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
-calls the OpenStreetMap geocoder the Government of Canada hosts. Nothing
-contacts any of them unless you ask for it.
+calls the OpenStreetMap geocoder NRCan hosts. Nothing contacts any of
+them unless you ask for it.
+
+## What you may do with the results
+
+The package is MIT, but the coordinates it hands back are not the
+package’s to licence — they belong to the sources it draws on. A default
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+call mixes NAR (Statistics Canada Open Licence), Quebec’s register
+(CC-BY 4.0) and the road network file (Statistics Canada Open Licence);
+adding `"bc"`, `"qc"` or `"nrcan"` brings in the Open Government Licence
+of British Columbia or of Canada. **Every one of those is an attribution
+licence, and they compose**: you may use, publish and sell work built on
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+output, commercially included, provided each source you actually drew on
+is credited. Nothing else is asked of you — no share-alike, no fee, no
+key. `match_method` tells you which tier answered each row, so you can
+see which credits you owe; the CC-BY one is returned ready-made by
+[`rqa_attribution()`](https://mountainmath.github.io/cangeocode/reference/rqa_attribution.md).
+
+The one exception is
+[`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md),
+whose OpenStreetMap data is **ODbL** — attribution *plus* share-alike,
+with the obligation attaching to a derived database. That is why it is
+not a
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+tier: no default call can quietly change what you may do with your whole
+result table.
 
 ## Installation
 
@@ -114,15 +147,20 @@ why one of them is not a tier. Below it sits one vignette per source,
 each covering what it adds to the package, the licence it comes with,
 and what to watch out for:
 
-| vignette | source | role |
-|----|----|----|
-| [`source-nar`](https://mountainmath.github.io/cangeocode/articles/source-nar.html) | National Address Repository | the base, and the yardstick everything else is measured against |
-| [`source-rqa`](https://mountainmath.github.io/cangeocode/articles/source-rqa.html) | Répertoire québécois des adresses | offline `"rqa"` tier, via [`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md) |
-| [`source-rnf`](https://mountainmath.github.io/cangeocode/articles/source-rnf.html) | Statistics Canada Road Network File | offline `"rnf"` tier, via [`rnf_import()`](https://mountainmath.github.io/cangeocode/reference/rnf_import.md) |
-| [`source-bc`](https://mountainmath.github.io/cangeocode/articles/source-bc.html) | BC Address Geocoder | online tier, and [`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md) |
-| [`source-nrcan`](https://mountainmath.github.io/cangeocode/articles/source-nrcan.html) | NRCan national geolocator | online tier |
-| [`source-qc`](https://mountainmath.github.io/cangeocode/articles/source-qc.html) | Quebec MRNF geocoder | online tier, [`qc_validate()`](https://mountainmath.github.io/cangeocode/reference/qc_validate.md), [`qc_reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/qc_reverse_geocode.md) |
-| [`source-osm`](https://mountainmath.github.io/cangeocode/articles/source-osm.html) | Government of Canada Nominatim | bound as [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md), deliberately not a tier |
+| vignette | source | role | licence |
+|----|----|----|----|
+| [`source-nar`](https://mountainmath.github.io/cangeocode/articles/source-nar.html) | National Address Repository | the base, and the yardstick everything else is measured against | StatCan Open Licence |
+| [`source-rqa`](https://mountainmath.github.io/cangeocode/articles/source-rqa.html) | Répertoire québécois des adresses | offline `"rqa"` tier, via [`rqa_import()`](https://mountainmath.github.io/cangeocode/reference/rqa_import.md) | CC-BY 4.0 |
+| [`source-rnf`](https://mountainmath.github.io/cangeocode/articles/source-rnf.html) | Statistics Canada Road Network File | offline `"rnf"` tier, via [`rnf_import()`](https://mountainmath.github.io/cangeocode/reference/rnf_import.md) | StatCan Open Licence |
+| [`source-bc`](https://mountainmath.github.io/cangeocode/articles/source-bc.html) | BC Address Geocoder | online tier, and [`bc_validate()`](https://mountainmath.github.io/cangeocode/reference/bc_validate.md) | OGL – British Columbia |
+| [`source-nrcan`](https://mountainmath.github.io/cangeocode/articles/source-nrcan.html) | NRCan national geolocator | online tier | OGL – Canada |
+| [`source-qc`](https://mountainmath.github.io/cangeocode/articles/source-qc.html) | Quebec MRNF geocoder | online tier, [`qc_validate()`](https://mountainmath.github.io/cangeocode/reference/qc_validate.md), [`qc_reverse_geocode()`](https://mountainmath.github.io/cangeocode/reference/qc_reverse_geocode.md) | CC-BY 4.0 |
+| [`source-osm`](https://mountainmath.github.io/cangeocode/articles/source-osm.html) | NRCan-hosted Nominatim | bound as [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md), deliberately not a tier | **ODbL 1.0** |
+
+The last column is why the last row is not a tier: the first six are
+attribution licences and compose with each other, ODbL adds share-alike
+and does not. See [what you may do with the
+results](#what-you-may-do-with-the-results).
 
 And the
 [changelog](https://mountainmath.github.io/cangeocode/news/index.html).
@@ -568,9 +606,9 @@ and `qc_reject`, so you can see what was thrown away and why.
 
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
 binds the [Nominatim](https://maps.canada.ca/nominatim/search) instance
-the Government of Canada hosts — not the volunteer-funded
-`nominatim.openstreetmap.org`, whose usage policy forbids bulk
-geocoding. It needs no API key and no local database.
+Natural Resources Canada hosts on the Federal Geospatial Platform — not
+the volunteer-funded `nominatim.openstreetmap.org`, whose usage policy
+forbids bulk geocoding. It needs no API key and no local database.
 
 ``` r
 
@@ -582,10 +620,10 @@ It is **not** one of
 tiers, and the reason is the licence rather than the accuracy:
 OpenStreetMap data is ODbL, which carries attribution and share-alike
 obligations that attach to a derived database, where every other source
-in this package is under an Open Government Licence. Folding a few ODbL
-rows into a result table by default would quietly change what you may do
-with the whole table, so this one is an explicit call and each row
-carries the service’s own `osm_licence` string.
+in this package is under an attribution-only open licence. Folding a few
+ODbL rows into a result table by default would quietly change what you
+may do with the whole table, so this one is an explicit call and each
+row carries the service’s own `osm_licence` string.
 
 The pleasant surprise is that it **refuses**. Where the other two
 services always answer, this one returns nothing for an address it does
@@ -740,7 +778,7 @@ Online services that place an address without a local database: NRCan’s
 national geolocator, the Province of British Columbia’s Address
 Geocoder, Quebec’s geocoder over the Repertoire quebecois des adresses,
 the two provincial ones also a second source to check a result against,
-and the OpenStreetMap geocoder the Government of Canada hosts. All make
+and the OpenStreetMap geocoder Natural Resources Canada hosts. All make
 network requests, and the OpenStreetMap one returns data under a
 share-alike licence – read
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
@@ -859,5 +897,5 @@ range contains it, which reaches streets NAR does not carry at all.
   geolocator](https://mountainmath.github.io/cangeocode/articles/source-nrcan.md):
 - [Source: the Quebec MRNF
   geocoder](https://mountainmath.github.io/cangeocode/articles/source-qc.md):
-- [Source: the Government of Canada Nominatim
+- [Source: the NRCan-hosted Nominatim
   instance](https://mountainmath.github.io/cangeocode/articles/source-osm.md):

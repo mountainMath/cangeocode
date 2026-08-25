@@ -834,7 +834,7 @@ There is a third online service bound in this package, and it is
 deliberately not something `method` can name.
 [`osm_geocode()`](https://mountainmath.github.io/cangeocode/reference/osm_geocode.md)
 queries the [Nominatim](https://maps.canada.ca/nominatim/search)
-instance the Government of Canada hosts — not the volunteer-funded
+instance Natural Resources Canada hosts — not the volunteer-funded
 `nominatim.openstreetmap.org`, whose usage policy forbids bulk
 geocoding.
 
@@ -846,10 +846,10 @@ osm_geocode("990 Bute St, Vancouver, BC")
 The reason it is a separate call rather than a tier is the licence, not
 the accuracy. OpenStreetMap data is ODbL: attribution plus share-alike,
 with obligations that attach to a derived database. Every other source
-here is under an Open Government Licence, and a default tier would fold
-a handful of ODbL rows into your result table and quietly change what
-you may do with the whole of it. So the choice is yours to make, and
-every row carries the service’s own `osm_licence` string.
+here is under an attribution-only open licence, and a default tier would
+fold a handful of ODbL rows into your result table and quietly change
+what you may do with the whole of it. So the choice is yours to make,
+and every row carries the service’s own `osm_licence` string.
 
 It behaves unlike the other two in one welcome respect: **it refuses.**
 Given an address it does not have, it returns nothing rather than a
