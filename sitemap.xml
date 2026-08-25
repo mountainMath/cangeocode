@@ -62,7 +62,9 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_download_provinces.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_file_reader.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_fold.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_dots.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_pass.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_prepare.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_gazetteer_sql.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_best_sql.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_bounds.html</loc></url>
@@ -84,6 +86,7 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_probe.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_rank_sql.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_ranked_sql.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_remap_floor.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_run_tier.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_setup.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_geocode_street_key.html</loc></url>
@@ -125,6 +128,7 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_metadata.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_mun_anchor_runs.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_mun_anchor_variants.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_mun_copostal.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_mun_index.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_mun_key.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_municipality_n.html</loc></url>
@@ -171,6 +175,7 @@
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_register_spatial.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_release_directory.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_release_sizes.html</loc></url>
+<url><loc>https://mountainmath.github.io/cangeocode/reference/nar_remap_uncertainty_m.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_resolve_gazetteer.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_resolve_version.html</loc></url>
 <url><loc>https://mountainmath.github.io/cangeocode/reference/nar_road_tail_words.html</loc></url>

@@ -17,7 +17,17 @@ surface on one batch and stay silent on the next.
 ## Usage
 
 ``` r
-nar_geocode_setup(x, prov, mun, within, method, crs, version, con)
+nar_geocode_setup(
+  x,
+  prov,
+  mun,
+  within,
+  method,
+  crs,
+  version,
+  con,
+  dots = list()
+)
 ```
 
 ## Arguments

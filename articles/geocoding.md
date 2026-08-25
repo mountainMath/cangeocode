@@ -173,6 +173,79 @@ which is the width of the country. `match_method` describes the
 `n_matches` alongside it, or fix the question with the constraints
 below.
 
+### The place you were given may not be the place you named
+
+`n_matches == 1` is the qualifier it is easiest to over-read. It means
+one candidate was found, not that the right one was among the candidates
+searched — and those two come apart in a specific way. When the string
+names a community the address register does not file mail under, the
+parser resolves it through the census subdivision it belongs to, which
+widens the search from that community to every community in it.
+`MILFORD, NS` becomes all 166 of Halifax Regional Municipality’s, spread
+over 127 km. Usually that is the feature working. Occasionally the only
+street of that name in the whole regional municipality is 60 km from the
+one you meant, and it comes back as a unique exact match.
+
+So
+[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+reports whether the municipality it hands back is the one you wrote, and
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+passes the flag through:
+
+``` r
+
+geocode(c("1741 Brunswick St, Halifax, NS",
+          "25 River Rd, Moser River, NS",
+          "36 Lakeview Dr, Howie Centre, NS")) |>
+  select(input, MUN_NAME, mun_remapped, mun_evidence, n_matches, uncertainty_m)
+#>                              input         MUN_NAME mun_remapped mun_evidence n_matches
+#> 1   1741 Brunswick St, Halifax, NS          HALIFAX        FALSE         kept         1
+#> 2     25 River Rd, Moser River, NS          HALIFAX         TRUE     copostal         1
+#> 3 36 Lakeview Dr, Howie Centre, NS CONQUERALL MILLS         TRUE   untestable         1
+#>   uncertainty_m
+#> 1             0
+#> 2             0
+#> 3           118
+```
+
+All three are exact building matches with one candidate each. The second
+is 118 km from Moser River: there is no `River Rd` filed under that
+community, and the one in Halifax — the same regional municipality —
+answered for it. The third is 388 km from Howie Centre, on the other
+side of the province.
+
+Beside the flag, `mun_evidence` records *how* the substitution was
+justified, because not all of them are equally suspect:
+
+| `mun_evidence` | what it means |
+|----|----|
+| `kept` | not a substitution — the register files the address under the name you wrote |
+| `copostal` | the two names appear on the same full postal code in the register, so they are two labels for one delivery geography |
+| `csd` | the name you wrote is the census subdivision the street sits in — an amalgamation or a legacy name, `Toronto` for a street still mailed to `North York` |
+| `untestable` | the name you wrote takes no postal-coded mail at all, so there was nothing to check it against |
+| `unattested` | checked, and nothing corroborated it |
+| `inferred` | you named no municipality; the register determined one |
+
+The first three are the attested ones, and `uncertainty_m` leaves them
+alone. That is a measurement rather than a courtesy: against an
+independent reading of the same houses, an attested remap lands at a
+90th percentile of 52 m, *below* the 57 m of addresses whose
+municipality was never touched. The other three are floored at 118 m,
+their own pooled 90th percentile — which is why the third row above no
+longer claims the 0 m an exact civic match would otherwise imply.
+
+The scoring uses the same evidence: a substitution nothing corroborates
+is fined, so it has to be an exact or one-keystroke street name agreeing
+on everything else the string gave before it can win. That more than
+halves the errors past 5 km.
+
+None of it is a guarantee, and `uncertainty_m` is the weakest part. The
+second row is *attested* and still 118 km wrong: the risk a remap
+carries lives in a tail no 90th percentile describes — the unattested
+classes run 1.6–1.8% past 5 km, the untouched ones 0.05% — so if a
+kilometre-scale error is unacceptable, filter on `mun_remapped` itself
+rather than on the metres.
+
 ### One place, several addresses
 
 `n_matches` counts *points*, and beside it `n_records` counts the *NAR

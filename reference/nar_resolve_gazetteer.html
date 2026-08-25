@@ -148,7 +148,13 @@ canonicalized against a register NAR does not carry it in, and a join against
 
     <div class="section level2">
     <h2 id="ref-usage">Usage<a class="anchor" aria-label="anchor" href="#ref-usage"></a></h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_resolve_gazetteer</span><span class="op">(</span><span class="va">res</span>, <span class="va">con</span>, threshold <span class="op">=</span> <span class="fl">0.85</span>, name_threshold <span class="op">=</span> <span class="fl">0.9</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">nar_resolve_gazetteer</span><span class="op">(</span></span>
+<span>  <span class="va">res</span>,</span>
+<span>  <span class="va">con</span>,</span>
+<span>  threshold <span class="op">=</span> <span class="fl">0.85</span>,</span>
+<span>  name_threshold <span class="op">=</span> <span class="fl">0.9</span>,</span>
+<span>  mun_swap_penalty <span class="op">=</span> <span class="fl">0.88</span></span>
+<span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div class="section level2">
@@ -173,6 +179,14 @@ combined score. Without it the type and direction credit alone carries a
 weak name over the line: `MAIN` against `MAITLAND` scores only 0.88 on the
 name, but a matching type and an absent direction would still clear a
 combined 0.85 and silently substitute the wrong street.</p></dd>
+
+
+<dt id="arg-mun-swap-penalty">mun_swap_penalty<a class="anchor" aria-label="anchor" href="#arg-mun-swap-penalty"></a></dt>
+<dd><p>Score multiplier applied to a NAR candidate whose
+municipality is not the one the string named and is not an attested alias of
+it – see the penalty section of [nar_gazetteer_sql()]. Not applied to the
+RQA pass, which files under census subdivisions rather than postal cities
+and so changes the municipality by design.</p></dd>
 
 </dl></div>
     <div class="section level2">

@@ -317,6 +317,37 @@ run the import.
   padded label. Quebec’s `"rqa"` tier narrows through the same code,
   over the 1.67M of its 5.32M rows that carry a unit.
 
+- **[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+  reports `mun_remapped` and `mun_evidence`, and `uncertainty_m` is
+  floored at 118 m on a remap nothing attests.** A remapped row is one
+  the gazetteer answered under a different community of the same census
+  subdivision, and
+  [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+  then searches only the community it chose – so `n_matches == 1` there
+  is manufactured by the same step that chose the place, and
+  `uncertainty_m` was reporting 0 m. `mun_evidence` records *how* the
+  swap was attested – `kept`, `copostal` (the two names share a full
+  postal code in NAR), `csd` (an amalgamation or legacy name, read off
+  `CSD_ENG_NAME`), `inferred`, `untestable`, `unattested` – and the
+  floor is keyed on it. **An attested swap is not floored at all**,
+  because measured against Nova Scotia’s independent PVSC points the
+  attested classes land at p90 52 m over 1,723 rows, *below* the 57 m of
+  rows whose municipality was never touched: a remap a postal code or a
+  census subdivision vouches for is as good as no remap. The unattested
+  classes pool to 118 m, which is the floor. It describes the bulk and
+  not the tail: they run 1.6–1.8% past 5 km against 0.05% for untouched
+  rows, which no single metre value can express, so `mun_remapped` is
+  still the column to filter on when a kilometre-scale error is
+  unacceptable.
+
+- **[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+  now forwards gazetteer arguments to the parse it runs itself.**
+  `geocode(x, mun_swap_penalty = 1)` on a character vector silently
+  parsed at the default and dropped the argument, while the same
+  argument given to
+  [`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+  first was honoured – a wrong answer with no warning.
+
 ### Fixes
 
 - **[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
@@ -389,6 +420,27 @@ run the import.
 - Part B — 5,000 registered offices nobody cleaned — now extracts a
   civic number and street name from 98.9% and joins a real NAR address
   for 88.8%.
+
+- **[`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+  gains `mun_remapped`**, and the gazetteer now fines a municipality
+  swap it cannot corroborate. `MunAlias` restricts candidates at *census
+  subdivision* grain, so `MILFORD, NS` was admitting all 166 communities
+  of Halifax Regional Municipality over 127 km, and a near-miss on the
+  street name could beat the right answer inside a set that wide. The
+  new penalty is keyed on signals read out of NAR rather than an assumed
+  alias list: two mailing municipality names appearing on the same
+  *full* six-character postal code, and the census subdivision the
+  street already sits in, which is what carries amalgamations and legacy
+  names (`Bathurst St, Toronto` reaches a street NAR still mails to
+  `NORTH YORK`, and no postal code will ever attest that pair). Measured
+  against Nova Scotia’s independent PVSC points, that separates attested
+  from unattested swaps by two orders of magnitude (p95 121 m vs 12,028
+  m), and the penalty cuts exact-match errors past 5 km from 98 to 42
+  for 373 lost matches in 32,886. Swaps are fined, not forbidden –
+  refusing the class outright costs 928 matches, 85% of them within 100
+  m of the right point.
+  [`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
+  also returns `mun_evidence`, which names the arm that decided.
 
 ### Documentation
 

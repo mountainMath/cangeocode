@@ -43,7 +43,13 @@ in, and a join against \`Addresses\` will still not find it.
 ## Usage
 
 ``` r
-nar_resolve_gazetteer(res, con, threshold = 0.85, name_threshold = 0.9)
+nar_resolve_gazetteer(
+  res,
+  con,
+  threshold = 0.85,
+  name_threshold = 0.9,
+  mun_swap_penalty = 0.88
+)
 ```
 
 ## Arguments
@@ -67,6 +73,14 @@ nar_resolve_gazetteer(res, con, threshold = 0.85, name_threshold = 0.9)
   over the line: \`MAIN\` against \`MAITLAND\` scores only 0.88 on the
   name, but a matching type and an absent direction would still clear a
   combined 0.85 and silently substitute the wrong street.
+
+- mun_swap_penalty:
+
+  Score multiplier applied to a NAR candidate whose municipality is not
+  the one the string named and is not an attested alias of it – see the
+  penalty section of \[nar_gazetteer_sql()\]. Not applied to the RQA
+  pass, which files under census subdivisions rather than postal cities
+  and so changes the municipality by design.
 
 ## Value
 

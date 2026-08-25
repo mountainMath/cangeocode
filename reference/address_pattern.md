@@ -32,7 +32,9 @@ address_pattern(x, prov = NULL, ...)
 
 - ...:
 
-  Additional arguments (currently unused)
+  Passed to the gazetteer layer when \`con\` is supplied, and ignored
+  otherwise – \`threshold\`, \`name_threshold\` and
+  \`mun_swap_penalty\`; see \[nar_resolve_gazetteer()\].
 
 ## Value
 

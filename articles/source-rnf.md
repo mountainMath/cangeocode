@@ -59,8 +59,8 @@ tbl(con, "nar_metadata") |>
   filter(key %in% c("rnf_source", "rnf_licence", "rnf_imported_at")) |>
   collect()
 #> # A tibble: 3 × 2
-#>   key             value                           
-#>   <chr>           <chr>                           
+#>   key             value                         
+#>   <chr>           <chr>                         
 #> 1 rnf_source      lrnf000r25a_e.shp             
 #> 2 rnf_imported_at 2026-08-23T21:22:24-0700      
 #> 3 rnf_licence     Statistics Canada Open Licence
