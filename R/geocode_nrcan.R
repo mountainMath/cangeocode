@@ -305,8 +305,8 @@ nar_nrcan_floors <- function(cand, q, idx = rep(1L, nrow(cand)),
 #' components as [normalize_address()] returns. Components are needed either
 #' way, since the floors compare the answer against them; passing a parsed
 #' frame just avoids parsing twice.
-#' @param prov Optional province, passed to [normalize_address()] when `x` is a
-#' character vector.
+#' @param known Components the caller already has, passed to
+#' [normalize_address()] when `x` is a character vector. See [nar_known()].
 #' @param rate Requests per second, and also the largest burst allowed before
 #' throttling starts. Default 5.
 #' @param retries How many times to send an address before giving up on it.
@@ -339,14 +339,14 @@ nar_nrcan_floors <- function(cand, q, idx = rep(1L, nrow(cand)),
 #' # is what tells them apart.
 #' nrcan_geocode("1 Rue Notre-Dame Ouest, Montreal, QC")$nrcan_title
 #' }
-nrcan_geocode <- function(x, prov = NULL, rate = 5, retries = 3,
+nrcan_geocode <- function(x, known = NULL, rate = 5, retries = 3,
                           geometry = FALSE, crs = 4326, con = NULL) {
   if (!requireNamespace("httr2", quietly = TRUE)) {
     stop("nrcan_geocode() needs the httr2 package. Install it with ",
          'install.packages("httr2").', call. = FALSE)
   }
   res <- if (is.data.frame(x)) x else normalize_address(as.character(x),
-                                                        prov = prov, con = con)
+                                                        known = known, con = con)
   # The abbreviated spelling is deliberate. Spelling street types and provinces
   # out was measured over the same sample and moved recall by one address in
   # 139, so the expansion is not worth maintaining.

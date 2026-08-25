@@ -396,13 +396,33 @@ it cannot use or the stored column just rejected.
 `CASE WHEN count(DISTINCT MAIL_MUN_NAME) = 1 THEN any_value(...) END`. One municipality carrying
 the only street of that name has *determined* it; withholding that is its own wrong answer. Two or
 more and it stays `NULL`, because the busiest city with a street of this name is a guess, not a
-resolution. The province follows the same rule, after the caller's `prov` if given, so a string
+resolution. The province follows the same rule, after the caller's `known$PROV_ABVN` if given, so a string
 that named neither can still resolve to both. `test-normalize.R` pins both halves against a
 fixture carrying one street in two cities and another in one.
 
 > Measured effect of the three together on the eval's 5,000-row Part A sample: **215 rows gained,
 > 0 lost**. Attribution and the harness-level deltas are in
 > [`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md).
+
+### What the caller already knows
+
+`known` (`R/known.R`, shared with `geocode()` — see [`geocoding.md`](geocoding.md)) reaches the
+gazetteer as **two separate probe columns, not one**. `mun_lit` is an asserted `MUN_NAME`,
+compared straight at the street's own municipality fold; `mun_match` is the join key, which is an
+asserted `CSD_NAME` when there is one and the parsed municipality otherwise. Both are applied as
+`(p.mun_lit = '' OR ... = p.mun_lit)`, so a component that was not supplied constrains nothing.
+The literal column replaced a `mun_fold` that was built, written to the temp table and never read
+by any query — dead since the probe was factored out.
+
+**A caller who names the municipality has settled what the swap penalty exists to arbitrate**, so
+those rows come back `mun_evidence = "kept"` and `mun_remapped = FALSE`: there was nothing for the
+gazetteer to substitute, and pricing a substitution that did not happen would put a 118 m floor on
+the most reliable rows in the batch.
+
+`CSD_NAME` is an **output** column now as well as an input one, on the rules parse (as `NA`) and on
+all three gazetteer branches. Before this the result reported a mailing city produced by a search
+through the alias set and never said which jurisdiction had actually been searched, which is
+exactly the pair the [swap penalty](#the-municipality-swap-penalty) is reasoning about.
 
 ### The municipality swap penalty
 
@@ -588,7 +608,7 @@ for the harness to judge against, and most of the parses it newly confirms were 
 `normalize_address()` takes an address apart; `address_key()` and `format_address()` put it back,
 once for a machine and once for a person. Both accept **either** a `normalize_address()` result or
 the raw strings, resolved by `nar_as_components()`, so a caller who only wants the output never has
-to name the columns. Passing `prov`/`con` alongside an already-parsed data frame is an **error**
+to name the columns. Passing `known`/`con` alongside an already-parsed data frame is an **error**
 rather than silently ignored — those arguments change the parse, and dropping a constraint the
 caller asked for is worse than refusing it.
 

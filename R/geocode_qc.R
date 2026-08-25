@@ -356,8 +356,8 @@ nar_qc_batch <- function(q, rate = 5, crs = 4326) {
 #' components as [normalize_address()] returns. Components are needed either
 #' way, since the floor compares the answer against them; passing a parsed
 #' frame just avoids parsing twice.
-#' @param prov Optional province, passed to [normalize_address()] when `x` is a
-#' character vector.
+#' @param known Components the caller already has, passed to
+#' [normalize_address()] when `x` is a character vector. See [nar_known()].
 #' @param min_score Minimum `qc_score`, 0--100, for a result to count. Default
 #' `0`, which is off, and **it should usually stay off**: the score does not
 #' rank positional quality, and street centroids outscore civic matches -- see
@@ -388,7 +388,7 @@ nar_qc_batch <- function(q, rate = 5, crs = 4326) {
 #' # What was rejected, and why.
 #' qc_geocode("330 rue Saint-Jean, Quebec")$qc_reject
 #' }
-qc_geocode <- function(x, prov = NULL, min_score = 0, batch_size = 1000,
+qc_geocode <- function(x, known = NULL, min_score = 0, batch_size = 1000,
                        rate = 5, geometry = FALSE, crs = 4326, con = NULL) {
   if (!requireNamespace("httr2", quietly = TRUE) ||
       !requireNamespace("jsonlite", quietly = TRUE)) {
@@ -396,7 +396,7 @@ qc_geocode <- function(x, prov = NULL, min_score = 0, batch_size = 1000,
          'with install.packages(c("httr2", "jsonlite")).', call. = FALSE)
   }
   res <- if (is.data.frame(x)) x else normalize_address(as.character(x),
-                                                        prov = prov, con = con)
+                                                        known = known, con = con)
   input <- if (is.data.frame(x)) nar_address_string(res) else as.character(x)
   # The French-canonical rendering, not the NAR one -- see nar_qc_query().
   q <- nar_qc_query(res)

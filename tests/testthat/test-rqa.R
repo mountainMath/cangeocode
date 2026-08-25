@@ -133,8 +133,8 @@ test_that("an authoritative municipality reaches a borough", {
   parsed <- data.frame(CIVIC_NO = 5510L, STREET_NAME = "SAINT-JACQUES",
                        STREET_DIR = "O", PROV_ABVN = "QC",
                        MUN_NAME = NA_character_, stringsAsFactors = FALSE)
-  hit <- geocode(parsed, mun = "Le Sud-Ouest", method = c("nar", "rqa"),
-                 con = con)
+  hit <- geocode(parsed, known = list(CSD_NAME = "Le Sud-Ouest"),
+                 method = c("nar", "rqa"), con = con)
   expect_equal(hit$match_method, "rqa_geocoded")
 })
 

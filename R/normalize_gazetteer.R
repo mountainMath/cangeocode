@@ -72,6 +72,10 @@ nar_has_streets <- function(con) {
 #' and so changes the municipality by design.
 #' @param keep_refused Whether to report the matches the combined `threshold`
 #' turned away instead of discarding them. See the section below.
+#' @param known The recycled `known` frame, or `NULL`. An asserted `CSD_NAME`
+#' replaces the municipality the alias set is looked up on; an asserted
+#' `MUN_NAME` narrows what the alias set returns to streets NAR files under that
+#' exact mailing name. See [nar_known()].
 #' @section Reporting what was refused: A match that scores below `threshold` is
 #' normally dropped, and the row comes back parsed but unresolved -- which from
 #' the outside is indistinguishable from the street not existing. That is a
@@ -99,7 +103,8 @@ nar_has_streets <- function(con) {
 #' or `"rqa"` according to which register answered
 #' @keywords internal
 nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0.90,
-                                  mun_swap_penalty = 0.88, keep_refused = FALSE) {
+                                  mun_swap_penalty = 0.88, keep_refused = FALSE,
+                                  known = NULL) {
   if (!nar_has_streets(con)) {
     warning("This NAR database predates the street gazetteer (schema version 4); ",
             "returning rules-only results. Rebuild with ",
@@ -135,7 +140,8 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
                             threshold = threshold, name_threshold = name_threshold,
                             prepare = nar_gazetteer_prepare,
                             keep_refused = keep_refused,
-                            mun_swap_penalty = mun_swap_penalty)
+                            mun_swap_penalty = mun_swap_penalty,
+                            known = known)
 
   # Quebec's own register, second and only over what NAR left. Priority is
   # running order, exactly as in geocode(): no row NAR resolved can be
@@ -155,7 +161,7 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
         (is.na(cand$PROV_ABVN) | cand$PROV_ABVN == "QC"),
       sql_fn = nar_rqa_gazetteer_sql, source = "rqa",
       threshold = threshold, name_threshold = name_threshold,
-      keep_refused = keep_refused)
+      keep_refused = keep_refused, known = known)
   }
 
   res <- res[, out_cols, drop = FALSE]
@@ -183,12 +189,13 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
 #' flagged in `refused_for`
 #' @param mun_swap_penalty The multiplier this pass\'s query applied, used only
 #' to tell a refusal the penalty caused from a refusal it did not
+#' @param known The recycled `known` frame, or `NULL`; see [nar_known()]
 #' @return `res`, with matched rows replaced by their canonical values
 #' @keywords internal
 nar_gazetteer_pass <- function(res, cand, con, eligible, sql_fn, source,
                                threshold = 0.85, name_threshold = 0.90,
                                prepare = NULL, keep_refused = FALSE,
-                               mun_swap_penalty = 1) {
+                               mun_swap_penalty = 1, known = NULL) {
   todo <- cand[eligible, , drop = FALSE]
   if (!nrow(todo)) return(res)
 
@@ -205,12 +212,28 @@ nar_gazetteer_pass <- function(res, cand, con, eligible, sql_fn, source,
   base <- base[!duplicated(base$.row), , drop = FALSE]
   mun_input <- base$MUN_NAME[match(todo$.row, base$.row)]
 
+  # The two municipality questions, kept apart because they are answered by
+  # different joins. `mun_match` names the *jurisdiction* to look in and goes
+  # through MunAlias; an asserted CSD outranks the mailing city for that,
+  # because it is the one the alias set is keyed on. `mun_lit` narrows what
+  # comes back to streets NAR files under the exact mailing name, and is set
+  # only when the caller asserted one -- a parsed municipality has no business
+  # being enforced literally, since resolving it to NAR's own spelling is half
+  # of what this layer is for.
+  kw <- if (is.null(known)) NULL else known[todo$.row, , drop = FALSE]
+  mun_join <- todo$MUN_NAME
+  if (!is.null(kw$CSD_NAME)) {
+    mun_join <- ifelse(is.na(kw$CSD_NAME), mun_join, kw$CSD_NAME)
+  }
+  mun_lit <- if (is.null(kw$MUN_NAME)) rep(NA_character_, nrow(todo))
+             else kw$MUN_NAME
+
   probe <- data.frame(
     row_id    = todo$.probe,
     name_fold = nar_fold(todo$STREET_NAME),
     match_fold = nar_match_fold(todo$STREET_NAME),
-    mun_fold  = nar_fold(ifelse(is.na(todo$MUN_NAME), "", todo$MUN_NAME)),
-    mun_match = nar_match_fold(ifelse(is.na(todo$MUN_NAME), "", todo$MUN_NAME)),
+    mun_lit   = nar_match_fold(ifelse(is.na(mun_lit), "", mun_lit)),
+    mun_match = nar_match_fold(ifelse(is.na(mun_join), "", mun_join)),
     mun_input = nar_match_fold(ifelse(is.na(mun_input), "", mun_input)),
     prov      = ifelse(is.na(todo$PROV_ABVN), "", todo$PROV_ABVN),
     fsa       = ifelse(is.na(todo$POSTAL_CODE), "", substr(todo$POSTAL_CODE, 1, 3)),
@@ -335,6 +358,12 @@ nar_gazetteer_adopt <- function(res, cand, best, source,
                                 best$MAIL_MUN_NAME)
   res$PROV_ABVN[i]    <- ifelse(is.na(best$MAIL_PROV_ABVN), res$PROV_ABVN[i],
                                 best$MAIL_PROV_ABVN)
+  # Assigned, not coalesced, and that is the difference from the two lines
+  # above: those keep the parse where the branch returned nothing, because the
+  # parse had a municipality of its own to keep. Nothing parses a census
+  # subdivision, so an unresolved one is NA and must not inherit a stale value
+  # from a pass that refused this row.
+  res$CSD_NAME[i]     <- best$CSD_NAME
   res$confidence[i]   <- round(best$score, 3)
   res$parse_source[i] <- source
   # TRUE only where the gazetteer actually wrote a municipality *and* it is not
@@ -636,7 +665,13 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90,
              s.OFFICIAL_STREET_NAME AS STREET_NAME,
              s.OFFICIAL_STREET_TYPE AS STREET_TYPE,
              s.OFFICIAL_STREET_DIR  AS STREET_DIR,
-             s.MAIL_MUN_NAME, s.MAIL_PROV_ABVN, s.N_ADDRESSES,
+             s.MAIL_MUN_NAME, s.MAIL_PROV_ABVN,
+             -- The jurisdiction actually searched, which the mailing city does
+             -- not report: MunAlias restricts at census-subdivision grain, so a
+             -- caller who wrote MILFORD and got back an answer is entitled to
+             -- see that HALIFAX is what was looked in.
+             s.CSD_ENG_NAME AS CSD_NAME,
+             s.N_ADDRESSES,
              -- NAR's own spelling, folded the way the probe was --
              -- see nar_match_fold(). Read off StreetFold rather than
              -- computed here: the same names would otherwise be folded
@@ -786,6 +821,12 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90,
          AND (p.prov = '' OR m.PROV_ABVN = p.prov)
         JOIN Streets s
           ON s.MUN_KEY = m.MUN_KEY
+         -- The caller's mailing city, when there is one. MunAlias has already
+         -- widened to the jurisdiction by this point, which is what finds a
+         -- rural community's streets at all; this narrows the result back to
+         -- the community that was asserted. Empty for every parsed
+         -- municipality, so nothing that worked before is narrowed now.
+         AND (p.mun_lit = '' OR {fold_smun} = p.mun_lit)
         JOIN StreetFold f
           ON f.SID = s.rowid
          AND (p.prov = '' OR s.MAIL_PROV_ABVN = p.prov)
@@ -829,6 +870,12 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90,
              coalesce(nullif(any_value(p.prov), ''),
                       CASE WHEN count(DISTINCT s.MAIL_PROV_ABVN) = 1
                            THEN any_value(s.MAIL_PROV_ABVN) END) AS MAIL_PROV_ABVN,
+             -- Unanimity or nothing, as for the municipality above, and for the
+             -- same reason: this branch ran because there was no locality to
+             -- restrict to, so a jurisdiction the candidates disagree on is a
+             -- guess rather than the one that was searched.
+             CASE WHEN count(DISTINCT s.CSD_ENG_NAME) = 1
+                  THEN any_value(s.CSD_ENG_NAME) END AS CSD_NAME,
              sum(s.N_ADDRESSES) AS N_ADDRESSES,
              1.0 AS name_sim,
              -- Discounted for the locality this match never had: 0.92 with a
@@ -974,6 +1021,10 @@ nar_rqa_gazetteer_sql <- function(probe, name_threshold = 0.90) {
              coalesce(s.STREET_DIR, '')  AS STREET_DIR,
              upper(s.MUN_NAME) AS MAIL_MUN_NAME,
              s.PROV_ABVN AS MAIL_PROV_ABVN,
+             -- The same value, and that is the honest answer rather than a
+             -- duplicated column: RqaStreets is filed under the CSD, so this
+             -- pass has no mailing grain to report and never had one.
+             upper(s.MUN_NAME) AS CSD_NAME,
              s.N_ADDRESSES,
              jaro_winkler_similarity(p.match_fold, s.MATCH_FOLD) AS jw_sim,
              -- The single edit and the whole-word containment, exactly as in
@@ -1018,6 +1069,9 @@ nar_rqa_gazetteer_sql <- function(probe, name_threshold = 0.90) {
         FROM muns p
         JOIN RqaStreets s
           ON {fold_smun} = p.mun_join
+         -- As in the NAR pass. It can only ever narrow to a borough or city
+         -- RQA files under, this register having no mailing names of its own.
+         AND (p.mun_lit = '' OR {fold_smun} = p.mun_lit)
     )
     SELECT * EXCLUDE (jw_sim) FROM scored
      WHERE name_sim >= {name_threshold}

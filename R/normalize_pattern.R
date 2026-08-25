@@ -43,13 +43,15 @@
 #'                   "9819 96A Street NW, Edmonton, AB",
 #'                   "845, rue de Vernon, Gatineau, QC",
 #'                   "PO Box 40, Iqaluit, NU"))
-address_pattern <- function(x, prov = NULL, ...) {
+address_pattern <- function(x, known = NULL, ...) {
   if (!is.character(x)) {
     if (is.factor(x)) x <- as.character(x) else
       stop("`x` must be a character vector of address strings.")
   }
-  if (!is.null(prov)) prov <- rep_len(as.character(prov), length(x))
-  nar_parse_rules(x, prov = prov)$pattern
+  # Only the province reaches the rules parse. The rest of `known` names
+  # components rather than changing how the string is read, and a pattern is a
+  # statement about the string.
+  nar_parse_rules(x, prov = nar_known(known, length(x))$PROV_ABVN)$pattern
 }
 
 #' The address patterns the recognizer sorts input into

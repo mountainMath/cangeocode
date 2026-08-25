@@ -54,8 +54,10 @@ test_that("the key and the formatter accept a parse as readily as a string", {
 
 test_that("parsing arguments are refused for an already-parsed frame", {
   parsed <- normalize_address("100 Queen St W, Toronto, ON")
-  expect_error(address_key(parsed, prov = "ON"), "already parsed")
-  expect_error(format_address(parsed, prov = "ON"), "already parsed")
+  expect_error(address_key(parsed, known = list(PROV_ABVN = "ON")),
+               "already parsed")
+  expect_error(format_address(parsed, known = list(PROV_ABVN = "ON")),
+               "already parsed")
   expect_error(address_key(parsed["CIVIC_NO"]), "missing the component column")
   expect_error(address_key(list(1, 2)), "character vector of address strings")
 })

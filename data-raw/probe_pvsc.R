@@ -340,7 +340,7 @@ if (stage("0")) {
 BENCH <- file.path(DIR, "bench.rds")
 if (stage("2")) {
   rule("2  LOCATION")
-  g <- geocode(s$addr, prov = "NS", con = con)
+  g <- geocode(s$addr, known = list(PROV_ABVN = "NS"), con = con)
   s$lonG <- g$lon; s$latG <- g$lat
   s$method <- g$match_method; s$nm <- g$n_matches; s$unc <- g$uncertainty_m
   s$d <- hav(s$lon, s$lat, s$lonG, s$latG)
@@ -361,7 +361,7 @@ if (stage("2")) {
     say(sprintf("    <=%5dm: %6.2f%%", t, 100 * mean(x <= t)))
 
   say("\nby whether the community name survived the parse:")
-  n <- normalize_address(s$addr, prov = "NS", con = con)
+  n <- normalize_address(s$addr, known = list(PROV_ABVN = "NS"), con = con)
   same <- kf(n$MUN_NAME) == kf(s$city)
   for (g2 in c(TRUE, FALSE)) {
     y <- s$d[b & same == g2]; y <- y[is.finite(y)]
@@ -393,12 +393,15 @@ if (stage("2")) {
 if (stage("3")) {
   rule("3  TIERS")
   s <- readRDS(BENCH)
-  g_nar <- geocode(s$addr, prov = "NS", method = "nar", con = con)
+  g_nar <- geocode(s$addr, known = list(PROV_ABVN = "NS"), method = "nar",
+                   con = con)
   miss <- is.na(g_nar$lon)
   say(sprintf("nar exact places %.1f%%; %d rows left", 100 * mean(!miss), sum(miss)))
 
-  g_int <- geocode(s$addr[miss], prov = "NS", method = "nar_interpolate", con = con)
-  g_rnf <- geocode(s$addr[miss], prov = "NS", method = "rnf", con = con)
+  g_int <- geocode(s$addr[miss], known = list(PROV_ABVN = "NS"),
+                   method = "nar_interpolate", con = con)
+  g_rnf <- geocode(s$addr[miss], known = list(PROV_ABVN = "NS"),
+                   method = "rnf", con = con)
   d_int <- hav(s$lon[miss], s$lat[miss], g_int$lon, g_int$lat)
   d_rnf <- hav(s$lon[miss], s$lat[miss], g_rnf$lon, g_rnf$lat)
 
@@ -424,13 +427,15 @@ if (stage("4")) {
   rule("4  COVERAGE")
   s <- readRDS(BENCH)
   core <- sub(",[^,]*, NS$", ", NS", s$addr)
-  g <- geocode(core, prov = "NS", method = "nar", con = con)
+  g <- geocode(core, known = list(PROV_ABVN = "NS"), method = "nar",
+               con = con)
   say(sprintf("NAR carries the street and number somewhere in NS: %5.1f%%", 100 * mean(!is.na(g$lon))))
   say(sprintf("  of those, ambiguous (n_matches > 1)            : %5.1f%%",
               100 * mean(g$n_matches > 1, na.rm = TRUE)))
   say(sprintf("no counterpart anywhere in NAR                   : %5.1f%%", 100 * mean(is.na(g$lon))))
   absent <- is.na(g$lon)
-  r <- geocode(core[absent], prov = "NS", method = "rnf", con = con)
+  r <- geocode(core[absent], known = list(PROV_ABVN = "NS"), method = "rnf",
+               con = con)
   say(sprintf("  of the absent, RNF at least knows the street   : %5.1f%%", 100 * mean(!is.na(r$lon))))
   say("\nexamples with no NAR counterpart:")
   print(utils::head(s$addr[absent], 15))
@@ -466,7 +471,7 @@ if (stage("5")) {
                      dir = ifelse(is.na(q$dir), "", q$dir), stringsAsFactors = FALSE)
   gold[] <- lapply(gold, kf)
 
-  n <- normalize_address(q$addr, prov = "NS", con = con)
+  n <- normalize_address(q$addr, known = list(PROV_ABVN = "NS"), con = con)
   got <- data.frame(num = ifelse(is.na(n$CIVIC_NO), "", as.character(n$CIVIC_NO)),
                     sfx = kf(n$CIVIC_NO_SUFFIX), name = kf(n$STREET_NAME),
                     type = kf(n$STREET_TYPE), dir = kf(n$STREET_DIR),
@@ -489,7 +494,7 @@ if (stage("5")) {
   ## The two families that ARE defects. Both are visible without a coordinate.
   rule("5b  THE TWO FAILURE FAMILIES")
   s <- readRDS(BENCH)
-  n2 <- normalize_address(s$addr, prov = "NS", con = con)
+  n2 <- normalize_address(s$addr, known = list(PROV_ABVN = "NS"), con = con)
   city <- kf(s$city); mun <- kf(n2$MUN_NAME)
   tok <- strsplit(city, " "); mtok <- strsplit(mun, " ")
   trunc <- mapply(function(a, b) length(b) > 0 && length(b) < length(a) && all(b %in% a),
@@ -548,7 +553,8 @@ if (stage("6")) {
   ## keep_refused = TRUE so the `refused` bar has something to act on. Note
   ## this makes the baseline MORE generous than a plain geocode() -- the
   ## sub-threshold matches are in it, which is the point of measuring them.
-  g <- geocode(s$addr, prov = "NS", con = con, keep_refused = TRUE)
+  g <- geocode(s$addr, known = list(PROV_ABVN = "NS"), con = con,
+               keep_refused = TRUE)
   d <- hav(s$lon, s$lat, g$lon, g$lat)
   base_placed <- !is.na(g$lon)
   say(sprintf("baseline: placed %.1f%% of n=%d, %d of them refused matches",

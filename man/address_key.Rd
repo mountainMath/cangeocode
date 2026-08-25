@@ -4,7 +4,7 @@
 \alias{address_key}
 \title{Build a match key from parsed address components}
 \usage{
-address_key(x, unit = FALSE, sep = "|", prov = NULL, con = NULL)
+address_key(x, unit = FALSE, sep = "|", known = NULL, con = NULL)
 }
 \arguments{
 \item{x}{Either a data frame of parsed components, as returned by
@@ -21,7 +21,7 @@ one of them wrote its suite somewhere the parser did not find it.}
 components cannot contain; the default is fine unless a downstream tool
 treats `|` specially.}
 
-\item{prov, con}{Passed to [normalize_address()], and only allowed when `x`
+\item{known, con}{Passed to [normalize_address()], and only allowed when `x`
 is a character vector -- a data frame has already been parsed.}
 }
 \value{

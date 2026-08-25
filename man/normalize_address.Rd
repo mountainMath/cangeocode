@@ -4,15 +4,20 @@
 \alias{normalize_address}
 \title{Normalize Canadian address strings into NAR components}
 \usage{
-normalize_address(x, prov = NULL, con = NULL, ...)
+normalize_address(x, known = NULL, con = NULL, ...)
 }
 \arguments{
 \item{x}{A character vector of address strings}
 
-\item{prov}{Optional two-letter province code (recycled against `x`) to use
-when the string does not name one. Canonicalization is language-conditioned,
-so this materially changes the result: `"avenue"` normalizes to `AVE` in
-Ontario and `AV` in Quebec.}
+\item{known}{Components the caller already has, as a named list of vectors
+each length 1 or `length(x)` -- `list(PROV_ABVN = "NS", MUN_NAME = "Howie
+Centre")`. Authoritative: each one overrides what the string parsed to,
+lands on the returned row, and restricts the gazetteer. `MUN_NAME` is the
+mailing city and `CSD_NAME` the administrative one, and they are different
+searches; see [nar_known()] for the full key list and for why the two are
+separate. `PROV_ABVN` additionally reaches the parser, where it materially
+changes the result: canonicalization is language-conditioned, so `"avenue"`
+normalizes to `AVE` in Ontario and `AV` in Quebec.}
 
 \item{con}{An open NAR connection. Supplying one enables gazetteer
 resolution; without it parsing is lexicon-only. The caller keeps ownership --
@@ -27,7 +32,8 @@ unresolved, flagged with the gate they failed.}
 \value{
 A tibble with one row per element of `x`, carrying the NAR-shaped
 columns `APT_NO_LABEL`, `CIVIC_NO`, `CIVIC_NO_SUFFIX`, `STREET_NAME`,
-`STREET_TYPE`, `STREET_DIR`, `MUN_NAME`, `PROV_ABVN` and `POSTAL_CODE`,
+`STREET_TYPE`, `STREET_DIR`, `MUN_NAME`, `CSD_NAME`, `PROV_ABVN` and
+`POSTAL_CODE`,
 alongside the original `input`, the structural `pattern` it parsed as (see
 [address_pattern()] for the buckets), a `confidence` in `[0, 1]`, a
 `mun_remapped` flag with its `mun_evidence` companion, and a
@@ -37,6 +43,12 @@ lexicon-only parse, `"gazetteer"` for a match against NAR's streets, and
 [rqa_import()] has been run, and meaning the street was canonicalized
 against a register NAR does not carry it in, so a join against `Addresses`
 will still not find it.
+
+`MUN_NAME` is the **mailing city** and `CSD_NAME` the **census subdivision**
+the gazetteer actually searched. They answer different questions and neither
+contains the other: `CSD_NAME` is `TORONTO` for a street whose `MUN_NAME` is
+`SCARBOROUGH`. `CSD_NAME` is `NA` on a row the gazetteer did not resolve, and
+on one it resolved without a locality to restrict to.
 
 `mun_remapped` and `mun_evidence` are the pair to read before trusting
 `MUN_NAME`. See the section below.
@@ -55,7 +67,9 @@ restricts its candidate streets through `MunAlias`, which keys on the
 **census subdivision** rather than on the community. So writing `MILFORD, NS`
 admits every street in all three CSDs that name resolves to -- Halifax
 Regional Municipality among them, which is 166 communities and 225,837
-addresses spanning 127 km. Whichever street wins is then reported with *its*
+addresses spanning 127 km. `CSD_NAME` reports which of them answered, and
+`known = list(MUN_NAME = "Milford")` is how a caller who means the community
+and not the jurisdiction says so. Whichever street wins is then reported with *its*
 own `MAIL_MUN_NAME`, which need not be the one that was written.
 
 That substitution is usually the feature working: it is how a rural community
@@ -116,6 +130,9 @@ gazetteer and is strongly recommended for messy input.
 \examples{
 normalize_address("302-1055 W Georgia St, Vancouver, BC V6E 3P3")
 normalize_address("1234A-990 boul. du President-Kennedy Ouest, Montreal, QC")
+# Structure the caller already has, kept instead of re-derived from a string
+normalize_address("4 Oceanview Dr",
+                  known = list(MUN_NAME = "Port Lorne", PROV_ABVN = "NS"))
 
 \dontrun{
 con <- nar_connection()

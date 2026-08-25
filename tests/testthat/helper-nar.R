@@ -65,8 +65,8 @@ nar_address_rows <- function(blockface = FALSE, run = FALSE, qc = FALSE,
       grant("addr7", "101", "4012000", "2007020"),
       grant("addr8", "301", "4012200", "2007020"),
       # Mailed to SOUTHLANDS, which is not a CSD, but inside the Vancouver CSD
-      # and -- unlike addr3 -- actually carrying coordinates. This is what the
-      # authoritative `mun` argument has to reach through the alias set.
+      # and -- unlike addr3 -- actually carrying coordinates. This is what
+      # `known$CSD_NAME` has to reach through the alias set.
       base("addr9", "5001", "4012300", "2007100", street = "MUSQUEAM",
            type = "DR", dir = "", mail_mun = "SOUTHLANDS", postal = "V6N3T7")))
   }

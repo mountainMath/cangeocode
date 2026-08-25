@@ -4,14 +4,14 @@
 \alias{format_address}
 \title{Render parsed address components back into one line}
 \usage{
-format_address(x, prov = NULL, con = NULL)
+format_address(x, known = NULL, con = NULL)
 }
 \arguments{
 \item{x}{Either a data frame of parsed components, as returned by
 [normalize_address()], or a character vector of address strings to normalize
 first.}
 
-\item{prov, con}{Passed to [normalize_address()], and only allowed when `x`
+\item{known, con}{Passed to [normalize_address()], and only allowed when `x`
 is a character vector -- a data frame has already been parsed.}
 }
 \value{

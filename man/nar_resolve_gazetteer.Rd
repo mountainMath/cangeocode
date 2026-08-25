@@ -10,7 +10,8 @@ nar_resolve_gazetteer(
   threshold = 0.85,
   name_threshold = 0.9,
   mun_swap_penalty = 0.88,
-  keep_refused = FALSE
+  keep_refused = FALSE,
+  known = NULL
 )
 }
 \arguments{
@@ -34,6 +35,11 @@ and so changes the municipality by design.}
 
 \item{keep_refused}{Whether to report the matches the combined `threshold`
 turned away instead of discarding them. See the section below.}
+
+\item{known}{The recycled `known` frame, or `NULL`. An asserted `CSD_NAME`
+replaces the municipality the alias set is looked up on; an asserted
+`MUN_NAME` narrows what the alias set returns to streets NAR files under that
+exact mailing name. See [nar_known()].}
 }
 \value{
 `res` with matched rows replaced by their canonical values,

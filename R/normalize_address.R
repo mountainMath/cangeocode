@@ -8,10 +8,15 @@
 #' corrects misspellings and fills in components the string left ambiguous.
 #'
 #' @param x A character vector of address strings
-#' @param prov Optional two-letter province code (recycled against `x`) to use
-#' when the string does not name one. Canonicalization is language-conditioned,
-#' so this materially changes the result: `"avenue"` normalizes to `AVE` in
-#' Ontario and `AV` in Quebec.
+#' @param known Components the caller already has, as a named list of vectors
+#' each length 1 or `length(x)` -- `list(PROV_ABVN = "NS", MUN_NAME = "Howie
+#' Centre")`. Authoritative: each one overrides what the string parsed to,
+#' lands on the returned row, and restricts the gazetteer. `MUN_NAME` is the
+#' mailing city and `CSD_NAME` the administrative one, and they are different
+#' searches; see [nar_known()] for the full key list and for why the two are
+#' separate. `PROV_ABVN` additionally reaches the parser, where it materially
+#' changes the result: canonicalization is language-conditioned, so `"avenue"`
+#' normalizes to `AVE` in Ontario and `AV` in Quebec.
 #' @param con An open NAR connection. Supplying one enables gazetteer
 #' resolution; without it parsing is lexicon-only. The caller keeps ownership --
 #' a connection passed here is left open, matching [reverse_geocode()].
@@ -23,7 +28,8 @@
 #'
 #' @return A tibble with one row per element of `x`, carrying the NAR-shaped
 #' columns `APT_NO_LABEL`, `CIVIC_NO`, `CIVIC_NO_SUFFIX`, `STREET_NAME`,
-#' `STREET_TYPE`, `STREET_DIR`, `MUN_NAME`, `PROV_ABVN` and `POSTAL_CODE`,
+#' `STREET_TYPE`, `STREET_DIR`, `MUN_NAME`, `CSD_NAME`, `PROV_ABVN` and
+#' `POSTAL_CODE`,
 #' alongside the original `input`, the structural `pattern` it parsed as (see
 #' [address_pattern()] for the buckets), a `confidence` in `[0, 1]`, a
 #' `mun_remapped` flag with its `mun_evidence` companion, and a
@@ -34,6 +40,12 @@
 #' against a register NAR does not carry it in, so a join against `Addresses`
 #' will still not find it.
 #'
+#' `MUN_NAME` is the **mailing city** and `CSD_NAME` the **census subdivision**
+#' the gazetteer actually searched. They answer different questions and neither
+#' contains the other: `CSD_NAME` is `TORONTO` for a street whose `MUN_NAME` is
+#' `SCARBOROUGH`. `CSD_NAME` is `NA` on a row the gazetteer did not resolve, and
+#' on one it resolved without a locality to restrict to.
+#'
 #' `mun_remapped` and `mun_evidence` are the pair to read before trusting
 #' `MUN_NAME`. See the section below.
 #'
@@ -42,7 +54,9 @@
 #' **census subdivision** rather than on the community. So writing `MILFORD, NS`
 #' admits every street in all three CSDs that name resolves to -- Halifax
 #' Regional Municipality among them, which is 166 communities and 225,837
-#' addresses spanning 127 km. Whichever street wins is then reported with *its*
+#' addresses spanning 127 km. `CSD_NAME` reports which of them answered, and
+#' `known = list(MUN_NAME = "Milford")` is how a caller who means the community
+#' and not the jurisdiction says so. Whichever street wins is then reported with *its*
 #' own `MAIL_MUN_NAME`, which need not be the one that was written.
 #'
 #' That substitution is usually the feature working: it is how a rural community
@@ -101,22 +115,47 @@
 #' @examples
 #' normalize_address("302-1055 W Georgia St, Vancouver, BC V6E 3P3")
 #' normalize_address("1234A-990 boul. du President-Kennedy Ouest, Montreal, QC")
+#' # Structure the caller already has, kept instead of re-derived from a string
+#' normalize_address("4 Oceanview Dr",
+#'                   known = list(MUN_NAME = "Port Lorne", PROV_ABVN = "NS"))
 #'
 #' \dontrun{
 #' con <- nar_connection()
 #' normalize_address("100 queen st w toronto on", con = con)
 #' DBI::dbDisconnect(con)
 #' }
-normalize_address <- function(x, prov = NULL, con = NULL, ...) {
+normalize_address <- function(x, known = NULL, con = NULL, ...) {
   if (!is.character(x)) {
     if (is.factor(x)) x <- as.character(x) else
       stop("`x` must be a character vector of address strings.")
   }
-  if (!is.null(prov)) prov <- rep_len(as.character(prov), length(x))
+  k <- nar_known(known, length(x))
 
-  out <- nar_parse_rules(x, prov = prov)
+  out <- nar_parse_rules(x, prov = k$PROV_ABVN)
 
-  if (!is.null(con)) return(nar_resolve_gazetteer(out, con, ...))
+  # Onto the losing readings as well as the winner. The gazetteer probes every
+  # candidate, and an assertion that reached only the arbitrated one would be
+  # silently absent from the readings it is most needed to correct.
+  cand <- attr(out, "nar_candidates")
+  out <- nar_known_clear_mun(nar_known_apply(out, k), k)
+  if (!is.null(cand)) {
+    attr(out, "nar_candidates") <-
+      nar_known_clear_mun(nar_known_apply(cand, k, cand$.row), k, cand$.row)
+  }
+
+  if (!is.null(con)) {
+    res <- nar_resolve_gazetteer(out, con, known = k, ...)
+    # Again, because the gazetteer writes NAR's own spelling back over every
+    # component it matched -- including the municipality it may have
+    # substituted. The caller asserted these, so they are what comes out.
+    res <- nar_known_apply(res, k)
+    asserted <- nar_known_has_mun(k, nrow(res))
+    if (any(asserted)) {
+      res$mun_remapped[asserted] <- FALSE
+      res$mun_evidence[asserted] <- "kept"
+    }
+    return(res)
+  }
 
   # The losing readings are only useful to the gazetteer; without one they are
   # internal detail rather than part of the return value.
@@ -267,6 +306,10 @@ nar_parse_rules <- function(x, prov = NULL) {
     STREET_TYPE      = parts$type,
     STREET_DIR       = parts$dir,
     MUN_NAME         = parts$mun,
+    # The administrative half of the municipality, which the rules cannot know:
+    # a census subdivision is not a name people write. Only the gazetteer can
+    # fill it in, and it stays NA where nothing resolved.
+    CSD_NAME         = NA_character_,
     PROV_ABVN        = province[parts$.row],
     POSTAL_CODE      = postal[parts$.row]
   )

@@ -15,7 +15,8 @@ nar_gazetteer_pass(
   name_threshold = 0.9,
   prepare = NULL,
   keep_refused = FALSE,
-  mun_swap_penalty = 1
+  mun_swap_penalty = 1,
+  known = NULL
 )
 }
 \arguments{
@@ -42,6 +43,8 @@ flagged in `refused_for`}
 
 \item{mun_swap_penalty}{The multiplier this pass\'s query applied, used only
 to tell a refusal the penalty caused from a refusal it did not}
+
+\item{known}{The recycled `known` frame, or `NULL`; see [nar_known()]}
 }
 \value{
 `res`, with matched rows replaced by their canonical values

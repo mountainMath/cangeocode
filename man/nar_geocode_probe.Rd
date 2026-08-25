@@ -4,13 +4,10 @@
 \alias{nar_geocode_probe}
 \title{The probe table a geocoding query joins against}
 \usage{
-nar_geocode_probe(res, auth_mun = FALSE)
+nar_geocode_probe(res)
 }
 \arguments{
 \item{res}{Parsed components, as [normalize_address()] returns}
-
-\item{auth_mun}{Whether `MUN_NAME` is the caller's authoritative value, which
-sends it down the `MunAlias` route instead of the direct one}
 }
 \value{
 A data frame with a `row_id` back-reference into `res`

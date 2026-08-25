@@ -534,6 +534,10 @@ rnf_geocode_sql <- function(probe, bounds = "") {
   pt_clause <- if (!nzchar(bounds)) "" else
     sprintf("\n     AND st_within(nar_xy(x, y), st_geomfromtext('%s'))", bounds)
 
+  # One municipality, not two. RNF has no mailing-city column at all, so the
+  # grain the NAR tier distinguishes cannot be expressed here: whichever of the
+  # two the caller gave goes through MunAlias, the jurisdiction first because
+  # that is what the alias set is keyed on.
   sprintf("
     WITH pr AS (
       SELECT *, coalesce(nullif(mun_auth, ''), mun_fold) AS mun FROM %1$s

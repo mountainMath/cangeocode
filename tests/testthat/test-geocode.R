@@ -61,9 +61,16 @@ test_that("a municipality the caller asserted is never reported as remapped", {
   skip_if_no_duckdb_spatial()
   con <- local_nar_connection(run = TRUE)
 
-  # `mun` is a constraint on the search, not a reading of the string, so there
-  # is nothing for the gazetteer to have substituted and nothing to price.
-  g <- geocode("4001 King Edward Ave W", mun = "Vancouver", prov = "BC", con = con)
+  # A municipality in `known` is a constraint on the search, not a reading of
+  # the string, so there is nothing for the gazetteer to have substituted and
+  # nothing to price. Either grain settles it.
+  g <- geocode("4001 King Edward Ave W",
+               known = list(CSD_NAME = "Vancouver", PROV_ABVN = "BC"), con = con)
+  expect_false(g$mun_remapped)
+  expect_equal(g$uncertainty_m, 0)
+
+  g <- geocode("4001 King Edward Ave W",
+               known = list(MUN_NAME = "Vancouver", PROV_ABVN = "BC"), con = con)
   expect_false(g$mun_remapped)
   expect_equal(g$uncertainty_m, 0)
 })
@@ -189,32 +196,64 @@ test_that("an ambiguous address reports how many points it could have been", {
   expect_equal(g$n_matches, 1L)
 })
 
-test_that("prov and mun override what the string said", {
+test_that("known overrides what the string said", {
   skip_if_no_duckdb_spatial()
   con <- local_nar_connection(run = TRUE)
 
-  # The string names the wrong province outright. Because the arguments are
-  # authoritative rather than a fallback, the search runs in BC and the result
-  # reports BC -- a row whose PROV_ABVN disagreed with the point returned would
-  # misdescribe what was actually searched.
-  g <- geocode("4001 King Edward Ave W, Toronto, ON", prov = "BC",
-               mun = "Vancouver", con = con)
+  # The string names the wrong province and the wrong city outright. Because
+  # `known` is authoritative rather than a fallback, the search runs in BC and
+  # the result reports BC -- a row whose PROV_ABVN disagreed with the point
+  # returned would misdescribe what was actually searched. The mailing city the
+  # string supplied is *cleared* rather than left to constrain: TORONTO and the
+  # asserted Vancouver jurisdiction do not overlap, so keeping both would let
+  # the contradicted reading veto the assertion. What comes back in MUN_NAME is
+  # then the mailing city of the record that matched, not the string's.
+  g <- geocode("4001 King Edward Ave W, Toronto, ON",
+               known = list(CSD_NAME = "Vancouver", PROV_ABVN = "BC"), con = con)
 
   expect_equal(g$match_method, "nar_building")
   expect_equal(g$PROV_ABVN, "BC")
-  expect_equal(g$MUN_NAME, "Vancouver")
+  expect_equal(g$CSD_NAME, "VANCOUVER")
+  expect_equal(g$MUN_NAME, "VANCOUVER")
+
+  # An asserted mailing city is not cleared -- it is the caller's own reading
+  # of the same grain, and it lands on the row.
+  g <- geocode("4001 King Edward Ave W, Toronto, ON",
+               known = list(MUN_NAME = "Vancouver", PROV_ABVN = "BC"), con = con)
+
+  expect_equal(g$match_method, "nar_building")
+  expect_equal(g$MUN_NAME, "VANCOUVER")
 })
 
-test_that("mun resolves through the alias set, not the mailing city", {
+test_that("CSD_NAME resolves through the alias set and MUN_NAME does not", {
   skip_if_no_duckdb_spatial()
   con <- local_nar_connection(run = TRUE)
 
   # addr9 is mailed to SOUTHLANDS, which is not a CSD, inside the Vancouver CSD.
-  # Asking for Vancouver has to reach it. Matching MAIL_MUN_NAME directly would
-  # not, and that is the Toronto/Scarborough problem in miniature.
-  g <- geocode("5001 Musqueam Dr", mun = "Vancouver", prov = "BC", con = con)
-
+  # Asking for the jurisdiction has to reach it. Matching MAIL_MUN_NAME directly
+  # would not, and that is the Toronto/Scarborough problem in miniature.
+  g <- geocode("5001 Musqueam Dr",
+               known = list(CSD_NAME = "Vancouver", PROV_ABVN = "BC"), con = con)
   expect_equal(g$ADDR_GUID, "addr9")
+
+  # The other grain, on the same row: the record is mailed to SOUTHLANDS, so
+  # Vancouver as a *mailing city* finds nothing and SOUTHLANDS does.
+  expect_equal(geocode("5001 Musqueam Dr",
+                       known = list(MUN_NAME = "Vancouver", PROV_ABVN = "BC"),
+                       con = con)$match_method, "none")
+  expect_equal(geocode("5001 Musqueam Dr",
+                       known = list(MUN_NAME = "Southlands", PROV_ABVN = "BC"),
+                       con = con)$ADDR_GUID, "addr9")
+
+  # Asymmetric on purpose. MunAlias carries mailing names as routes *into* a
+  # jurisdiction, so SOUTHLANDS as a CSD_NAME resolves to the Vancouver CSD and
+  # answers -- a caller who names a place that is not itself a census
+  # subdivision is asking about the jurisdiction it sits in, and that is a
+  # question with an answer. It is the reverse direction, a jurisdiction used as
+  # a mailing city, that has none.
+  expect_equal(geocode("5001 Musqueam Dr",
+                       known = list(CSD_NAME = "Southlands", PROV_ABVN = "BC"),
+                       con = con)$ADDR_GUID, "addr9")
 })
 
 test_that("within restricts the search and refuses what falls outside it", {
@@ -376,7 +415,8 @@ test_that("a supplied unit narrows the records it matches", {
 
   # The other unit is the blank one, which is a unit like any other here.
   expect_equal(nrow(geocode_matches("202-4001 King Edward Ave W",
-                                    prov = "BC", con = con)), 1L)
+                                    known = list(PROV_ABVN = "BC"),
+                                    con = con)), 1L)
 })
 
 test_that("a unit NAR does not carry narrows nothing", {
@@ -455,7 +495,8 @@ test_that("a batch nothing in it can be looked up returns none, not an error", {
   # The same, with the municipality authoritative -- which swaps which of the
   # two probe columns is the literal.
   expect_equal(geocode("49321, SOMEWHERE, AB", con = con,
-                       mun = "Vancouver")$match_method, "none")
+                       known = list(CSD_NAME = "Vancouver"))$match_method,
+               "none")
 
   # And mixed, since a batch is only as parseable as its worst row.
   g2 <- geocode(c("49321, BRAZEAU COUNTY, AB",
@@ -550,10 +591,12 @@ test_that("geocode_matches takes the same constraints and shapes as geocode", {
 
   # An authoritative municipality constrains the enumeration exactly as it
   # constrains the answer -- same probe, same setup.
-  expect_equal(nrow(geocode_matches("4001 King Edward Ave W", mun = "Vancouver",
-                                    prov = "BC", con = con)), 2L)
-  expect_equal(nrow(geocode_matches("4001 King Edward Ave W", mun = "Toronto",
-                                    prov = "ON", con = con)), 0L)
+  expect_equal(nrow(geocode_matches(
+    "4001 King Edward Ave W",
+    known = list(CSD_NAME = "Vancouver", PROV_ABVN = "BC"), con = con)), 2L)
+  expect_equal(nrow(geocode_matches(
+    "4001 King Edward Ave W",
+    known = list(CSD_NAME = "Toronto", PROV_ABVN = "ON"), con = con)), 0L)
 })
 
 test_that("both readings of the candidate set share their ordering", {

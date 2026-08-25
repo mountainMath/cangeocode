@@ -32,7 +32,7 @@
 #' @param sep The separator between fields. It only has to be a character the
 #' components cannot contain; the default is fine unless a downstream tool
 #' treats `|` specially.
-#' @param prov,con Passed to [normalize_address()], and only allowed when `x`
+#' @param known,con Passed to [normalize_address()], and only allowed when `x`
 #' is a character vector -- a data frame has already been parsed.
 #'
 #' @return A character vector, one element per row of `x`, and `NA` for any row
@@ -55,8 +55,8 @@
 #' # Keying the tenant instead of the building keeps the suites apart.
 #' address_key(c("Suite 1500 - 1055 W Georgia St, Vancouver BC",
 #'               "Suite 800 - 1055 W Georgia St, Vancouver BC"), unit = TRUE)
-address_key <- function(x, unit = FALSE, sep = "|", prov = NULL, con = NULL) {
-  parts <- nar_as_components(x, prov = prov, con = con)
+address_key <- function(x, unit = FALSE, sep = "|", known = NULL, con = NULL) {
+  parts <- nar_as_components(x, known = known, con = con)
 
   fields <- c("PROV_ABVN", "MUN_NAME", "STREET_NAME", "STREET_TYPE",
               "STREET_DIR", "CIVIC_NO", "CIVIC_NO_SUFFIX")
@@ -104,8 +104,8 @@ address_key <- function(x, unit = FALSE, sep = "|", prov = NULL, con = NULL) {
 #' format_address(c("302-1055 w georgia st, vancouver bc v6e3p3",
 #'                  "12 1/2 rue notre-dame e, montreal, quebec",
 #'                  "100 queen street west, toronto, ontario"))
-format_address <- function(x, prov = NULL, con = NULL) {
-  parts <- nar_as_components(x, prov = prov, con = con)
+format_address <- function(x, known = NULL, con = NULL) {
+  parts <- nar_as_components(x, known = known, con = con)
   blank <- function(v) ifelse(is.na(v), "", v)
 
   # `990A` is glued, `12 1/2` is not: a suffix carrying punctuation is a
@@ -146,14 +146,14 @@ format_address <- function(x, prov = NULL, con = NULL) {
 #' @inheritParams normalize_address
 #' @return A data frame carrying the component columns
 #' @keywords internal
-nar_as_components <- function(x, prov = NULL, con = NULL) {
+nar_as_components <- function(x, known = NULL, con = NULL) {
   needed <- c("APT_NO_LABEL", "CIVIC_NO", "CIVIC_NO_SUFFIX", "STREET_NAME",
               "STREET_TYPE", "STREET_DIR", "MUN_NAME", "PROV_ABVN",
               "POSTAL_CODE")
 
   if (is.data.frame(x)) {
-    if (!is.null(prov) || !is.null(con)) {
-      stop("`prov` and `con` only apply when `x` is a character vector of ",
+    if (!is.null(known) || !is.null(con)) {
+      stop("`known` and `con` only apply when `x` is a character vector of ",
            "addresses; `x` is already parsed. Pass them to ",
            "normalize_address() instead.")
     }
@@ -173,7 +173,7 @@ nar_as_components <- function(x, prov = NULL, con = NULL) {
     stop("`x` must be a character vector of address strings, or a data frame ",
          "of components from normalize_address().")
   }
-  as.data.frame(normalize_address(x, prov = prov, con = con)[needed])
+  as.data.frame(normalize_address(x, known = known, con = con)[needed])
 }
 
 #' Fold a component to a match key

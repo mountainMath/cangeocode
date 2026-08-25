@@ -437,10 +437,12 @@ rqa_method_label <- function(quality) {
 #' carry them. Folding `ST-` to `SAINT`, the hyphen to a space and the particule
 #' into the name is what lets those still join.
 #'
-#' There is no `MunAlias` route. RQA has no alias set, so an authoritative
-#' `mun` is compared directly against the municipality and the borough both --
-#' `Montreal` has to reach `Ville-Marie`, and in RQA those are different
-#' columns rather than different names for one place.
+#' There is no `MunAlias` route. RQA has no alias set, so both municipality
+#' grains -- `known$MUN_NAME` and `known$CSD_NAME` alike -- are compared
+#' directly against the municipality and the borough both: `Montreal` has to
+#' reach `Ville-Marie`, and in RQA those are different columns rather than
+#' different names for one place. The grain distinction the NAR tier draws is
+#' therefore not available here, and the two probe columns simply both apply.
 #' @param probe Name of the temp table holding the parsed components
 #' @param bounds A spatial restriction from [nar_geocode_bounds_sql()], or `""`
 #' @return A single SQL string

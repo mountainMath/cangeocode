@@ -4,22 +4,12 @@
 \alias{nar_geocode_setup}
 \title{Everything a geocoding call has to settle before it can query}
 \usage{
-nar_geocode_setup(
-  x,
-  prov,
-  mun,
-  within,
-  method,
-  crs,
-  version,
-  con,
-  dots = list()
-)
+nar_geocode_setup(x, known, within, method, crs, version, con, dots = list())
 }
 \arguments{
 \item{x}{Address strings, or a parsed data frame}
 
-\item{prov, mun, within}{Constraints, as in [geocode()]}
+\item{known, within}{Constraints, as in [geocode()]}
 
 \item{method}{The tiers that will be run, already validated}
 

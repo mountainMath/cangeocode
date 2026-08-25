@@ -348,24 +348,47 @@ services. `"rqa"` and `"rnf"` both need an import of their own first, and
 
 ## Constraining the search
 
-`prov`, `mun` and `within` are assertions about where the address is, not
-hints. They override whatever the string said, and the override lands on the
-returned row too.
+`known` and `within` are assertions about where the address is, not hints.
+`known` takes whatever components you already have, named as the output names
+them, and every one of them overrides what the string said, constrains the
+search, and lands on the returned row.
 
 ```{r constrain}
-geocode("100 Queen St W, Vancouver, BC", prov = "ON", mun = "Toronto") |>
-  select(input, PROV_ABVN, MUN_NAME, match_method, lon, lat)
+geocode("100 Queen St W, Vancouver, BC",
+        known = list(PROV_ABVN = "ON", CSD_NAME = "Toronto")) |>
+  select(input, PROV_ABVN, MUN_NAME, CSD_NAME, match_method, lon, lat)
 ```
 
-The string names Vancouver; the arguments say Toronto, Ontario; the search runs
-in Toronto and the row reports Toronto. A result that reported a municipality
+The string names Vancouver; `known` says Toronto, Ontario; the search runs in
+Toronto and the row reports Toronto. A result that reported a municipality
 different from the one it was constrained to would misdescribe what was
 actually searched.
 
-`mun` resolves through NAR's alias set rather than matching the mailing city
-directly, which matters more than it sounds: NAR files a great many Toronto
-addresses under `SCARBOROUGH`, `ETOBICOKE` and `NORTH YORK`, and a direct
-comparison would drop every one of them.
+### Two kinds of city
+
+`MUN_NAME` and `CSD_NAME` are different questions, and this is where the
+difference bites. `MUN_NAME` is the **mailing city** — the name on the
+envelope, compared straight at NAR's own. `CSD_NAME` is the **census
+subdivision**, the administrative unit, resolved through NAR's alias set. That
+matters more than it sounds: NAR files a great many Toronto addresses under
+`SCARBOROUGH`, `ETOBICOKE` and `NORTH YORK`, so `CSD_NAME = "Toronto"` reaches
+them and `MUN_NAME = "Toronto"` does not.
+
+The two do not nest — one mailing city can span several jurisdictions and one
+jurisdiction carries many mailing cities — so asking for the wrong one is not a
+near miss. Supply both and both constrain, which is how you narrow to one
+community inside an amalgamated city. A parsed mailing city that contradicts a
+`CSD_NAME` you asserted is dropped rather than left to veto it.
+
+`CSD_NAME` is also an output column, and there it means something weaker: the
+census subdivision the record that matched happens to be in, not a jurisdiction
+the search was confined to. The two are deliberately not the same claim, so a
+parse handed back to `geocode()` answers exactly as the string did.
+
+The same list is how you hand over an address that never was one string. An
+assessment roll with the civic number, the street and the community in columns
+of their own can be passed as `known` directly, and only the parts you do not
+have are read off the text.
 
 `within` takes an `sf` polygon, an `st_bbox`, or a bare
 `c(xmin, ymin, xmax, ymax)`, and is close to free — the bounding box is

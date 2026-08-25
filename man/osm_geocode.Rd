@@ -6,7 +6,7 @@
 \usage{
 osm_geocode(
   x,
-  prov = NULL,
+  known = NULL,
   rate = 1,
   retries = 3,
   limit = 10,
@@ -22,8 +22,8 @@ components as [normalize_address()] returns. Components are needed either
 way, since the floors compare the answer against them; passing a parsed
 frame just avoids parsing twice.}
 
-\item{prov}{Optional province, passed to [normalize_address()] when `x` is a
-character vector.}
+\item{known}{Components the caller already has, passed to
+[normalize_address()] when `x` is a character vector. See [nar_known()].}
 
 \item{rate}{Requests per second, and also the largest burst allowed before
 throttling starts. Default 1; see the courtesy section above before raising

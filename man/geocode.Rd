@@ -6,8 +6,7 @@
 \usage{
 geocode(
   x,
-  prov = NULL,
-  mun = NULL,
+  known = NULL,
   within = NULL,
   method = c("nar", "nar_interpolate"),
   geometry = FALSE,
@@ -23,17 +22,25 @@ parsed components as returned by [normalize_address()]. Passing the data
 frame lets you parse once and geocode repeatedly, or edit a parse before
 resolving it.}
 
-\item{prov}{Province code(s) to constrain the search to, length 1 or
-`length(x)`. **Authoritative**: it overrides whatever the address string
-said, and is also passed to [normalize_address()], where knowing the province
-additionally disambiguates the parse.}
+\item{known}{Components the caller already has, as a named list of vectors
+each length 1 or `length(x)`. **Authoritative**: each overrides whatever the
+address string said, lands on the returned row, and constrains the search.
+`PROV_ABVN` also reaches [normalize_address()], where knowing the province
+disambiguates the parse.
 
-\item{mun}{Municipality name(s) to constrain the search to, length 1 or
-`length(x)`. **Authoritative**, overriding the string. Resolved through NAR's
-alias set rather than matched against the mailing city, so `"Toronto"`
-reaches the addresses NAR files under `SCARBOROUGH`, and a name that denotes
-several jurisdictions means all of them. Combine with `prov` when a name is
-used in more than one province.}
+The two municipality keys are two different searches. `MUN_NAME` is the
+**mailing city**, compared straight at NAR's `MAIL_MUN_NAME`. `CSD_NAME` is
+the **census subdivision**, resolved through NAR's alias set -- so
+`CSD_NAME = "Toronto"` reaches the addresses NAR files under `SCARBOROUGH`
+and `MUN_NAME = "Toronto"` does not. Supply both to narrow to one community
+inside an amalgamated city. See [nar_known()] for the full key list.
+
+`CSD_NAME` also comes back as an output column, reporting the census
+subdivision the match turned out to be in -- which is a weaker claim than
+the constraint, since the search was not restricted to it. A parse handed
+back to `geocode()` therefore answers exactly as the string did; only a
+`CSD_NAME` you assert here, or one on a frame you built yourself, restricts
+anything. [nar_known_csd()] has the address that proves the difference.}
 
 \item{within}{A spatial restriction: an `sf`/`sfc` object, an `st_bbox`, or a
 length-4 numeric `c(xmin, ymin, xmax, ymax)`, interpreted in `crs` unless it

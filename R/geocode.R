@@ -343,16 +343,25 @@ nar_remap_uncertainty_m <- function() {
 #' parsed components as returned by [normalize_address()]. Passing the data
 #' frame lets you parse once and geocode repeatedly, or edit a parse before
 #' resolving it.
-#' @param prov Province code(s) to constrain the search to, length 1 or
-#' `length(x)`. **Authoritative**: it overrides whatever the address string
-#' said, and is also passed to [normalize_address()], where knowing the province
-#' additionally disambiguates the parse.
-#' @param mun Municipality name(s) to constrain the search to, length 1 or
-#' `length(x)`. **Authoritative**, overriding the string. Resolved through NAR's
-#' alias set rather than matched against the mailing city, so `"Toronto"`
-#' reaches the addresses NAR files under `SCARBOROUGH`, and a name that denotes
-#' several jurisdictions means all of them. Combine with `prov` when a name is
-#' used in more than one province.
+#' @param known Components the caller already has, as a named list of vectors
+#' each length 1 or `length(x)`. **Authoritative**: each overrides whatever the
+#' address string said, lands on the returned row, and constrains the search.
+#' `PROV_ABVN` also reaches [normalize_address()], where knowing the province
+#' disambiguates the parse.
+#'
+#' The two municipality keys are two different searches. `MUN_NAME` is the
+#' **mailing city**, compared straight at NAR's `MAIL_MUN_NAME`. `CSD_NAME` is
+#' the **census subdivision**, resolved through NAR's alias set -- so
+#' `CSD_NAME = "Toronto"` reaches the addresses NAR files under `SCARBOROUGH`
+#' and `MUN_NAME = "Toronto"` does not. Supply both to narrow to one community
+#' inside an amalgamated city. See [nar_known()] for the full key list.
+#'
+#' `CSD_NAME` also comes back as an output column, reporting the census
+#' subdivision the match turned out to be in -- which is a weaker claim than
+#' the constraint, since the search was not restricted to it. A parse handed
+#' back to `geocode()` therefore answers exactly as the string did; only a
+#' `CSD_NAME` you assert here, or one on a frame you built yourself, restricts
+#' anything. [nar_known_csd()] has the address that proves the difference.
 #' @param within A spatial restriction: an `sf`/`sfc` object, an `st_bbox`, or a
 #' length-4 numeric `c(xmin, ymin, xmax, ymax)`, interpreted in `crs` unless it
 #' carries its own. **Authoritative**, and applied to every tier.
@@ -423,16 +432,16 @@ nar_remap_uncertainty_m <- function() {
 #' g <- geocode(parsed, geometry = TRUE)
 #' g[g$uncertainty_m <= 25, ]
 #' }
-geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
+geocode <- function(x, known = NULL, within = NULL,
                     method = c("nar", "nar_interpolate"), geometry = FALSE,
                     crs = 4326, version = "latest", con = NULL, ...) {
   method <- nar_geocode_methods(method)
-  q <- nar_geocode_setup(x, prov, mun, within, method, crs, version, con,
+  q <- nar_geocode_setup(x, known, within, method, crs, version, con,
                          dots = list(...))
 
   hits <- nar_geocode_match(q$res, q$con, method = method,
                             bounds = nar_geocode_bounds_sql(q$bounds),
-                            bounds_geom = q$bounds, auth_mun = !is.null(mun), ...)
+                            bounds_geom = q$bounds, ...)
   out <- cbind(q$res, hits[, c("ADDR_GUID", "match_method", "uncertainty_m",
                                "n_matches", "n_records",
                                "match_postal_code")])
@@ -497,13 +506,13 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
 #' g <- geocode(addresses)
 #' geocode_matches(addresses[g$n_records > 1])
 #' }
-geocode_matches <- function(x, prov = NULL, mun = NULL, within = NULL,
+geocode_matches <- function(x, known = NULL, within = NULL,
                             geometry = FALSE, crs = 4326,
                             version = "latest", con = NULL) {
-  q <- nar_geocode_setup(x, prov, mun, within, "nar", crs, version, con)
+  q <- nar_geocode_setup(x, known, within, "nar", crs, version, con)
   res <- q$res
 
-  probe <- nar_geocode_probe(res, auth_mun = !is.null(mun))
+  probe <- nar_geocode_probe(res)
   hits <- nar_geocode_run_tier(probe, probe$row_id, q$con,
                                nar_geocode_matches_sql,
                                nar_geocode_bounds_sql(q$bounds))
@@ -540,13 +549,13 @@ geocode_matches <- function(x, prov = NULL, mun = NULL, within = NULL,
 #' predecessors left unplaced, so a missing import would otherwise surface on
 #' one batch and stay silent on the next.
 #' @param x Address strings, or a parsed data frame
-#' @param prov,mun,within Constraints, as in [geocode()]
+#' @param known,within Constraints, as in [geocode()]
 #' @param method The tiers that will be run, already validated
 #' @param crs The CRS `within` is expressed in
 #' @param version,con Which database to use
 #' @return A list of `con`, the parsed `res`, and `bounds` as an `sfc` or `NULL`
 #' @keywords internal
-nar_geocode_setup <- function(x, prov, mun, within, method, crs, version, con,
+nar_geocode_setup <- function(x, known, within, method, crs, version, con,
                               dots = list()) {
   # Not closed on the way out: an unsupplied `con` resolves to the session's
   # connection, which the next call reuses. close_nar() is what ends it.
@@ -559,41 +568,61 @@ nar_geocode_setup <- function(x, prov, mun, within, method, crs, version, con,
     stop("The \"rnf\" tier needs Statistics Canada's road network file, which ",
          "this database does not carry. Run rnf_import() first.", call. = FALSE)
   }
-  if (!is.null(mun) && !nar_has_streets(con)) {
-    stop("`mun` resolves through the MunAlias table, which arrived in schema ",
-         "version 5. Rebuild with nar_connection(refresh = TRUE), or constrain ",
-         "with `within` instead.", call. = FALSE)
+  k <- nar_known(known, if (is.data.frame(x)) nrow(x) else length(x))
+  if (!is.null(k$CSD_NAME) && !nar_has_streets(con)) {
+    stop("`known$CSD_NAME` resolves through the MunAlias table, which arrived ",
+         "in schema version 5. Rebuild with nar_connection(refresh = TRUE), ",
+         "or constrain with `known$MUN_NAME` or `within` instead.",
+         call. = FALSE)
   }
 
   res <- if (is.data.frame(x)) {
-    need <- c("CIVIC_NO", "STREET_NAME", "MUN_NAME", "PROV_ABVN")
-    missing <- setdiff(need, names(x))
+    # Only the two that decide whether a row can be searched at all. Everything
+    # else constrains when it is there and is silent when it is not, which is
+    # what lets a caller hand over the breakdown they have rather than the whole
+    # of one -- the columns below are materialized so the tiers can read them.
+    missing <- setdiff(c("CIVIC_NO", "STREET_NAME"), names(x))
     if (length(missing)) {
       stop("`x` is a data frame but has no ", paste(missing, collapse = ", "),
            " column. Pass address strings, or the output of normalize_address().",
            call. = FALSE)
     }
-    x
+    for (nm in c("MUN_NAME", "CSD_NAME", "PROV_ABVN")) {
+      if (is.null(x[[nm]])) x[[nm]] <- NA_character_
+    }
+    # Only here: a frame never went through the parser, so an asserted
+    # jurisdiction has not yet had the mailing city it contradicts cleared.
+    # The string path had that done inside normalize_address(), before the
+    # gazetteer, and re-doing it now would throw away the mailing city the
+    # gazetteer resolved.
+    nar_known_clear_mun(x, k)
   } else {
     do.call(normalize_address,
-            c(list(x, prov = prov, con = con), nar_gazetteer_dots(dots)))
+            c(list(x, known = known, con = con), nar_gazetteer_dots(dots)))
   }
 
   # Authoritative, so the override lands on `res` rather than only on the probe:
   # the caller asserted these, and a result that reported the string's own
   # province next to a point constrained to a different one would be a lie about
-  # what was searched. `prov` still reaches normalize_address() as well, where it
-  # additionally disambiguates the parse -- ROUTE is New Brunswick's typeless
-  # numbered road and Quebec's street type, and only the province separates them.
-  if (!is.null(prov)) res$PROV_ABVN <- nar_recycle(prov, nrow(res), "prov")
-  if (!is.null(mun)) {
-    res$MUN_NAME <- nar_recycle(mun, nrow(res), "mun")
-    # The caller asserted it, so there is nothing for the gazetteer to have
-    # substituted -- and the probe constrains on MUN_KEY rather than on the
-    # mailing name, which is the narrower search the flag exists to warn about.
-    res$mun_remapped <- FALSE
-    res$mun_evidence <- "kept"
+  # what was searched. normalize_address() has already done this for the strings
+  # it parsed -- and threaded `known` inward, where the province additionally
+  # disambiguates the parse (ROUTE is New Brunswick's typeless numbered road and
+  # Quebec's street type, and only the province separates them). Repeated here
+  # for the data-frame path, which never went through the parser.
+  res <- nar_known_apply(res, k)
+  asserted <- nar_known_has_mun(k, nrow(res))
+  if (any(asserted) && "mun_remapped" %in% names(res)) {
+    res$mun_remapped[asserted] <- FALSE
+    res$mun_evidence[asserted] <- "kept"
   }
+
+  # Carried as an attribute rather than a column because it is not part of the
+  # answer: `res` is cbind()ed into the result, and the jurisdiction that
+  # *restricted* the search is a different claim from the one the match turned
+  # out to be in. See nar_known_csd() for why the second may not become the
+  # first.
+  attr(res, "nar_csd_constraint") <-
+    nar_known_csd(res, k, is.data.frame(x) && !("parse_source" %in% names(x)))
 
   list(con = con, res = res, bounds = nar_geocode_bounds_geom(within, crs, con))
 }
@@ -662,15 +691,13 @@ nar_geocode_geometry <- function(out, x, y, con, crs = 4326, geometry = FALSE) {
 #' @param bounds A spatial restriction from [nar_geocode_bounds_sql()], or `""`
 #' @param bounds_geom The same restriction as an `sfc`, for the tiers that run
 #' outside the database
-#' @param auth_mun Whether `MUN_NAME` is the caller's authoritative value
 #' @param ... Passed to the online tiers; see [geocode()] on how they are split
 #' @return A data frame with one row per row of `res`, carrying `ADDR_GUID`,
 #' `match_method`, `uncertainty_m`, `n_matches`, `n_records`,
 #' `match_postal_code`, `x` and `y`
 #' @keywords internal
 nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
-                              bounds = "", bounds_geom = NULL,
-                              auth_mun = FALSE, ...) {
+                              bounds = "", bounds_geom = NULL, ...) {
   n <- nrow(res)
   out <- data.frame(ADDR_GUID     = rep(NA_character_, n),
                     match_method  = rep("none", n),
@@ -683,7 +710,7 @@ nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
                     stringsAsFactors = FALSE)
   if (!n) return(out)
 
-  probe <- nar_geocode_probe(res, auth_mun = auth_mun)
+  probe <- nar_geocode_probe(res)
   dots <- list(...)
 
   # Priority is expressed as running order: each tier sees only the rows its
@@ -877,15 +904,18 @@ nar_geocode_tier_interp <- function(out, probe, todo, con, bounds = "") {
 #' treats an absent component as "do not constrain on this" and `NULL` would
 #' instead make every comparison against it unknown.
 #' @param res Parsed components, as [normalize_address()] returns
-#' @param auth_mun Whether `MUN_NAME` is the caller's authoritative value, which
-#' sends it down the `MunAlias` route instead of the direct one
 #' @return A data frame with a `row_id` back-reference into `res`
 #' @keywords internal
-nar_geocode_probe <- function(res, auth_mun = FALSE) {
+nar_geocode_probe <- function(res) {
   # A hand-built data frame may carry only the columns it needed to; an absent
   # column and an all-NA one mean the same thing here, namely do not constrain.
   blank <- function(name) {
     v <- if (is.null(res[[name]])) NA else res[[name]]
+    ifelse(is.na(v), "", as.character(v))[keep]
+  }
+  blank_csd <- function() {
+    v <- attr(res, "nar_csd_constraint")
+    if (is.null(v)) return(rep("", sum(keep)))
     ifelse(is.na(v), "", as.character(v))[keep]
   }
   keep <- !is.na(res$STREET_NAME) & !is.na(res$CIVIC_NO)
@@ -901,11 +931,17 @@ nar_geocode_probe <- function(res, auth_mun = FALSE) {
     # Only the RQA tier joins on this. The NAR tiers keep the plain fold,
     # which is indexed; see rqa_geocode_sql() on why RQA cannot.
     match_fold = nar_match_fold(res$STREET_NAME[keep]),
-    mun_fold  = if (auth_mun) unconstrained else
-                  gsub(".", "", nar_fold(blank("MUN_NAME")), fixed = TRUE),
-    mun_auth  = if (auth_mun)
-                  gsub(".", "", nar_fold(blank("MUN_NAME")), fixed = TRUE)
-                else unconstrained,
+    # The two municipality grains, and both constrain when both are present.
+    # MUN_NAME is compared straight at MAIL_MUN_NAME because it is a mailing
+    # city -- either NAR's own string, the gazetteer having canonicalized it,
+    # or one the caller asserted as a mailing city on purpose. The jurisdiction
+    # cannot be compared to a mailing name at all, so it goes through MunAlias:
+    # constraining to TORONTO by mailing city would drop everything NAR files
+    # under SCARBOROUGH. It is read off the attribute and *not* off
+    # `res$CSD_NAME`, because only some of the values in that column are a
+    # constraint -- nar_known_csd() has the case that proves it.
+    mun_fold  = gsub(".", "", nar_fold(blank("MUN_NAME")), fixed = TRUE),
+    mun_auth  = gsub(".", "", nar_fold(blank_csd()), fixed = TRUE),
     prov      = blank("PROV_ABVN"),
     type      = blank("STREET_TYPE"),
     dir       = blank("STREET_DIR"),

@@ -117,12 +117,52 @@ caught. `nar_gazetteer_dots()` is the mirror of `nar_nrcan_dots()` for the parse
 the names matching `nar_resolve_gazetteer()`'s formals, minus `res` and `con`, and
 `nar_geocode_setup()` takes `dots = list(...)` so it has something to select from.
 
-`prov`, `mun` and `within` are **authoritative** — they override whatever the address string
+`known` and `within` are **authoritative** — they override whatever the address string
 said, and the override lands on the returned row too, so a result never reports a province
-next to a point constrained to a different one. `mun` goes through `MunAlias` rather than
-straight at `MAIL_MUN_NAME`, because it is a name a person typed: constraining to `TORONTO`
-by mailing city would drop everything NAR files under `SCARBOROUGH`. The parsed municipality
-keeps the direct comparison, the gazetteer having already turned it into NAR's own string.
+next to a point constrained to a different one. `known` is a named list keyed by the *output*
+column names, so the list form and the data-frame form of `x` share one vocabulary and a
+caller who already has components does not concatenate them into a string for the parser to
+take apart again. An unknown key is an **error**: a constraint that does not bind produces a
+confident wrong answer, which is the failure the argument exists to prevent. It absorbed the
+old `prov` and `mun` arguments outright, and `nar_known()` is where every component is put
+into the shape the parser produces — otherwise an asserted `Howie Centre` would be
+authoritative and unmatchable at the same time.
+
+**The two municipality grains are two different questions, and `known` is what separates
+them.** `MUN_NAME` is the mailing city, compared straight at `MAIL_MUN_NAME`. `CSD_NAME` is
+the census subdivision, and it goes through `MunAlias`, because constraining to `TORONTO` by
+mailing city would drop everything NAR files under `SCARBOROUGH`. They do **not** nest — one
+mailing city spans several jurisdictions and one jurisdiction carries many mailing cities — so
+both constrain when both are supplied, which is how a caller narrows to one community inside
+an amalgamated city. Before this the choice was made by *provenance*: `auth_mun <-
+!is.null(mun)` sent a supplied municipality through the alias set and a parsed one straight at
+`MAIL_MUN_NAME`, which is the right default for each but gave the caller no way to ask the
+other question. `MunAlias` is deliberately asymmetric — it carries mailing names as routes
+*into* a jurisdiction, so `CSD_NAME = "Southlands"` resolves to the Vancouver CSD and answers,
+while `MUN_NAME = "Vancouver"` on a record mailed to `SOUTHLANDS` does not.
+
+**`CSD_NAME` is an input and an output and they are not the same claim.** As an input it is a
+constraint; as an output it is a report of which census subdivision the match turned out to be
+in, and the search was never restricted to it. Feeding the second back in as the first breaks
+the one invariant the two input forms have: `geocode(normalize_address(x, con))` must answer
+as `geocode(x, con)` does. `5491 Route 11, Brantville, NB` is the address that proves it — the
+gazetteer resolves that street inside `13:MRM:Tracadie` while NAR files Brantville's Route 11
+across that key, `13:RCR:Alnwick` and a blank one, so restricting to Tracadie drops the
+flanking civics and `nar_interpolated` becomes `none`. So the probe reads `mun_auth` off an
+**attribute**, `nar_csd_constraint`, set once in `nar_geocode_setup()` from the asserted value
+— plus, for a frame with no `parse_source` column, the frame's own, since a frame the caller
+built is input rather than a report. Not a column, because `res` is `cbind()`ed into the
+answer. This was caught by a vignette diff, not by a test.
+
+`nar_known_clear_mun()` is the one place the two interact. An asserted `CSD_NAME` over a
+string that names a *different* city has contradicted the parse, and leaving the parsed
+mailing city in to constrain would let it veto the assertion — the search would run in the
+intersection of two jurisdictions that do not overlap and return nothing. So the parsed
+mailing city is cleared, once, **before** the gazetteer, and never after: post-gazetteer
+`MUN_NAME` is the mailing city of the record that actually matched, which is worth keeping.
+The data-frame path in `nar_geocode_setup()` needs the same call because it never went
+through the parser.
+
 `within` densifies its outline **with the CRS temporarily unset** before reprojecting —
 `st_segmentize()` on a geographic geometry needs `lwgeom`, which is not a dependency, and
 planar interpolation is what is wanted anyway.
@@ -238,7 +278,7 @@ but `geocode_matches()` has to hand back a *shaped* zero-row frame and would oth
 second, hand-maintained idea of what its columns are.
 
 **`nar_geocode_setup()` holds what both entry points must agree on**: the session connection,
-the tier-availability checks, the parse-or-validate branch, the authoritative `prov`/`mun`
+the tier-availability checks, the parse-or-validate branch, the authoritative `known`
 overrides and the `within` geometry. The overrides are why this is shared rather than merely
 deduplicated — they are applied to `res` and not only to the probe, so an enumeration that
 skipped them would list the records of a different search.
@@ -372,7 +412,7 @@ and 31.6 m for `routingPoint`. Per address the default wins only 58% of the time
 points are a mixture and no single descriptor is the right answer. `data-raw/probe_bc.R`.
 
 **Both online tiers rebuild the query string from the components rather than forwarding
-`input`.** `prov`/`mun` are authoritative and overwrite the parsed columns, so forwarding the
+`input`.** `known` is authoritative and overwrites the parsed columns, so forwarding the
 original string would silently discard the caller's constraint the moment a row fell through.
 `within` is enforced too, in R — the SQL predicate cannot reach a point that came from another
 service, so a fallback point outside the bounds is discarded rather than returned.

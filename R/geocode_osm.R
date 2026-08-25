@@ -475,8 +475,8 @@ nar_osm_query <- function(res, structured = TRUE) {
 #' components as [normalize_address()] returns. Components are needed either
 #' way, since the floors compare the answer against them; passing a parsed
 #' frame just avoids parsing twice.
-#' @param prov Optional province, passed to [normalize_address()] when `x` is a
-#' character vector.
+#' @param known Components the caller already has, passed to
+#' [normalize_address()] when `x` is a character vector. See [nar_known()].
 #' @param rate Requests per second, and also the largest burst allowed before
 #' throttling starts. Default 1; see the courtesy section above before raising
 #' it.
@@ -511,7 +511,7 @@ nar_osm_query <- function(res, structured = TRUE) {
 #' # A refusal rather than a substitution: the street, at rank 26.
 #' osm_geocode("28 Silver St, Corner Brook, NL")[, c("osm_title", "osm_reject")]
 #' }
-osm_geocode <- function(x, prov = NULL, rate = 1, retries = 3, limit = 10,
+osm_geocode <- function(x, known = NULL, rate = 1, retries = 3, limit = 10,
                         structured = TRUE, geometry = FALSE, crs = 4326,
                         con = NULL) {
   if (!requireNamespace("httr2", quietly = TRUE)) {
@@ -519,7 +519,7 @@ osm_geocode <- function(x, prov = NULL, rate = 1, retries = 3, limit = 10,
          'install.packages("httr2").', call. = FALSE)
   }
   res <- if (is.data.frame(x)) x else normalize_address(as.character(x),
-                                                        prov = prov, con = con)
+                                                        known = known, con = con)
   input <- if (is.data.frame(x)) nar_address_string(res) else as.character(x)
   qs <- nar_osm_query(res, structured = structured)
 

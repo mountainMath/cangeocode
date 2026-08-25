@@ -115,13 +115,13 @@ what the next section is for.
 
 There is no single right abbreviation for "avenue" in Canada. NAR writes `AVE`
 in Ontario and `AV` in Quebec, `BLVD` against `BOUL`, `W` against `O`. So
-canonicalization is conditioned on the province, and `prov` materially changes
-the answer:
+canonicalization is conditioned on the province, and the province you supply
+through `known` materially changes the answer:
 
 
 ``` r
 normalize_address(rep("100 Main Avenue West, Springfield", 2),
-                  prov = c("ON", "QC")) |>
+                  known = list(PROV_ABVN = c("ON", "QC"))) |>
   select(STREET_NAME, STREET_TYPE, STREET_DIR, PROV_ABVN)
 #> # A tibble: 2 × 4
 #>   STREET_NAME STREET_TYPE STREET_DIR PROV_ABVN
@@ -133,6 +133,39 @@ normalize_address(rep("100 Main Avenue West, Springfield", 2),
 If your data has a province column, pass it. It is not merely a hint that gets
 overridden by the string — it decides which vocabulary the output is written
 in, and an address canonicalized against the wrong one will not join.
+
+## When the address was never one string
+
+The province is one of ten components `known` accepts, and the rest work the
+same way. Address data rarely arrives as a single line: an assessment roll
+carries the community in a column, a filing carries the postal code, a cleaned
+list carries everything but the street. `known` is how that structure reaches
+the parser instead of being concatenated into a string and re-derived from it.
+
+
+``` r
+normalize_address(c("100 Main Avenue West", "12 Rue Notre-Dame Est"),
+                  known = list(MUN_NAME = c("Springfield", "Montréal"),
+                               PROV_ABVN = c("ON", "QC"))) |>
+  select(CIVIC_NO, STREET_NAME, STREET_TYPE, STREET_DIR, MUN_NAME, PROV_ABVN)
+#> # A tibble: 2 × 6
+#>   CIVIC_NO STREET_NAME STREET_TYPE STREET_DIR MUN_NAME    PROV_ABVN
+#>      <dbl> <chr>       <chr>       <chr>      <chr>       <chr>    
+#> 1      100 MAIN        AVE         W          SPRINGFIELD ON       
+#> 2       12 NOTRE-DAME  RUE         E          MONTRÉAL    QC
+```
+
+Every component is authoritative: it overrides whatever the string parsed to,
+it constrains the gazetteer's search, and it comes back out on the row. `NA` for
+a row means nothing is known about that row, so the parse stands.
+
+Two of the ten are the same word for different things. `MUN_NAME` is the
+**mailing city**, the name on the envelope. `CSD_NAME` is the **census
+subdivision**, the administrative unit, and it resolves through NAR's alias set
+— so `CSD_NAME = "Toronto"` reaches an address filed under `SCARBOROUGH` and
+`MUN_NAME = "Toronto"` does not. The two do not nest, so they are separate
+components rather than one with a mode; `vignette("geocoding")` has the longer
+version.
 
 ## Knowing which rows to trust
 

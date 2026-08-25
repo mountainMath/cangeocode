@@ -10,7 +10,6 @@ nar_geocode_match(
   method = c("nar", "nar_interpolate"),
   bounds = "",
   bounds_geom = NULL,
-  auth_mun = FALSE,
   ...
 )
 }
@@ -25,8 +24,6 @@ nar_geocode_match(
 
 \item{bounds_geom}{The same restriction as an `sfc`, for the tiers that run
 outside the database}
-
-\item{auth_mun}{Whether `MUN_NAME` is the caller's authoritative value}
 
 \item{...}{Passed to the online tiers; see [geocode()] on how they are split}
 }

@@ -6,7 +6,7 @@
 \usage{
 qc_geocode(
   x,
-  prov = NULL,
+  known = NULL,
   min_score = 0,
   batch_size = 1000,
   rate = 5,
@@ -21,8 +21,8 @@ components as [normalize_address()] returns. Components are needed either
 way, since the floor compares the answer against them; passing a parsed
 frame just avoids parsing twice.}
 
-\item{prov}{Optional province, passed to [normalize_address()] when `x` is a
-character vector.}
+\item{known}{Components the caller already has, passed to
+[normalize_address()] when `x` is a character vector. See [nar_known()].}
 
 \item{min_score}{Minimum `qc_score`, 0--100, for a result to count. Default
 `0`, which is off, and **it should usually stay off**: the score does not
