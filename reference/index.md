@@ -4,9 +4,16 @@
 
 Resolve free-text Canadian addresses to coordinates, interpolating the
 civic numbers NAR does not carry.
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+answers one row per address;
+[`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md)
+opens up the NAR records behind an answer, which is where the units of a
+multi-unit building are.
 
 - [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
   : Geocode Canadian addresses to coordinates
+- [`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md)
+  : Every NAR record behind a geocoding answer
 
 ## Address normalization
 

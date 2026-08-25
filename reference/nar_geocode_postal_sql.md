@@ -15,6 +15,11 @@ participate in that agreement rather than being skipped by
 \`count(DISTINCT)\`: a set that is half \`NULL\` reports nothing, not
 the half that had a value.
 
+It is an aggregate over whatever \`cand\` holds by the time it runs, so
+\[nar_geocode_unit_filter()\] having narrowed the set to one unit is
+what turns a declined postal code into a reported one – 55 of 5,000
+corpus filings.
+
 ## Usage
 
 ``` r

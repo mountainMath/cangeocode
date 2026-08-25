@@ -173,6 +173,153 @@ which is the width of the country. `match_method` describes the
 `n_matches` alongside it, or fix the question with the constraints
 below.
 
+### One place, several addresses
+
+`n_matches` counts *points*, and beside it `n_records` counts the *NAR
+addresses* that matched. They are usually different numbers, and the gap
+is not noise:
+
+``` r
+
+geocode(c("4025 W 38th Ave, Vancouver BC",
+          "6093 Iona Dr, Vancouver BC",
+          "49321 Range Road 72")) |>
+  select(input, match_method, n_matches, n_records, match_postal_code)
+#>                           input match_method n_matches n_records match_postal_code
+#> 1 4025 W 38th Ave, Vancouver BC nar_building         1         1            V6N2Y8
+#> 2    6093 Iona Dr, Vancouver BC nar_building         1        33            V6T0B2
+#> 3           49321 Range Road 72 nar_building         1        19              <NA>
+```
+
+All three are unambiguous as *places* — one point each. Only the first
+is unambiguous as an *address*. NAR files every unit of a multi-unit
+building as its own address at the building’s single coordinate, so the
+second matched 33 records and the third 19. This is not exotic: **47% of
+the addresses NAR places share their coordinate with at least one other
+address.**
+
+So a high `n_records` is not by itself a problem. Geocoding a building
+with 33 units to that building’s point is the correct answer to the
+question that was asked; unless the input says which unit it means,
+there is nothing to choose between them, and choosing would return the
+same point anyway. `n_records` matters when the collapsed records
+*disagree* about something you were relying on — and the disagreement
+reported today is the postal code. The second address keeps its, because
+all 33 units share it. The third loses its, because those 19 records
+carry four postal codes between them.
+
+The two columns fail differently, and that is why both are there.
+`n_matches` above 1 says the point may be in the wrong place.
+`n_records` above 1 says the point is in the right place but stands for
+more than one thing.
+
+### Looking at the records
+
+[`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md)
+returns them, one row each:
+
+``` r
+
+geocode_matches("49321 Range Road 72") |>
+  select(match_rank, APT_NO_LABEL, MAIL_MUN_NAME, MAIL_POSTAL_CODE, lon, lat) |>
+  head(6)
+#>   match_rank APT_NO_LABEL  MAIL_MUN_NAME MAIL_POSTAL_CODE      lon      lat
+#> 1          1            9 BRAZEAU COUNTY           T7A2A2 -114.922 53.24723
+#> 2          2            7 BRAZEAU COUNTY           T7A2A2 -114.922 53.24723
+#> 3          3           25 DRAYTON VALLEY           T7A1R9 -114.922 53.24723
+#> 4          4            2 BRAZEAU COUNTY           T7A2A2 -114.922 53.24723
+#> 5          5            1 BRAZEAU COUNTY           T7A2A2 -114.922 53.24723
+#> 6          6           10 BRAZEAU COUNTY           T7A1R8 -114.922 53.24723
+```
+
+Nineteen units of one property, on one coordinate, split across two
+mailing municipalities and four postal codes. The rows are ranked the
+way the tier ranks them, so `match_rank == 1` is the record
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+answered with — the two queries collapse the same candidate set with the
+same ordering expression, so that is a guarantee rather than a
+coincidence. Past the first row the order carries no meaning: it is the
+`ADDR_GUID` tie-break, which exists to make the first row reproducible.
+
+The usual way to use it is not to call it on everything. Resolve first,
+then open up only what collapsed:
+
+``` r
+
+addr <- c("49321 Range Road 72", "4025 W 38th Ave, Vancouver BC")
+collapsed <- geocode(addr)$n_records > 1
+geocode_matches(addr[collapsed])$APT_NO_LABEL
+#>  [1] "9"  "7"  "25" "2"  "1"  "10" "15" "5"  "6"  "17" "3"  "23" "4"  "29" "13" "8"  "27" "21" "19"
+```
+
+It reads the exact NAR tier and nothing else, and takes no `method`
+argument, because no other tier has a set to enumerate. Interpolation
+stands *between* two civic numbers and resolves to no record; the road
+network file interpolates along a segment; the online services return an
+answer rather than a candidate set. So an address that only those tiers
+could place has no matches here:
+
+``` r
+
+nrow(geocode_matches("9999 Jasper Ave, Edmonton, AB"))
+#> [1] 0
+```
+
+That is the right answer and not a gap — nothing was collapsed, because
+nothing was resolved to a record in the first place. It does mean the
+result is not aligned with the input the way
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)’s
+is; `input_id` indexes back into it.
+
+### Naming the unit
+
+The collapse closes when the input says which unit it means:
+
+``` r
+
+geocode(c("49321 Range Road 72",
+          "49321 Range Road 72, Unit 9",
+          "49321 Range Road 72, Unit 999")) |>
+  select(input, APT_NO_LABEL, match_method, n_records, match_postal_code)
+#>                           input APT_NO_LABEL match_method n_records match_postal_code
+#> 1           49321 Range Road 72         <NA> nar_building        19              <NA>
+#> 2   49321 Range Road 72, Unit 9            9 nar_building         1            T7A2A2
+#> 3 49321 Range Road 72, Unit 999          999 nar_building        19              <NA>
+```
+
+The parsed unit is matched against NAR’s own, so the second row resolves
+to a single record — and gains the postal code the nineteen-record set
+had to decline. The third names a unit that property does not have, and
+is placed anyway, exactly as though it had been written without one.
+
+That fallback is what makes the narrowing safe to apply by default, and
+it is not a formality. Across the 5,000 Corporations Canada filings this
+package measures itself on, 1,189 addresses supply a unit *and* match
+NAR records — and **27.5% of those units are not in NAR at the civic
+number they were written against.** Enforcing the unit would take 327
+addresses from placed to unplaced, a far worse trade than a wide
+`n_records`. Where the unit is there, the narrowing is total: every one
+of the other 862 collapses to exactly one record. Over the whole draw,
+118,937 matched records become 25,955, and 55 addresses gain a
+`match_postal_code`.
+
+[`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md)
+narrows identically, because it is the same candidate set:
+
+``` r
+
+geocode_matches("49321 Range Road 72, Unit 9") |>
+  select(match_rank, APT_NO_LABEL, MAIL_MUN_NAME, MAIL_POSTAL_CODE)
+#>   match_rank APT_NO_LABEL  MAIL_MUN_NAME MAIL_POSTAL_CODE
+#> 1          1            9 BRAZEAU COUNTY           T7A2A2
+```
+
+Unit labels that are words are translated into the vocabulary the
+address files use, so `Basement` and `Sous-sol` both find NAR’s `BSMT`.
+Zero padding is not touched — `PH01` and `PH1` stay different labels —
+because 0.20% of NAR’s units are padded, and a rule that unpadded them
+would need an opinion about every label that is padded on purpose.
+
 ## Choosing the methods
 
 `method` names the tiers to try and the order to try them in. Each tier

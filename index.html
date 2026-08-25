@@ -200,14 +200,26 @@
 <span><span class="co">#&gt; 4 -113.49028 53.54101</span></span></code></pre></div>
 <p>One row per input, in input order, carrying the parsed address components alongside the result. <code>geometry = TRUE</code> returns an <code>sf</code> object instead of <code>lon</code>/<code>lat</code>.</p>
 <p><strong>Every result says how it was found and what that cost.</strong> <code>match_method</code> is <code>nar_building</code> when the civic number is in NAR with its own point, <code>nar_blockface</code> when only a street-segment centroid is available, <code>nar_interpolated</code> when the number was placed between the flanking civics, and <code>none</code> when nothing resolved. <code>uncertainty_m</code> is the 90th-percentile error the package adds relative to NAR’s own point — <code>0</code> for a building match, 176 m for a blockface one, half the flanking span for an interpolated one. It says nothing about NAR’s own error, which is a separate quantity — the notes linked above measure that separately, for one province.</p>
-<p><strong>Two postal codes, and they are not two attempts at the same thing.</strong> <code>POSTAL_CODE</code> is what the input string said — usually <code>NA</code>, since most addresses are typed without one — and <code>match_postal_code</code> is what the matched record carries. Only the tiers that resolve to a record fill the second one, and it is left empty rather than guessed: an interpolated point sits between two addresses that need not share a postal code, and a building whose units span two reports neither, since <code><a href="reference/geocode.html">geocode()</a></code> does not match on unit.</p>
+<p><strong><code>n_matches</code> counts points; <code>n_records</code> counts addresses.</strong> The two come apart whenever a building has units, since NAR files each unit as its own address at the one coordinate — <code>6093 Iona Dr, Vancouver</code> is one point and 33 records. That is not an error, and 47% of NAR’s placed addresses share their coordinate with another. It matters when the collapsed records disagree about something you were using, which today means the postal code.</p>
+<p><strong>Naming the unit narrows the records.</strong> <code>49321 Range Road 72</code> is 19 records; <code>49321 Range Road 72, Unit 9</code> is one, with a postal code the wider set had to decline. The narrowing <strong>narrows or it does nothing</strong> — a unit NAR does not carry at that civic number is dropped rather than enforced, so an address is never made unplaceable by a unit label. That matters more than it sounds: across 5,000 Corporations Canada filings, 27.5% of the units supplied are not in NAR at the civic number they were written against.</p>
+<p><code><a href="reference/geocode_matches.html">geocode_matches()</a></code> opens those records up — one row each, ranked so the first is the one <code><a href="reference/geocode.html">geocode()</a></code> answered with:</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="reference/geocode_matches.html">geocode_matches</a></span><span class="op">(</span><span class="st">"49321 Range Road 72"</span><span class="op">)</span> <span class="op">|&gt;</span></span>
+<span>  <span class="fu">select</span><span class="op">(</span><span class="va">match_rank</span>, <span class="va">APT_NO_LABEL</span>, <span class="va">MAIL_MUN_NAME</span>, <span class="va">MAIL_POSTAL_CODE</span><span class="op">)</span></span>
+<span><span class="co">#&gt;    match_rank APT_NO_LABEL  MAIL_MUN_NAME MAIL_POSTAL_CODE</span></span>
+<span><span class="co">#&gt; 1           1            9 BRAZEAU COUNTY           T7A2A2</span></span>
+<span><span class="co">#&gt; 2           2            7 BRAZEAU COUNTY           T7A2A2</span></span>
+<span><span class="co">#&gt; 3           3           25 DRAYTON VALLEY           T7A1R9</span></span>
+<span><span class="co">#&gt; ...                                                       </span></span></code></pre></div>
+<p>It is the exact NAR tier only: an address that reached a coordinate by interpolation or from an online service resolved to no record, so it has no matches to show.</p>
+<p><strong>Two postal codes, and they are not two attempts at the same thing.</strong> <code>POSTAL_CODE</code> is what the input string said — usually <code>NA</code>, since most addresses are typed without one — and <code>match_postal_code</code> is what the matched record carries. Only the tiers that resolve to a record fill the second one, and it is left empty rather than guessed: an interpolated point sits between two addresses that need not share a postal code, and a building whose units span two reports neither unless the input said which unit it meant.</p>
 <p>Interpolation is deliberately conservative: same side of the street only, and it <strong>refuses to extrapolate</strong> past the last known civic rather than guessing.</p>
 <p>Batch rather than loop — the street-name join costs about the same for 5 addresses as for 200, and every row in a call shares it.</p>
 <div class="section level3">
 <h3 id="choosing-the-methods">Choosing the methods<a class="anchor" aria-label="anchor" href="#choosing-the-methods"></a>
 </h3>
 <p><code>method</code> names the tiers to try and the order to try them in. Each tier only sees the rows the ones before it left without a position, so the order is the priority:</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="st">"nar"</span><span class="op">)</span>                      <span class="co"># NAR records only</span></span>
 <span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span> <span class="co"># the default</span></span>
 <span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span><span class="op">)</span></span>
@@ -220,7 +232,7 @@
 <h3 id="constraining-the-search">Constraining the search<a class="anchor" aria-label="anchor" href="#constraining-the-search"></a>
 </h3>
 <p><code>prov</code>, <code>mun</code> and <code>within</code> are <strong>authoritative</strong>: they override whatever the address string said, and the override lands on the returned row too.</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="co"># A bounding box, an sf polygon, or an st_bbox all work.</span></span>
 <span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, prov <span class="op">=</span> <span class="st">"BC"</span>, within <span class="op">=</span> <span class="fu">sf</span><span class="fu">::</span><span class="fu"><a href="https://r-spatial.github.io/sf/reference/st_bbox.html" class="external-link">st_bbox</a></span><span class="op">(</span><span class="va">vancouver</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p><code>mun</code> resolves through NAR’s municipality aliases, so <code>mun = "TORONTO"</code> still finds the addresses NAR files under <code>SCARBOROUGH</code>.</p>
@@ -230,7 +242,7 @@
 <h2 id="address-normalization">Address normalization<a class="anchor" aria-label="anchor" href="#address-normalization"></a>
 </h2>
 <p><code><a href="reference/normalize_address.html">normalize_address()</a></code> turns free text into the fields an address is actually made of. It is what <code><a href="reference/geocode.html">geocode()</a></code> parses with, and it is useful on its own wherever addresses have to be compared rather than mapped.</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/normalize_address.html">normalize_address</a></span><span class="op">(</span><span class="st">"Suite 800 - 666 Burrard Street, Vancouver, B.C. V6C 2X8"</span>,</span>
 <span>                  con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
 <span><span class="co">#&gt;   APT_NO_LABEL CIVIC_NO STREET_NAME STREET_TYPE  MUN_NAME PROV_ABVN POSTAL_CODE</span></span>
@@ -241,7 +253,7 @@
 <p><strong>Canonical forms are province-conditioned.</strong> NAR writes <code>AVE</code> in Ontario and <code>AV</code> in Quebec, <code>BLVD</code> against <code>BOUL</code>, <code>W</code> against <code>O</code>, so <code>prov</code> is not a hint but a choice of vocabulary. Pass it if your data has it.</p>
 <p><code><a href="reference/address_pattern.html">address_pattern()</a></code> sorts a string into one of twelve structural shapes and needs no database at all. Two of them exist to say <em>this will never resolve</em>: <code>po_box</code> and <code>rural_route</code> are delivery instructions, and NAR contains neither. Separating those out first keeps them from sitting in the failure pile looking like parser bugs.</p>
 <p><code><a href="reference/address_key.html">address_key()</a></code> puts the components back together as a single string that two spellings of the same address share, which is what matching two lists needs:</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/address_key.html">address_key</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"1055 West Georgia Street, Vancouver, British Columbia"</span>,</span>
 <span>              <span class="st">"Suite 1500 - 1055 W Georgia St, Vancouver, B.C. V6E 4N7"</span>,</span>
 <span>              <span class="st">"1055 w georgia st vancouver bc"</span><span class="op">)</span>, con <span class="op">=</span> <span class="va">con</span><span class="op">)</span></span>
@@ -254,7 +266,7 @@
 <h2 id="canada-wide-the-nrcan-geolocator">Canada-wide: the NRCan geolocator<a class="anchor" aria-label="anchor" href="#canada-wide-the-nrcan-geolocator"></a>
 </h2>
 <p><code><a href="reference/nrcan_geocode.html">nrcan_geocode()</a></code> binds NRCan’s <a href="https://geolocator.api.geo.ca/" class="external-link">geolocator</a>. It is national, needs no API key and no local database, which makes <code>"nrcan"</code> the one tier that answers before a NAR release has been downloaded — and the one that covers provinces a single-province import does not hold.</p>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"nrcan"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>Two things to know before relying on it. The service <strong>always answers</strong>, and without a score to disbelieve: asked for a Montreal street it will happily return the same street name 500 km away. <code>cangeocode</code> therefore re-parses the address it gets back and requires it to agree, component by component, with the one that was sent; roughly half of what is asked is rejected on that basis, and the rejected rows keep a <code>nrcan_reject</code> column saying why. And as a fallback for NAR’s own gaps it is worth much less than BC’s geocoder — it recovers about 8% of what NAR leaves unplaced, because the addresses NAR lacks are largely the ones no national compilation has.</p>
 <p>It does not do reverse geocoding; <code><a href="reference/reverse_geocode.html">reverse_geocode()</a></code> is NAR-backed and local.</p>
@@ -264,11 +276,11 @@
 </h2>
 <p><code><a href="reference/bc_geocode.html">bc_geocode()</a></code> binds the Province of BC’s <a href="https://geocoder.api.gov.bc.ca/" class="external-link">Address Geocoder</a>. It covers BC only, needs no API key, and is useful in two ways.</p>
 <p>As a <strong>last-resort tier</strong>, for the BC addresses NAR cannot place:</p>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"bc"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>On a sample of 600 BC addresses the NAR pathway placed 524 and gave up on 76; the fallback resolved 75 of those, 31 of them at address level.</p>
 <p>As <strong>validation</strong>, since it is a second source of position — and the more reliable of the two where they differ, being a parcel-level provincial authority rather than a national compilation:</p>
-<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">g</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"525 Superior St, Victoria, BC"</span>, <span class="st">"800 Robson St, Vancouver, BC"</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="fu"><a href="reference/bc_validate.html">bc_validate</a></span><span class="op">(</span><span class="va">g</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                           input     match_method bc_match_method bc_dist_m</span></span>
@@ -281,7 +293,7 @@
 <h2 id="the-road-network-file-streets-nar-does-not-have">The road network file: streets NAR does not have<a class="anchor" aria-label="anchor" href="#the-road-network-file-streets-nar-does-not-have"></a>
 </h2>
 <p>The largest single thing <code><a href="reference/geocode.html">geocode()</a></code> fails on is an address whose street is not in NAR at all — a new subdivision, a street built since the last release. Statistics Canada’s <strong>Road Network File</strong> carries every street in the country with an address range on each side of each segment, and <code><a href="reference/rnf_import.html">rnf_import()</a></code> loads it into the same DuckDB file, in tables of its own:</p>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/rnf_import.html">rnf_import</a></span><span class="op">(</span><span class="op">)</span>                                   <span class="co"># ~340 MB download, once</span></span>
 <span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"rnf"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>The <code>"rnf"</code> tier places the civic number along the segment whose range contains it, offset to the correct side of the centreline. It is offline, national, and not in the default <code>method</code>, because the tables only exist if you ran the import. It belongs <em>after</em> interpolation: a point placed between two known civics is better than one placed along a range.</p>
@@ -311,7 +323,7 @@
 <h2 id="quebec-importing-the-address-register">Quebec: importing the address register<a class="anchor" aria-label="anchor" href="#quebec-importing-the-address-register"></a>
 </h2>
 <p>Quebec’s own <em>Répertoire québécois des adresses</em> (RQA) carries about 750,000 certified addresses more than NAR’s Quebec extract does. <code><a href="reference/rqa_import.html">rqa_import()</a></code> loads it into the same DuckDB file, <strong>in tables of its own</strong> rather than into <code>Addresses</code>:</p>
-<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/rqa_import.html">rqa_import</a></span><span class="op">(</span><span class="op">)</span>                                   <span class="co"># ~780 MB download, once</span></span>
 <span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"rqa"</span>, <span class="st">"nar_interpolate"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>The <code>"rqa"</code> tier is offline, Quebec-only, and belongs <em>before</em> interpolation — a register point, however coarse, beats a point interpolated between two neighbours. It is not in the default <code>method</code>, because the tables only exist if you ran the import.</p>
@@ -345,11 +357,11 @@
 </h2>
 <p><code><a href="reference/qc_geocode.html">qc_geocode()</a></code> binds the Ministère des Ressources naturelles et des Forêts’ <a href="https://servicescarto.mrnf.gouv.qc.ca/pes/rest/services/Territoire/Adresse_Geocodage/GeocodeServer" class="external-link">geocoder</a> over the <em>Répertoire québécois des adresses</em>. It covers Quebec only, needs no API key, and batches up to 1000 addresses per request.</p>
 <p>As a <strong>last-resort tier</strong>, for the Quebec addresses NAR cannot place:</p>
-<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="va">addresses</span>, method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"nar"</span>, <span class="st">"nar_interpolate"</span>, <span class="st">"qc"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p>On 600 Quebec addresses the NAR pathway placed 81.0%; the fallback took that to 83.3%, all of it at civic level.</p>
 <p>It also does <strong>reverse geocoding</strong>, which none of the other online services here do:</p>
-<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/qc_reverse_geocode.html">qc_reverse_geocode</a></span><span class="op">(</span><span class="op">-</span><span class="fl">73.5672</span>, <span class="fl">45.5017</span><span class="op">)</span></span>
 <span><span class="co">#&gt;                                    qc_address qc_postal  qc_city qc_dist_m</span></span>
 <span><span class="co">#&gt; 1 706 Boulevard René-Lévesque Ouest, Montréal    H3H2S1 Montréal       2.8</span></span>
@@ -362,7 +374,7 @@
 <h2 id="openstreetmap-canadas-own-nominatim">OpenStreetMap: Canada’s own Nominatim<a class="anchor" aria-label="anchor" href="#openstreetmap-canadas-own-nominatim"></a>
 </h2>
 <p><code><a href="reference/osm_geocode.html">osm_geocode()</a></code> binds the <a href="https://maps.canada.ca/nominatim/search" class="external-link">Nominatim</a> instance the Government of Canada hosts — not the volunteer-funded <code>nominatim.openstreetmap.org</code>, whose usage policy forbids bulk geocoding. It needs no API key and no local database.</p>
-<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/osm_geocode.html">osm_geocode</a></span><span class="op">(</span><span class="st">"990 Bute St, Vancouver, BC"</span><span class="op">)</span></span></code></pre></div>
 <p>It is <strong>not</strong> one of <code><a href="reference/geocode.html">geocode()</a></code>’s tiers, and the reason is the licence rather than the accuracy: OpenStreetMap data is ODbL, which carries attribution and share-alike obligations that attach to a derived database, where every other source in this package is under an Open Government Licence. Folding a few ODbL rows into a result table by default would quietly change what you may do with the whole table, so this one is an explicit call and each row carries the service’s own <code>osm_licence</code> string.</p>
 <p>The pleasant surprise is that it <strong>refuses</strong>. Where the other two services always answer, this one returns nothing for an address it does not have, and the street rather than a point when it has the street but not the number — so a result is far more likely to mean what it says. What is unmeasured is coverage: OpenStreetMap’s Canadian addresses are concentrated in cities with municipal open-data imports, and no national comparison has been run yet.</p>
@@ -371,7 +383,7 @@
 <h2 id="reverse-geocoding">Reverse geocoding<a class="anchor" aria-label="anchor" href="#reverse-geocoding"></a>
 </h2>
 <p>Find the addresses closest to a coordinate:</p>
-<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="op">-</span><span class="fl">123.2</span>, <span class="fl">49.25</span><span class="op">)</span>, match_radius <span class="op">=</span> <span class="fl">100</span><span class="op">)</span></span>
 <span><span class="co">#&gt; # A tibble: 16 × 32</span></span>
 <span><span class="co">#&gt;    address                                        dist geom_source ...</span></span>
@@ -386,15 +398,15 @@
 <h2 id="querying-the-database-directly">Querying the database directly<a class="anchor" aria-label="anchor" href="#querying-the-database-directly"></a>
 </h2>
 <p>Every entry point takes a <code>con</code> argument, and none of them need it. <code><a href="reference/geocode.html">geocode()</a></code> and <code><a href="reference/reverse_geocode.html">reverse_geocode()</a></code> open a connection when <code>con</code> is not supplied and keep it open for the next call, so a loop pays for the database once rather than once per address:</p>
-<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">addresses</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="va">points</span>, \<span class="op">(</span><span class="va">p</span><span class="op">)</span> <span class="fu"><a href="reference/reverse_geocode.html">reverse_geocode</a></span><span class="op">(</span><span class="va">p</span>, output <span class="op">=</span> <span class="st">"address"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
 <p><code><a href="reference/open_nar.html">open_nar()</a></code> does that up front — worth it to name a release other than the latest, or a province subset, without repeating it at every call site — and <code><a href="reference/close_nar.html">close_nar()</a></code> ends it. Neither is required, and an import that needs to write to the database closes the connection itself.</p>
-<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="reference/open_nar.html">open_nar</a></span><span class="op">(</span>version <span class="op">=</span> <span class="st">"2025-12"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="reference/geocode.html">geocode</a></span><span class="op">(</span><span class="st">"100 Queen St W, Toronto, ON"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="reference/close_nar.html">close_nar</a></span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
 <p>A connection you open yourself is a plain DBI connection, so the full address table is open to dplyr — filtered, joined, and aggregated inside DuckDB:</p>
-<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://dplyr.tidyverse.org" class="external-link">dplyr</a></span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">con</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/nar_connection.html">nar_connection</a></span><span class="op">(</span><span class="op">)</span></span>

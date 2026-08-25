@@ -61,5 +61,5 @@ nar_geocode_match(
 ## Value
 
 A data frame with one row per row of \`res\`, carrying \`ADDR_GUID\`,
-\`match_method\`, \`uncertainty_m\`, \`n_matches\`,
+\`match_method\`, \`uncertainty_m\`, \`n_matches\`, \`n_records\`,
 \`match_postal_code\`, \`x\` and \`y\`

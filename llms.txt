@@ -178,15 +178,51 @@ span for an interpolated one. It says nothing about NAR’s own error,
 which is a separate quantity — the notes linked above measure that
 separately, for one province.
 
+**`n_matches` counts points; `n_records` counts addresses.** The two
+come apart whenever a building has units, since NAR files each unit as
+its own address at the one coordinate — `6093 Iona Dr, Vancouver` is one
+point and 33 records. That is not an error, and 47% of NAR’s placed
+addresses share their coordinate with another. It matters when the
+collapsed records disagree about something you were using, which today
+means the postal code.
+
+**Naming the unit narrows the records.** `49321 Range Road 72` is 19
+records; `49321 Range Road 72, Unit 9` is one, with a postal code the
+wider set had to decline. The narrowing **narrows or it does nothing** —
+a unit NAR does not carry at that civic number is dropped rather than
+enforced, so an address is never made unplaceable by a unit label. That
+matters more than it sounds: across 5,000 Corporations Canada filings,
+27.5% of the units supplied are not in NAR at the civic number they were
+written against.
+
+[`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md)
+opens those records up — one row each, ranked so the first is the one
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+answered with:
+
+``` r
+
+geocode_matches("49321 Range Road 72") |>
+  select(match_rank, APT_NO_LABEL, MAIL_MUN_NAME, MAIL_POSTAL_CODE)
+#>    match_rank APT_NO_LABEL  MAIL_MUN_NAME MAIL_POSTAL_CODE
+#> 1           1            9 BRAZEAU COUNTY           T7A2A2
+#> 2           2            7 BRAZEAU COUNTY           T7A2A2
+#> 3           3           25 DRAYTON VALLEY           T7A1R9
+#> ...                                                       
+```
+
+It is the exact NAR tier only: an address that reached a coordinate by
+interpolation or from an online service resolved to no record, so it has
+no matches to show.
+
 **Two postal codes, and they are not two attempts at the same thing.**
 `POSTAL_CODE` is what the input string said — usually `NA`, since most
 addresses are typed without one — and `match_postal_code` is what the
 matched record carries. Only the tiers that resolve to a record fill the
 second one, and it is left empty rather than guessed: an interpolated
 point sits between two addresses that need not share a postal code, and
-a building whose units span two reports neither, since
-[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
-does not match on unit.
+a building whose units span two reports neither unless the input said
+which unit it meant.
 
 Interpolation is deliberately conservative: same side of the street
 only, and it **refuses to extrapolate** past the last known civic rather
@@ -671,9 +707,16 @@ them.
 
 Resolve free-text Canadian addresses to coordinates, interpolating the
 civic numbers NAR does not carry.
+[`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
+answers one row per address;
+[`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md)
+opens up the NAR records behind an answer, which is where the units of a
+multi-unit building are.
 
 - [`geocode()`](https://mountainmath.github.io/cangeocode/reference/geocode.md)
   : Geocode Canadian addresses to coordinates
+- [`geocode_matches()`](https://mountainmath.github.io/cangeocode/reference/geocode_matches.md)
+  : Every NAR record behind a geocoding answer
 
 ## Address normalization
 
