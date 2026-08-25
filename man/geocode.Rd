@@ -57,7 +57,11 @@ when `con` is supplied.}
 connection passed in here is left open, while one opened internally is closed
 again before returning.}
 
-\item{...}{Passed to the online tiers named in `method`. `rate` is
+\item{...}{Passed to the online tiers named in `method`, and to the parse.
+Gazetteer arguments -- [nar_resolve_gazetteer()]'s, `mun_swap_penalty` among
+them -- are forwarded to [normalize_address()] when `x` is a character
+vector, and ignored when it is a data frame someone else has already parsed.
+`rate` is
 understood by all of them; `api_key` is [bc_geocode()]'s, as is anything
 else it does not recognize, which it forwards to its own service as a query
 parameter. [nrcan_geocode()] and [qc_geocode()] are each given only the
@@ -69,7 +73,9 @@ Unused when `method` names no online tier.}
 }
 \value{
 A data frame with one row per input, carrying every column
-[normalize_address()] returns plus `ADDR_GUID`, `match_method`,
+[normalize_address()] returns -- `mun_remapped` and `mun_evidence` among them
+-- plus
+`ADDR_GUID`, `match_method`,
 `uncertainty_m`, `n_matches`, `n_records`, `match_postal_code`, and either
 `lon`/`lat` or an `sf` geometry column. `POSTAL_CODE` is the *parsed input* -- what the
 address string itself said, or `NA` when it said nothing --  while
@@ -251,6 +257,32 @@ exact".
 above 1 means the address was ambiguous -- most often a street name the input
 did not pin to a municipality -- and `uncertainty_m` is then widened to the
 distance from the point returned to the furthest rejected candidate.
+
+**`n_matches == 1` is not the safety guarantee it looks like**, and this is
+where the remaining widening comes from. One candidate means one was found,
+not that the right one was among those searched -- and when the gazetteer
+substituted the municipality, the uniqueness was manufactured by the same
+step that chose the place, because the street was searched for only in the
+municipality the gazetteer had already decided on. In Nova Scotia, measured
+against PVSC's independent points, one exact unambiguous match in 180 was
+more than a kilometre wrong and 85% of everything past 5 km was a remap.
+
+Two things answer that, and neither of them is `n_matches`. The gazetteer
+fines a municipality swap nothing attests -- the attestations being co-postal
+partners read out of NAR itself and the census subdivision the street already
+sits in -- which more than halves the errors past 5 km in that same 40,000-row
+Nova Scotia sample, 98 to 42, and takes the kilometre rate from one exact
+unambiguous match in 192 to one in 286, at a cost of 373 exact matches; see
+[nar_gazetteer_sql()]. And what survives is *reported*: `uncertainty_m` is
+floored per [nar_remap_uncertainty_m()] according to `mun_evidence`, which
+records *how* the substitution was attested, so an unattested remap no longer
+claims the 0 m an exact civic match would otherwise imply -- while a remap a
+postal code or a census subdivision vouches for is left alone, because
+measured against PVSC it lands no further out than a municipality the input
+got right. Both flags are [normalize_address()]'s and are returned alongside
+the answer; read `mun_remapped` directly when what you need is *whether* the
+place was chosen for you rather than how far the error might be, because the
+risk it carries lives in a tail no distance at the 90th percentile describes.
 }
 
 \section{How many matched}{

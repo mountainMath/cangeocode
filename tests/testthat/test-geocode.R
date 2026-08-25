@@ -24,6 +24,50 @@ test_that("an address with only a blockface point says so, and prices it", {
   expect_equal(g$uncertainty_m, nar_blockface_uncertainty_m())
 })
 
+test_that("a remapped municipality lifts uncertainty_m by what attested it", {
+  # The floor is applied to the parse, not to a tier, so it is tested that way:
+  # 0 is the value an exact building match reports, 176 a blockface, NA an
+  # unplaced row -- and only the first is wrong on a row whose municipality the
+  # gazetteer chose *and could not attest*. A bigger uncertainty is never talked
+  # down, and an unplaced row stays unplaced rather than acquiring a precision it
+  # has no point for.
+  floors <- nar_remap_uncertainty_m()
+  out <- data.frame(uncertainty_m = c(0, 176, NA, 0, 0, 0))
+  res <- data.frame(
+    mun_remapped = c(TRUE, TRUE, TRUE, FALSE, TRUE, TRUE),
+    mun_evidence = c("unattested", "untestable", "unattested", "kept",
+                     "copostal", "csd"))
+
+  # The last two are the point of the split: a swap a postal code or a census
+  # subdivision vouches for measures no worse than a municipality the input got
+  # right, so it is left at the 0 m its tier reported.
+  expect_equal(nar_geocode_remap_floor(out, res)$uncertainty_m,
+               c(unname(floors[["unattested"]]), 176, NA, 0, 0, 0))
+
+  # A `res` carrying the flag but not the evidence -- a frame from an older
+  # parse -- is priced as unattested rather than waved through.
+  bare <- data.frame(mun_remapped = c(TRUE, TRUE, TRUE, FALSE, TRUE, TRUE))
+  expect_equal(nar_geocode_remap_floor(out, bare)$uncertainty_m,
+               c(rep(unname(floors[["unattested"]]), 1), 176, NA, 0,
+                 rep(unname(floors[["unattested"]]), 2)))
+
+  # A `res` that never carried either column -- a caller passing their own
+  # parsed frame -- reads as "nothing was remapped" rather than erroring.
+  expect_equal(nar_geocode_remap_floor(out, data.frame(x = 1:6))$uncertainty_m,
+               out$uncertainty_m)
+})
+
+test_that("a municipality the caller asserted is never reported as remapped", {
+  skip_if_no_duckdb_spatial()
+  con <- local_nar_connection(run = TRUE)
+
+  # `mun` is a constraint on the search, not a reading of the string, so there
+  # is nothing for the gazetteer to have substituted and nothing to price.
+  g <- geocode("4001 King Edward Ave W", mun = "Vancouver", prov = "BC", con = con)
+  expect_false(g$mun_remapped)
+  expect_equal(g$uncertainty_m, 0)
+})
+
 test_that("a civic number NAR lacks is interpolated between its flanks", {
   skip_if_no_duckdb_spatial()
   con <- local_nar_connection(run = TRUE)

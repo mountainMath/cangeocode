@@ -14,6 +14,64 @@
 #' @keywords internal
 nar_blockface_uncertainty_m <- function() 176
 
+#' The positional error a remapped municipality carries, by what attests it
+#'
+#' @description When [normalize_address()] hands back a municipality that is not
+#' the one the string named, the place that was searched was chosen by the
+#' gazetteer rather than asserted by the input. `mun_remapped` says that
+#' happened; `mun_evidence` says on what grounds, and the two populations it
+#' separates are far enough apart that one floor cannot serve both.
+#'
+#' Measured against Nova Scotia's PVSC assessment points -- the one reference
+#' established to be independent of NAR -- over the 32,512 exact unambiguous
+#' building matches in a 40,000-address sample:
+#'
+#' | `mun_evidence` | n | p50 | p90 | >5 km | floor |
+#' | --- | ---: | ---: | ---: | ---: | ---: |
+#' | `kept` | 30,045 | 10.2 | 56.9 | 0.05% | 0 |
+#' | `copostal` | 1,632 | 7.5 | 50.6 | 0.80% | 0 |
+#' | `csd` | 91 | 14.5 | 87.2 | 0.00% | 0 |
+#' | `unattested` | 560 | 12.9 | 83.3 | 1.79% | 118 |
+#' | `untestable` | 184 | 32.0 | 327.5 | 1.63% | 118 |
+#'
+#' **The attested classes get no floor, because there is no spread to report.**
+#' Pooled, `copostal` and `csd` sit at p90 52.6 m over 1,723 rows -- *below* the
+#' 56.9 m of the rows whose municipality survived the parse. A remap the register
+#' itself vouches for, whether by two names sharing a postal code or by one name
+#' being the other's census subdivision, is positionally indistinguishable from
+#' no remap at all. Reporting metres against it would be inventing them.
+#'
+#' **The unattested and untestable classes pool at p90 118.2 m over 744 rows**,
+#' and that is the constant. `untestable` is the wider of the two and is *not*
+#' fined by [nar_gazetteer_sql()] -- refusing it costs 119 exact matches for 2
+#' errors past 5 km -- so the floor is the whole of what is done about it.
+#'
+#' `inferred` -- the string named no municipality and the gazetteer supplied one
+#' -- takes the same floor **unmeasured**. PVSC always carries a city, so the
+#' Nova Scotia corpus contains none of these rows and cannot price them. Grouping
+#' it with the unattested is the conservative reading, not a measured one.
+#'
+#' Two things about all of these matter more than their size.
+#'
+#' They are *disagreements*, not error budgets: each contains NAR's own distance
+#' from PVSC, which the `kept` row shows to be almost all of it.
+#'
+#' And none of them describes the tail, which is where the remap risk actually
+#' lives. An unattested remap lands more than 5 km out 1.79% of the time and an
+#' untestable one 1.63%, against 0.05% for a kept row -- thirty times the rate,
+#' at a distance no 90th percentile of any of these populations reports. A caller
+#' who cannot tolerate a kilometre-scale error should filter on `mun_evidence`
+#' itself. These floors exist so that `uncertainty_m` stops reporting 0 m on the
+#' populations where 0 is least true, not so that they can be read as bounds.
+#'
+#' See `inst/notes/nova-scotia-pvsc.md`.
+#' @return A named numeric vector of metres, indexed by `mun_evidence`
+#' @keywords internal
+nar_remap_uncertainty_m <- function() {
+  c(kept = 0, copostal = 0, csd = 0,
+    unattested = 118, untestable = 118, inferred = 118)
+}
+
 #' Geocode Canadian addresses to coordinates
 #'
 #' @description Parses each address with [normalize_address()] and resolves the
@@ -184,6 +242,32 @@ nar_blockface_uncertainty_m <- function() 176
 #' did not pin to a municipality -- and `uncertainty_m` is then widened to the
 #' distance from the point returned to the furthest rejected candidate.
 #'
+#' **`n_matches == 1` is not the safety guarantee it looks like**, and this is
+#' where the remaining widening comes from. One candidate means one was found,
+#' not that the right one was among those searched -- and when the gazetteer
+#' substituted the municipality, the uniqueness was manufactured by the same
+#' step that chose the place, because the street was searched for only in the
+#' municipality the gazetteer had already decided on. In Nova Scotia, measured
+#' against PVSC's independent points, one exact unambiguous match in 180 was
+#' more than a kilometre wrong and 85% of everything past 5 km was a remap.
+#'
+#' Two things answer that, and neither of them is `n_matches`. The gazetteer
+#' fines a municipality swap nothing attests -- the attestations being co-postal
+#' partners read out of NAR itself and the census subdivision the street already
+#' sits in -- which more than halves the errors past 5 km in that same 40,000-row
+#' Nova Scotia sample, 98 to 42, and takes the kilometre rate from one exact
+#' unambiguous match in 192 to one in 286, at a cost of 373 exact matches; see
+#' [nar_gazetteer_sql()]. And what survives is *reported*: `uncertainty_m` is
+#' floored per [nar_remap_uncertainty_m()] according to `mun_evidence`, which
+#' records *how* the substitution was attested, so an unattested remap no longer
+#' claims the 0 m an exact civic match would otherwise imply -- while a remap a
+#' postal code or a census subdivision vouches for is left alone, because
+#' measured against PVSC it lands no further out than a municipality the input
+#' got right. Both flags are [normalize_address()]'s and are returned alongside
+#' the answer; read `mun_remapped` directly when what you need is *whether* the
+#' place was chosen for you rather than how far the error might be, because the
+#' risk it carries lives in a tail no distance at the 90th percentile describes.
+#'
 #' @section How many matched: `n_matches` and `n_records` count two different
 #' things and the gap between them is the point of having both.
 #'
@@ -285,7 +369,11 @@ nar_blockface_uncertainty_m <- function() 176
 #' @param con An open NAR connection to reuse. The caller keeps ownership: a
 #' connection passed in here is left open, while one opened internally is closed
 #' again before returning.
-#' @param ... Passed to the online tiers named in `method`. `rate` is
+#' @param ... Passed to the online tiers named in `method`, and to the parse.
+#' Gazetteer arguments -- [nar_resolve_gazetteer()]'s, `mun_swap_penalty` among
+#' them -- are forwarded to [normalize_address()] when `x` is a character
+#' vector, and ignored when it is a data frame someone else has already parsed.
+#' `rate` is
 #' understood by all of them; `api_key` is [bc_geocode()]'s, as is anything
 #' else it does not recognize, which it forwards to its own service as a query
 #' parameter. [nrcan_geocode()] and [qc_geocode()] are each given only the
@@ -295,7 +383,9 @@ nar_blockface_uncertainty_m <- function() 176
 #' things to them -- see [qc_geocode()] on why its score is not a ranking.
 #' Unused when `method` names no online tier.
 #' @return A data frame with one row per input, carrying every column
-#' [normalize_address()] returns plus `ADDR_GUID`, `match_method`,
+#' [normalize_address()] returns -- `mun_remapped` and `mun_evidence` among them
+#' -- plus
+#' `ADDR_GUID`, `match_method`,
 #' `uncertainty_m`, `n_matches`, `n_records`, `match_postal_code`, and either
 #' `lon`/`lat` or an `sf` geometry column. `POSTAL_CODE` is the *parsed input* -- what the
 #' address string itself said, or `NA` when it said nothing --  while
@@ -331,7 +421,8 @@ geocode <- function(x, prov = NULL, mun = NULL, within = NULL,
                     method = c("nar", "nar_interpolate"), geometry = FALSE,
                     crs = 4326, version = "latest", con = NULL, ...) {
   method <- nar_geocode_methods(method)
-  q <- nar_geocode_setup(x, prov, mun, within, method, crs, version, con)
+  q <- nar_geocode_setup(x, prov, mun, within, method, crs, version, con,
+                         dots = list(...))
 
   hits <- nar_geocode_match(q$res, q$con, method = method,
                             bounds = nar_geocode_bounds_sql(q$bounds),
@@ -449,7 +540,8 @@ geocode_matches <- function(x, prov = NULL, mun = NULL, within = NULL,
 #' @param version,con Which database to use
 #' @return A list of `con`, the parsed `res`, and `bounds` as an `sfc` or `NULL`
 #' @keywords internal
-nar_geocode_setup <- function(x, prov, mun, within, method, crs, version, con) {
+nar_geocode_setup <- function(x, prov, mun, within, method, crs, version, con,
+                              dots = list()) {
   # Not closed on the way out: an unsupplied `con` resolves to the session's
   # connection, which the next call reuses. close_nar() is what ends it.
   if (is.null(con)) con <- nar_session_use(version)
@@ -477,7 +569,8 @@ nar_geocode_setup <- function(x, prov, mun, within, method, crs, version, con) {
     }
     x
   } else {
-    normalize_address(x, prov = prov, con = con)
+    do.call(normalize_address,
+            c(list(x, prov = prov, con = con), nar_gazetteer_dots(dots)))
   }
 
   # Authoritative, so the override lands on `res` rather than only on the probe:
@@ -487,7 +580,14 @@ nar_geocode_setup <- function(x, prov, mun, within, method, crs, version, con) {
   # additionally disambiguates the parse -- ROUTE is New Brunswick's typeless
   # numbered road and Quebec's street type, and only the province separates them.
   if (!is.null(prov)) res$PROV_ABVN <- nar_recycle(prov, nrow(res), "prov")
-  if (!is.null(mun))  res$MUN_NAME  <- nar_recycle(mun,  nrow(res), "mun")
+  if (!is.null(mun)) {
+    res$MUN_NAME <- nar_recycle(mun, nrow(res), "mun")
+    # The caller asserted it, so there is nothing for the gazetteer to have
+    # substituted -- and the probe constrains on MUN_KEY rather than on the
+    # mailing name, which is the narrower search the flag exists to warn about.
+    res$mun_remapped <- FALSE
+    res$mun_evidence <- "kept"
+  }
 
   list(con = con, res = res, bounds = nar_geocode_bounds_geom(within, crs, con))
 }
@@ -612,7 +712,49 @@ nar_geocode_match <- function(res, con, method = c("nar", "nar_interpolate"),
                                        bounds = bounds_geom),
                                   nar_qc_dots(dots))))
   }
+  out <- nar_geocode_remap_floor(out, res)
   nar_geocode_mark_uncovered(out, res, con)
+}
+
+#' Widen uncertainty where the municipality searched was not the one written
+#'
+#' @description Applied once, after every tier, rather than inside the tiers:
+#' each of them resolves against the same parse, and it is the parse's
+#' municipality that is in question. A tier that never consulted it is not
+#' thereby safe -- the online ones are handed the formatted address, remapped
+#' municipality included.
+#'
+#' It is a floor and not a replacement, so a blockface point, an ambiguous
+#' candidate set or a long interpolation span keeps its own larger number.
+#' Rows that were not placed keep `NA`: there is no position for an uncertainty
+#' to be about.
+#'
+#' A `res` from an older parse, or a data frame the caller assembled, carries no
+#' `mun_remapped` column. That is read as "not remapped" rather than as an
+#' error, which keeps every existing caller working -- and is why the flag is
+#' set by [normalize_address()] rather than recomputed here, where the string
+#' that was written is no longer available to compare against.
+#' @param out The result so far
+#' @param res Parsed components
+#' @return `out`, with `uncertainty_m` floored on the remapped rows
+#' @keywords internal
+nar_geocode_remap_floor <- function(out, res) {
+  remapped <- res$mun_remapped
+  if (is.null(remapped)) return(out)
+  floors <- nar_remap_uncertainty_m()
+  # An older parse carries mun_remapped but not mun_evidence. It is known to be
+  # remapped and not known to be attested, so it takes the unattested floor --
+  # the reading that does not credit a row with evidence it never produced.
+  f <- if (is.null(res$mun_evidence)) rep(unname(floors[["unattested"]]),
+                                          length(remapped))
+       else unname(floors[match(res$mun_evidence, names(floors))])
+  # An evidence value this version does not know contributes no floor rather
+  # than the largest one: the same forward-compatibility the NULL branch has.
+  f[is.na(f)] <- 0
+  i <- which(!is.na(remapped) & remapped & !is.na(out$uncertainty_m) & f > 0)
+  if (!length(i)) return(out)
+  out$uncertainty_m[i] <- pmax(out$uncertainty_m[i], f[i])
+  out
 }
 
 #' Separate "not in the gazetteer" from "not in this database"
@@ -1171,6 +1313,31 @@ nar_geocode_interp_sql <- function(probe, bounds = "") {
          AND a.CIVIC_NO IS NOT NULL
          AND (a.CIVIC_NO % 2) = (p.civic % 2)",
       bounds))
+}
+
+#' Pick the gazetteer's tuning arguments out of `geocode()`'s dots
+#'
+#' @description [geocode()] normalizes the string before it geocodes it, so the
+#' gazetteer's own arguments have to reach [normalize_address()] or they are
+#' accepted and silently dropped -- which is what happened until this existed,
+#' and it made `mun_swap_penalty` look inert from `geocode()` while working
+#' perfectly when the same penalty was applied by calling [normalize_address()]
+#' first and passing the frame. A measurement taken the first way and a
+#' measurement taken the second way then disagree for no visible reason.
+#'
+#' Only forwarded when `x` is a character vector. A data frame has already been
+#' parsed by whoever made it, and re-applying a parse argument to it would be
+#' claiming an influence over a decision that was taken elsewhere.
+#'
+#' Derived from the formals of [nar_resolve_gazetteer()] rather than listed, so
+#' the two cannot drift apart. `res` and `con` are supplied here.
+#' @param dots `list(...)` as [geocode()] captured it
+#' @return The subset of `dots` to forward to [normalize_address()]
+#' @keywords internal
+nar_gazetteer_dots <- function(dots) {
+  if (!length(dots) || is.null(names(dots))) return(list())
+  dots[intersect(names(dots),
+                 setdiff(names(formals(nar_resolve_gazetteer)), c("res", "con")))]
 }
 
 #' Pick the `...` arguments the geolocator tier understands

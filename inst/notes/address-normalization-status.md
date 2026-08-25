@@ -531,6 +531,52 @@ point is worth keeping: a repair rule that a gazetteer match already covers is a
 rule's clothes, since without the gazetteer nothing confirms `9YH` was meant to be `9TH` rather
 than a real suffix.
 
+### A municipality swap is fined unless something in NAR attests it
+
+The gazetteer's fuzzy branch restricts candidates to a municipality, but it does so through
+`MunAlias`, which keys on the **census subdivision**. In a regional municipality that is a very
+wide door: `MILFORD, NS` admits 166 communities spread over 127 km, all of them filed under
+Halifax Regional Municipality. Within a set that wide a near-miss on the street name can beat the
+right answer — `12 WILDWOOD DR, MILFORD` scored `Windwood DR, MIDDLE SACKVILLE` at 0.952 over
+`Wildwood AVE, HALIFAX` at 0.900, because agreeing on the type is worth 0.10 and one transposed
+letter costs 0.072. The parse looks clean and the street is real; it is simply somewhere else.
+
+The correction is two signals read out of NAR rather than assumed. **Two mailing municipality names
+that appear on the same full six-character postal code** are two labels for one delivery geography;
+`nar_mun_copostal()` builds the directed pairs — 32,216 of them, in 0.2 s. The FSA is not enough —
+in rural Nova Scotia one FSA covers most of the errors this exists to catch. And **the census
+subdivision the street already sits in** catches what a postal code never can: an amalgamation did
+not merge the delivery names, so `Bathurst St, Toronto` reaching a street NAR still mails to
+`NORTH YORK` has no shared postal code and never will. `Streets.CSD_ENG_NAME` carries that
+relationship directly. Neither signal is a curated alias list, in either direction.
+
+`nar_gazetteer_sql()` multiplies the score by `mun_swap_penalty` (0.88) when the resolved
+municipality differs from the one written, unless one of those two arms attests it, or the written
+name is one NAR has never seen on any postal-coded row (in which case there was nothing to test).
+The same `CASE` is emitted as `mun_evidence`, so which arm answered is an output column and not
+just an internal decision.
+
+Measured against PVSC's independent Nova Scotia points (see
+[`nova-scotia-pvsc.md`](nova-scotia-pvsc.md)), the signals separate the classes by about two
+orders of magnitude before any penalty is applied: attested swaps sit at p95 121 m and 0.62%
+beyond 5 km; unattested swaps at p95 12.5 km and 6.83%. The penalty at 0.88 then takes exact
+unambiguous building matches from p95 127.6 m to 122.2 m and errors past 5 km from 98 to 42, for
+373 lost matches out of 32,886. 0.88 is the knee: 0.90 → 0.88 buys 27 gross errors for 305 matches,
+0.88 → 0.86 buys 1 for 59, and 0.86 → 0.85 buys 9 for 496. Refusing the whole unattested class
+costs 928 matches, 85% of which were within 100 m of PVSC's point. That last figure is the reason
+the swap is fined and not forbidden.
+
+**The swap is scored against the baseline reading, not the reading being scored.** The parser emits
+several candidates per string, and an alternative reading may re-segment the trailing run into a
+shorter municipality — `HOWIE CENTRE` read as `CENTRE`, itself a Nova Scotia municipality sharing a
+postal code with `LUNENBURG`. Scoring the swap against that lets a truncation manufacture its own
+attestation. This was live long enough to be measured wrong; it laundered 184 rows into an attested
+class, and fixing it bought 60 exact matches at the cost of one gross error.
+
+`normalize_address()` now returns `mun_remapped` and `mun_evidence`, so the class is visible rather
+than merely smaller; the residual is bimodal and a `confidence` number cannot express that. The RQA
+pass is deliberately left unpenalised — see [`normalization.md`](../../.claude/normalization.md).
+
 ## Measured and deliberately not done
 
 Recording these so they are not re-litigated:
@@ -538,7 +584,10 @@ Recording these so they are not re-litigated:
 - **Joining on `CSD_ENG_NAME` as well as `MAIL_MUN_NAME` buys 0.2 points.** The amalgamation story
   is real — NAR files `1123 Leslie St` under `NORTH YORK` while the filer writes `Toronto` — but
   `MunAlias` already absorbs nearly all of it. Measured on Part B's sample: municipality agreement
-  85.6%, adding CSD name 85.9%.
+  85.6%, adding CSD name 85.9%. **Still true as a join, and reversed as an attestation**: the swap
+  penalty introduced a question the join never asked — not *can this street be found* but *may this
+  substitution stand unfined* — and there `CSD_ENG_NAME` is the only arm that can speak for an
+  amalgamation, because the merger did not merge the postal codes.
 - **Relaxing the municipality to an FSA match buys 2.5 points** (85.6% → 88.1%), but an FSA is a
   much weaker claim than a municipality and would inflate the metric rather than the accuracy.
   Useful as a diagnostic, not as a join.

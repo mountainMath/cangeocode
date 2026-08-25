@@ -279,6 +279,94 @@ test_that("an ambiguous municipality is left absent rather than guessed at", {
   expect_equal(one$PROV_ABVN, "NL")
 })
 
+test_that("a municipality swap is penalised unless a postal code attests it", {
+  skip_if_no_duckdb_spatial()
+  con <- local_mini_gazetteer()
+
+  # MILFORD carries no street of its own here, so both candidates change the
+  # municipality. On the evidence alone Windwood wins -- one keystroke from what
+  # was written, but the street type agrees, and 0.10 for the type buys more
+  # than the edit costs. That is the defect: a swap to a place 60 km away,
+  # reported at a higher confidence than the street actually written.
+  off <- nar_resolve_gazetteer(nar_parse_rules("12 Wildwood Dr, Milford NS"),
+                               con, mun_swap_penalty = 1)
+  expect_equal(off$STREET_NAME, "Windwood")
+  expect_equal(off$MUN_NAME, "MIDDLE SACKVILLE")
+
+  # With the penalty on, MIDDLE SACKVILLE shares no postal code with MILFORD, so
+  # Windwood is fined and drops under the threshold; HALIFAX does share one, so
+  # Wildwood is not, and the lower-scoring but correctly-named street wins. The
+  # penalty reorders here rather than merely refusing, which is the point of it.
+  on <- nar_resolve_gazetteer(nar_parse_rules("12 Wildwood Dr, Milford NS"), con)
+  expect_equal(on$STREET_NAME, "Wildwood")
+  expect_equal(on$MUN_NAME, "HALIFAX")
+
+  # Either way the answer is not the municipality that was written, and says so
+  # -- and `mun_evidence` records *why* each was allowed to stand. HALIFAX is
+  # reached because it shares a postal code with MILFORD; MIDDLE SACKVILLE
+  # shares none, which is exactly what the penalty priced.
+  expect_true(off$mun_remapped)
+  expect_true(on$mun_remapped)
+  expect_equal(on$mun_evidence, "copostal")
+  expect_equal(off$mun_evidence, "unattested")
+})
+
+test_that("mun_remapped is FALSE when the municipality survives and NA without one", {
+  skip_if_no_duckdb_spatial()
+  con <- local_mini_gazetteer()
+
+  kept <- nar_resolve_gazetteer(nar_parse_rules("207 Doyle St, St. John's NL"), con)
+  expect_equal(kept$MUN_NAME, "ST. JOHN'S")
+  expect_false(kept$mun_remapped)
+  expect_equal(kept$mun_evidence, "kept")
+
+  # The rules parse never substitutes anything, so a string with no
+  # municipality has nothing to report either way.
+  none <- nar_parse_rules("207 Doyle Street")
+  expect_true(is.na(none$mun_remapped))
+  expect_true(is.na(none$mun_evidence))
+
+  # The exact branch may still determine one the string never named, and that
+  # counts as remapped: the caller did not choose the place that was searched.
+  # There was no municipality to attest it against, so it is `inferred` -- the
+  # one unverified class that is not a swap.
+  det <- nar_resolve_gazetteer(nar_parse_rules("207 Kenmount Road"), con)
+  expect_equal(det$MUN_NAME, "MOUNT PEARL")
+  expect_true(det$mun_remapped)
+  expect_equal(det$mun_evidence, "inferred")
+})
+
+test_that("an amalgamated municipality is attested by the census subdivision", {
+  skip_if_no_duckdb_spatial()
+  con <- local_mini_gazetteer()
+
+  # NAR still mails Bathurst St to NORTH YORK; the input says TORONTO. That is a
+  # swap, and the two share no postal code -- but the census subdivision the
+  # street sits in *is* Toronto, which is the amalgamation showing through NAR's
+  # own columns. The swap stands unfined and is reported as attested, so the
+  # geocoder floors nothing on it.
+  g <- nar_resolve_gazetteer(nar_parse_rules("100 Bathurst St, Toronto ON"), con)
+  expect_equal(g$MUN_NAME, "NORTH YORK")
+  expect_true(g$mun_remapped)
+  expect_equal(g$mun_evidence, "csd")
+  expect_equal(unname(nar_remap_uncertainty_m()[["csd"]]), 0)
+})
+
+test_that("the co-postal tables are built once and only from full postal codes", {
+  skip_if_no_duckdb_spatial()
+  con <- local_mini_gazetteer()
+
+  nar_mun_copostal(con)
+  expect_true(all(c("MunMail", "MunCoPostal") %in% DBI::dbListTables(con)))
+  # Directed pairs, so the attested MILFORD/HALIFAX pair appears both ways round
+  # and the MIDDLE SACKVILLE names appear in neither.
+  pairs <- DBI::dbGetQuery(con, "SELECT MN_A, MN_B FROM MunCoPostal ORDER BY 1, 2")
+  expect_equal(nrow(pairs), 2L)
+  expect_equal(sort(unique(c(pairs$MN_A, pairs$MN_B))), c("HALIFAX", "MILFORD"))
+  # Idempotent: a second call is a no-op rather than an error on the temp table.
+  expect_silent(nar_mun_copostal(con))
+})
+
 test_that("without a locality the match must be exact, not merely close", {
   skip_if_no_duckdb_spatial()
   con <- local_nar_connection(blockface = TRUE)

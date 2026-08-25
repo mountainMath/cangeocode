@@ -14,7 +14,9 @@ when the string does not name one. Canonicalization is language-conditioned,
 so this materially changes the result: `"avenue"` normalizes to `AVE` in
 Ontario and `AV` in Quebec.}
 
-\item{...}{Additional arguments (currently unused)}
+\item{...}{Passed to the gazetteer layer when `con` is supplied, and ignored
+otherwise -- `threshold`, `name_threshold` and `mun_swap_penalty`; see
+[nar_resolve_gazetteer()].}
 }
 \value{
 A factor, one element per element of `x`, with these levels in this

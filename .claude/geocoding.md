@@ -41,6 +41,11 @@ last leaves interpolated rows with no `ADDR_GUID`.
 | `not_covered` | parsed to a province this (partial) database does not hold | `NA` |
 | `none` | not found | `NA` |
 
+| floor | applies to | `uncertainty_m` |
+| --- | --- | --- |
+| remapped municipality, **attested** (`copostal`, `csd`) | any tier | none |
+| remapped municipality, **unattested** (`unattested`, `untestable`, `inferred`) | any tier | at least 118 |
+
 `uncertainty_m` is defined as the **90th-percentile error this package adds relative to
 NAR's own building point**, and deliberately says nothing about NAR's own error, which is
 neither published nor consistent — the User Guide admits a building point may be the
@@ -50,6 +55,42 @@ non-zero figures are measured: 176 m is the p90 building→blockface separation 
 the error/span ratio being **scale-invariant** — its p90 is 0.50 in every span bucket from
 under 50 m to over 2 km (0.496–0.522), so half the flanking span is the p90 error whatever
 the scale.
+
+**The floor is keyed on `mun_evidence`, not on `mun_remapped`**, by
+`nar_geocode_remap_floor()` — applied once after every tier, because every tier resolves against
+the same parse, and as a `pmax` so a blockface's 176 is never talked down. An unplaced row keeps
+`NA` rather than acquiring a precision it has no point for; a `res` with no `mun_remapped` column
+— a caller passing their own parsed frame — reads as "not remapped" rather than erroring, and one
+carrying the flag but not the evidence is priced as `unattested` rather than waved through.
+
+**A remap the gazetteer can attest is not floored at all**, and that is the measurement, not a
+concession. Over the 40,000-row Nova Scotia PVSC sample, exact unambiguous building matches:
+
+| `mun_evidence` | n | p50 | p90 | >5 km | floor |
+| --- | --- | --- | --- | --- | --- |
+| `kept` (not remapped) | 30,044 | 10.2 | 56.9 | 0.05% | — |
+| `copostal` | 1,632 | 7.5 | 50.5 | 0.80% | 0 |
+| `csd` | 91 | 14.5 | 87.2 | 0.00% | 0 |
+| `unattested` | 561 | 12.9 | 83.0 | 1.78% | 118 |
+| `untestable` | 184 | 32.0 | 327.5 | 1.63% | 118 |
+| `inferred` | 0 in NS | — | — | — | 118 |
+
+Pooled, the attested classes are **p90 52.3 m over 1,723 rows** — *below* the 56.9 m of rows
+whose municipality was never touched. There is nothing to floor: a swap a full postal code or a
+census subdivision vouches for is as good as no swap, which is exactly the "verified dictionary
+needs no distance penalty" this split was built to test. The unverified classes pool to **117.9 m
+over 745 rows**, which is the 118. `inferred` — the exact branch determining a municipality the
+string never named — is grouped with them on the argument rather than on a measurement, because
+PVSC always carries a city and so cannot produce the class at all.
+
+Those floors are the entries in this table that are **not** a p90 the field's definition can be
+read off, and the reason is that the risk they stand for is bimodal: the unverified classes run
+1.6–1.8% past 5 km against 0.05% for kept. No quantile at 90 describes that, which is why
+`mun_remapped` is returned as a flag and the note says to filter on it rather than on the metres.
+The floor's job is narrower — to stop `uncertainty_m` reporting **0 m** on the population where 0
+is least true. See [`normalization.md`](normalization.md) for the swap penalty that more than
+halved how often the unattested classes fire at all, and
+[`inst/notes/nova-scotia-pvsc.md`](../inst/notes/nova-scotia-pvsc.md) for both measurements.
 
 **Extrapolation is refused rather than flagged.** Past the last known civic on a side there
 is no second point, and continuing the run's spacing scores a 15.1 m median but a 237 m p90
@@ -66,6 +107,15 @@ matching `nrcan_geocode()`'s own formals, minus the five the tier supplies itsel
 those from `formals()` rather than a literal list, so adding an argument to `nrcan_geocode()`
 routes it automatically. That is also why `nrcan_geocode()` deliberately has **no `...` of its
 own**: its formals have to be a closed set for the filter to mean anything.
+
+`...` also has to reach *inward*, and for a while it silently did not. `nar_geocode_setup()` calls
+`normalize_address()` when the input is a character vector, and it called it bare — so
+`geocode(x, mun_swap_penalty = 1)` parsed at the default 0.88 and dropped the argument on the
+floor without a word, while `geocode(normalize_address(x, mun_swap_penalty = 1))` honoured it.
+That is a silent wrong answer, not an error, and it invalidated a whole measurement before it was
+caught. `nar_gazetteer_dots()` is the mirror of `nar_nrcan_dots()` for the parse side: it selects
+the names matching `nar_resolve_gazetteer()`'s formals, minus `res` and `con`, and
+`nar_geocode_setup()` takes `dots = list(...)` so it has something to select from.
 
 `prov`, `mun` and `within` are **authoritative** — they override whatever the address string
 said, and the override lands on the returned row too, so a result never reports a province

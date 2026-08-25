@@ -210,14 +210,54 @@ local_mini_gazetteer <- function(env = parent.frame()) {
       -- out where the input abbreviates it.
       'du Cure-Labelle', 'BOUL', '', 'DU CURE-LABELLE', 'BOUL', '',
       'SAINT-JEROME', 'QC', '24', 'Saint-Jerome', '24:V:Saint-Jerome',
-      'DU CURE-LABELLE', 'DU CURE-LABELLE', 900, 1, 2000")
+      'DU CURE-LABELLE', 'DU CURE-LABELLE', 900, 1, 2000
+    UNION ALL SELECT
+      -- Two streets one census subdivision apart and one keystroke apart, which
+      -- is the shape the municipality swap penalty exists for. Neither is in
+      -- MILFORD, so a string that says MILFORD must choose between two swaps:
+      -- Windwood scores higher on the evidence (one edit, but the type agrees)
+      -- and Wildwood is the one whose municipality shares MILFORD's postal code.
+      'Wildwood', 'AVE', '', 'WILDWOOD', 'AVE', '',
+      'HALIFAX', 'NS', '12', 'Halifax', '12:RGM:Halifax',
+      'WILDWOOD', 'WILDWOOD', 80, 1, 200
+    UNION ALL SELECT
+      'Windwood', 'DR', '', 'WINDWOOD', 'DR', '',
+      'MIDDLE SACKVILLE', 'NS', '12', 'Halifax', '12:RGM:Halifax',
+      'WINDWOOD', 'WINDWOOD', 200, 1, 200
+    UNION ALL SELECT
+      -- An amalgamation: NAR still mails to NORTH YORK, but the census
+      -- subdivision the street sits in is the city that absorbed it. A string
+      -- saying TORONTO is swapped, and the swap is attested by the CSD rather
+      -- than by a postal code -- the two do not share one here, deliberately,
+      -- so nothing but the amalgamation arm can vouch for it.
+      'Bathurst', 'ST', '', 'BATHURST', 'ST', '',
+      'NORTH YORK', 'ON', '35', 'Toronto', '35:C:Toronto',
+      'BATHURST', 'BATHURST', 300, 1, 9000")
   DBI::dbExecute(con, "CREATE TABLE MunAlias AS SELECT
       'ST. JOHN''S' AS NAME_FOLD, 'NL' AS PROV_ABVN,
       '10:CY:St. John''s' AS MUN_KEY, 120 AS N_ADDRESSES
     UNION ALL SELECT 'MOUNT PEARL', 'NL', '10:CY:Mount Pearl', 40
-    UNION ALL SELECT 'SAINT-JEROME', 'QC', '24:V:Saint-Jerome', 900")
+    UNION ALL SELECT 'SAINT-JEROME', 'QC', '24:V:Saint-Jerome', 900
+    UNION ALL SELECT 'MILFORD', 'NS', '12:RGM:Halifax', 30
+    UNION ALL SELECT 'HALIFAX', 'NS', '12:RGM:Halifax', 80
+    UNION ALL SELECT 'MIDDLE SACKVILLE', 'NS', '12:RGM:Halifax', 200
+    UNION ALL SELECT 'TORONTO', 'ON', '35:C:Toronto', 5000
+    UNION ALL SELECT 'NORTH YORK', 'ON', '35:C:Toronto', 300")
   DBI::dbExecute(con, "CREATE TABLE PostalMun AS SELECT
       'A1E' AS FSA, 'ST. JOHN''S' AS MAIL_MUN_NAME, 120 AS N_ADDRESSES")
+  # Only what nar_mun_copostal() reads: which municipality names take mail, and
+  # which of them share a full postal code. MILFORD and HALIFAX do, which
+  # attests the pair; MIDDLE SACKVILLE takes mail of its own and shares none
+  # with MILFORD, which is what leaves that swap unattested.
+  DBI::dbExecute(con, "CREATE TABLE Addresses AS SELECT
+      'B0N1M0' AS MAIL_POSTAL_CODE, 'NS' AS MAIL_PROV_ABVN,
+      'MILFORD' AS MAIL_MUN_NAME
+    UNION ALL SELECT 'B0N1M0', 'NS', 'HALIFAX'
+    UNION ALL SELECT 'B4E1A1', 'NS', 'MIDDLE SACKVILLE'
+    UNION ALL SELECT 'A1E1A1', 'NL', 'ST. JOHN''S'
+    UNION ALL SELECT 'A1N1A1', 'NL', 'MOUNT PEARL'
+    UNION ALL SELECT 'M5S1A1', 'ON', 'TORONTO'
+    UNION ALL SELECT 'M3H1A1', 'ON', 'NORTH YORK'")
   con
 }
 

@@ -4,7 +4,13 @@
 \alias{nar_resolve_gazetteer}
 \title{Resolve parsed address components against the NAR street gazetteer}
 \usage{
-nar_resolve_gazetteer(res, con, threshold = 0.85, name_threshold = 0.9)
+nar_resolve_gazetteer(
+  res,
+  con,
+  threshold = 0.85,
+  name_threshold = 0.9,
+  mun_swap_penalty = 0.88
+)
 }
 \arguments{
 \item{res}{A tibble from [nar_parse_rules()]}
@@ -18,6 +24,12 @@ combined score. Without it the type and direction credit alone carries a
 weak name over the line: `MAIN` against `MAITLAND` scores only 0.88 on the
 name, but a matching type and an absent direction would still clear a
 combined 0.85 and silently substitute the wrong street.}
+
+\item{mun_swap_penalty}{Score multiplier applied to a NAR candidate whose
+municipality is not the one the string named and is not an attested alias of
+it -- see the penalty section of [nar_gazetteer_sql()]. Not applied to the
+RQA pass, which files under census subdivisions rather than postal cities
+and so changes the municipality by design.}
 }
 \value{
 `res` with matched rows replaced by their canonical values,

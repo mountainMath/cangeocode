@@ -65,11 +65,17 @@ nar_has_streets <- function(con) {
 #' weak name over the line: `MAIN` against `MAITLAND` scores only 0.88 on the
 #' name, but a matching type and an absent direction would still clear a
 #' combined 0.85 and silently substitute the wrong street.
+#' @param mun_swap_penalty Score multiplier applied to a NAR candidate whose
+#' municipality is not the one the string named and is not an attested alias of
+#' it -- see the penalty section of [nar_gazetteer_sql()]. Not applied to the
+#' RQA pass, which files under census subdivisions rather than postal cities
+#' and so changes the municipality by design.
 #' @return `res` with matched rows replaced by their canonical values,
 #' `confidence` set to the match score and `parse_source` set to `"gazetteer"`
 #' or `"rqa"` according to which register answered
 #' @keywords internal
-nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0.90) {
+nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0.90,
+                                  mun_swap_penalty = 0.88) {
   if (!nar_has_streets(con)) {
     warning("This NAR database predates the street gazetteer (schema version 4); ",
             "returning rules-only results. Rebuild with ",
@@ -95,9 +101,12 @@ nar_resolve_gazetteer <- function(res, con, threshold = 0.85, name_threshold = 0
 
   res <- nar_gazetteer_pass(res, cand, con,
                             eligible = !is.na(cand$STREET_NAME),
-                            sql_fn = nar_gazetteer_sql, source = "gazetteer",
+                            sql_fn = function(probe, name_threshold)
+                              nar_gazetteer_sql(probe, name_threshold,
+                                                mun_swap_penalty),
+                            source = "gazetteer",
                             threshold = threshold, name_threshold = name_threshold,
-                            prepare = nar_street_fold)
+                            prepare = nar_gazetteer_prepare)
 
   # Quebec's own register, second and only over what NAR left. Priority is
   # running order, exactly as in geocode(): no row NAR resolved can be
@@ -143,12 +152,26 @@ nar_gazetteer_pass <- function(res, cand, con, eligible, sql_fn, source,
   todo <- cand[eligible, , drop = FALSE]
   if (!nrow(todo)) return(res)
 
+  # The municipality the *string* yielded, which is not the same as the one the
+  # reading being scored yielded. An alternative reading may re-segment the
+  # trailing run and hand back a shorter name -- `HOWIE CENTRE` read as
+  # `CENTRE`, which is itself a Nova Scotia municipality. Scoring the swap
+  # against that would let a truncation manufacture its own attestation: NAR
+  # files no mail to `HOWIE CENTRE`, but `CENTRE` shares a postal code with
+  # `LUNENBURG`, so the reading that broke the name would be the one credited
+  # with matching it. The baseline reading is the anchor -- it is the one that
+  # took the string's own delimiters at face value.
+  base <- cand[order(cand$.row, cand$.cand), , drop = FALSE]
+  base <- base[!duplicated(base$.row), , drop = FALSE]
+  mun_input <- base$MUN_NAME[match(todo$.row, base$.row)]
+
   probe <- data.frame(
     row_id    = todo$.probe,
     name_fold = nar_fold(todo$STREET_NAME),
     match_fold = nar_match_fold(todo$STREET_NAME),
     mun_fold  = nar_fold(ifelse(is.na(todo$MUN_NAME), "", todo$MUN_NAME)),
     mun_match = nar_match_fold(ifelse(is.na(todo$MUN_NAME), "", todo$MUN_NAME)),
+    mun_input = nar_match_fold(ifelse(is.na(mun_input), "", mun_input)),
     prov      = ifelse(is.na(todo$PROV_ABVN), "", todo$PROV_ABVN),
     fsa       = ifelse(is.na(todo$POSTAL_CODE), "", substr(todo$POSTAL_CODE, 1, 3)),
     civic     = todo$CIVIC_NO,
@@ -200,6 +223,14 @@ nar_gazetteer_pass <- function(res, cand, con, eligible, sql_fn, source,
                                 best$MAIL_PROV_ABVN)
   res$confidence[i]   <- round(best$score, 3)
   res$parse_source[i] <- source
+  # TRUE only where the gazetteer actually wrote a municipality *and* it is not
+  # the one the string named. Where MAIL_MUN_NAME came back NA the line above
+  # kept the parse's own value, which is the input's and so was not remapped.
+  res$mun_remapped[i] <- !is.na(best$MAIL_MUN_NAME) & !best$mun_kept
+  # Same gate as mun_remapped, for the same reason: where the branch returned no
+  # municipality the row kept the parse's own, and there is nothing to classify.
+  res$mun_evidence[i] <- ifelse(is.na(best$MAIL_MUN_NAME), NA_character_,
+                                best$mun_evidence)
   res
 }
 
@@ -308,6 +339,72 @@ nar_street_fold <- function(con) {
   invisible(TRUE)
 }
 
+#' The municipality co-occurrence tables the swap penalty is scored against
+#'
+#' @description Two TEMP tables, built once per connection like [nar_street_fold()]
+#' and for the same reason -- they are derived from `Addresses` and would
+#' otherwise be recomputed on every call.
+#'
+#' * **`MunMail`** -- every name NAR files postal-coded mail under, folded. It is
+#'   what separates "this name was swapped for another" from "this name is not a
+#'   mailing municipality at all", which is the ordinary case of a jurisdiction
+#'   name being resolved to the mailing city NAR files under. Only the first is
+#'   penalised; the second is what `MunAlias` exists to do. Read off the same
+#'   rows as `MunCoPostal` on purpose: a name that could never have appeared in
+#'   the pair table must not be scored as a name that could have and did not.
+#' * **`MunCoPostal`** -- pairs of mailing municipalities that share at least one
+#'   **full** postal code. This is the alias evidence, and it is read off Canada
+#'   Post's own delivery geography rather than guessed: two names that receive
+#'   mail at the same postal code are two names for the same place, whatever the
+#'   census thinks. `HOWIE CENTER` and `SYDNEY` share three, which is exactly the
+#'   rural-community-to-mailing-city remap the gazetteer exists to perform.
+#'   `MILFORD` and `MIDDLE SACKVILLE` share none, and that is the swap that puts
+#'   an address 60 km away.
+#'
+#' The full postal code and not the FSA. An FSA is a forward sortation area and
+#' in rural Nova Scotia one of them covers most of a county, so `PostalMun` --
+#' which is FSA-keyed and already present -- would attest nearly every pair in
+#' the province and the penalty would never fire.
+#'
+#' 32,216 directed pairs nationally, 0.2 s to build. 95% of them rest on a single
+#' shared postal code, which is why the default `min_pc` is 1: raising it to 2
+#' discards 30,694 of the 32,216 and turns a permissive check into a strict one.
+#' @param con A NAR connection
+#' @param min_pc Shared full postal codes required to attest a pair
+#' @return Invisibly `TRUE` when the tables are present
+#' @keywords internal
+nar_mun_copostal <- function(con, min_pc = 1) {
+  have <- DBI::dbListTables(con)
+  if (all(c("MunMail", "MunCoPostal") %in% have)) return(invisible(TRUE))
+  fold <- nar_match_fold_sql("strip_accents(upper(MAIL_MUN_NAME))")
+  DBI::dbExecute(con, paste0(
+    "CREATE TEMP TABLE MunPostalFold AS
+       SELECT DISTINCT MAIL_POSTAL_CODE AS PC, MAIL_PROV_ABVN AS PR, ", fold, " AS MN
+         FROM Addresses
+        WHERE length(MAIL_POSTAL_CODE) = 6 AND MAIL_MUN_NAME <> ''"))
+  DBI::dbExecute(con,
+    "CREATE TEMP TABLE MunMail AS SELECT DISTINCT PR, MN FROM MunPostalFold")
+  # Directed, so the join in the scoring query needs no OR: the written name is
+  # always MN_A and the candidate street's always MN_B.
+  DBI::dbExecute(con, paste0(
+    "CREATE TEMP TABLE MunCoPostal AS
+       SELECT a.PR, a.MN AS MN_A, b.MN AS MN_B, count(*) AS N_PC
+         FROM MunPostalFold a JOIN MunPostalFold b USING (PC, PR)
+        WHERE a.MN <> b.MN
+        GROUP BY 1, 2, 3 HAVING count(*) >= ", as.integer(min_pc)))
+  DBI::dbExecute(con, "DROP TABLE MunPostalFold")
+  invisible(TRUE)
+}
+
+#' Everything the NAR gazetteer pass needs in place before it runs
+#' @param con A NAR connection
+#' @return Invisibly `TRUE`
+#' @keywords internal
+nar_gazetteer_prepare <- function(con) {
+  nar_street_fold(con)
+  nar_mun_copostal(con)
+}
+
 #' Empty strings back to NA
 #'
 #' @description NAR stores an absent street type or direction as `''` rather
@@ -333,11 +430,65 @@ nar_blank_to_na <- function(x) ifelse(is.na(x) | !nzchar(x), NA_character_, x)
 #'   scored the same way but discounted for the absent locality, and answering
 #'   only with what every candidate of that name agrees on.
 #'
+#' @section The penalty for changing the municipality: The fuzzy branch widens
+#' the candidate set from the municipality that was written to every
+#' municipality sharing its census subdivision, which is how a misspelt street
+#' in a small community is found at all. But the widening is coarse -- `MILFORD,
+#' NS` reaches 166 communities over 127 km through Halifax Regional Municipality
+#' alone -- and inside that set a street in the *wrong* community can outscore
+#' the right one on a single edit, because agreement on the street type (0.10)
+#' buys more than one Damerau-Levenshtein step costs (0.072 at the gate).
+#'
+#' So a candidate whose mailing municipality is not the one the string named has
+#' its whole score multiplied by `mun_swap_penalty` -- unless the two names are
+#' *attested aliases*, meaning they share a full postal code somewhere in NAR
+#' (see [nar_mun_copostal()]). The penalty is multiplicative rather than a
+#' subtraction so that it scales with how good the match otherwise was, and it
+#' reorders as well as refuses: an unattested swap now loses to a lower-scoring
+#' candidate in the municipality that was actually written.
+#'
+#' Two cases are exempt and both matter. A string that named no municipality at
+#' all has nothing to have swapped -- its locality came from the postal code.
+#' And a name NAR files no mail under (`p.mun_testable` false) cannot be checked
+#' for attestation either way, so penalising it would fine the string for being
+#' unusual rather than for being wrong.
+#'
+#' **Why 0.88.** With the 0.85 acceptance threshold it means an unattested swap
+#' has to score 0.966 before the penalty, which is a street name that is exact or
+#' one keystroke from it *and* agreement on everything else the string supplied:
+#' the rule is that two uncertainties at once is one too many. Swept against
+#' Nova Scotia's PVSC points, over 32,887 exact unambiguous building matches
+#' carrying 98 errors past 5 km:
+#'
+#' | penalty | matches lost | of those, past 5 km | 5 km errors removed |
+#' | --- | --- | --- | --- |
+#' | 0.92 | 107 | 15.9% | 17 |
+#' | 0.90 | 151 | 12.6% | 19 |
+#' | **0.88** | **503** | **9.2%** | **46** |
+#' | 0.86 | 566 | 8.3% | 47 |
+#' | 0.85 | 1126 | 5.1% | 57 |
+#'
+#' 0.88 is the knee and the exchange rate is what picks it, not the error count:
+#' 0.90 to 0.88 buys 27 gross errors for 352 matches, 0.88 to 0.86 buys one more
+#' for 63. Below 0.85 the penalty stops discriminating at all -- every unattested
+#' swap is refused whatever else it got right, and 85% of the 1,126 rows that
+#' costs were within 100 m of an independent reading. The base rate makes the
+#' column in the middle the one to read: 0.3% of all matches are past 5 km, so a
+#' cut that is 9.2% gross is thirty times enriched in exactly what it is for.
+#'
+#' One province, and the knee is what is provincial about it -- the mechanism a
+#' fuzzy name compounding an unattested swap is not. `1` restores the behaviour
+#' before this existed and `0.85` refuses every unattested swap outright.
+#'
 #' @param probe Name of the temp table holding the parsed components
 #' @param name_threshold Minimum name similarity for the fuzzy branch
+#' @param mun_swap_penalty Score multiplier for a candidate in a municipality
+#'   other than the one the string named, where the two are not attested
+#'   aliases. `1` disables it.
 #' @return A single SQL string
 #' @keywords internal
-nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
+nar_gazetteer_sql <- function(probe, name_threshold = 0.90,
+                              mun_swap_penalty = 0.88) {
   # Placeholders rather than sprintf: the template is past sprintf's 8192-byte
   # format limit, and this way a literal % in a LIKE pattern needs no doubling.
   sql <- "
@@ -350,7 +501,16 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                       (SELECT {fold_pm}
                          FROM PostalMun pm
                         WHERE pm.FSA = p.fsa AND p.fsa <> ''
-                        ORDER BY pm.N_ADDRESSES DESC LIMIT 1)) AS mun_use
+                        ORDER BY pm.N_ADDRESSES DESC LIMIT 1)) AS mun_use,
+             -- Whether the written name is one NAR files mail under at all. The
+             -- swap penalty below rests on an *absence* of shared postal codes,
+             -- and an absence only means something for a name that could have
+             -- had some. `HOWIE CENTER` is a mailing municipality and shares
+             -- three postal codes with `SYDNEY`; a name no letter is addressed
+             -- to shares none with anything, and that is not evidence.
+             EXISTS (SELECT 1 FROM MunMail mm
+                      WHERE mm.MN = p.mun_input
+                        AND (p.prov = '' OR mm.PR = p.prov)) AS mun_testable
         FROM {probe} p
     ),
     scored AS (
@@ -422,7 +582,7 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                        OR ' ' || s_mail_fold || ' '
                             LIKE '% ' || p.match_fold || ' %')
                     THEN 0.90 ELSE 0 END) AS name_sim,
-             0.72 * name_sim
+             (0.72 * name_sim
              + 0.10 * CASE WHEN p.type = '' THEN 1
                            WHEN p.type IN (s.OFFICIAL_STREET_TYPE, s.MAIL_STREET_TYPE) THEN 1
                            ELSE 0 END
@@ -436,9 +596,57 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
              -- credit rather than being penalised for what it did not say.
              + 0.12 * CASE WHEN p.civic IS NULL THEN 1
                            WHEN p.civic BETWEEN s.MIN_CIVIC_NO AND s.MAX_CIVIC_NO THEN 1
-                           ELSE 0 END
+                           ELSE 0 END)
+             -- The order of the branches is the argument, and it is the same
+             -- order the mun_evidence column below reports: keep it if the name
+             -- survived, exempt it if there was no name to swap, credit it if a
+             -- shared postal code attests the swap, credit it if one side is
+             -- the census subdivision's own name (Toronto for North York --
+             -- amalgamation, and 0 of 91 such rows in Nova Scotia land even a
+             -- kilometre out), exempt it if the written name is one NAR files
+             -- no mail under at all, and only then fine it. c.MN_A comes from
+             -- the LEFT JOIN below and is non-NULL exactly when the two names
+             -- share a postal code.
+             --
+             -- Fining the untestable arm was measured and rejected: it refuses
+             -- 119 exact matches to remove 2 errors past 5 km, against the 13
+             -- matches per error the swap arm buys at its knee. Those rows are
+             -- the worst-placed class in the package -- p90 327 m, p99 32 km --
+             -- but the answer to that is to *report* it, which is what the
+             -- uncertainty floor keyed on mun_evidence does, not to refuse a
+             -- street match that is usually right.
+             * CASE WHEN {fold_smun} = p.mun_input THEN 1
+                    WHEN p.mun_input = ''           THEN 1
+                    WHEN c.MN_A IS NOT NULL         THEN 1
+                    WHEN p.mun_input = {fold_csd}
+                      OR {fold_smun} = {fold_csd}   THEN 1
+                    WHEN NOT p.mun_testable         THEN 1
+                    ELSE {swap} END
                AS score
              , {fold_smun} = p.mun_use AS mun_exact
+             -- Not the same question as mun_exact, which asks whether the
+             -- winner sits in the locality the candidates were restricted to --
+             -- and that locality may itself have come from the postal code
+             -- rather than from the string. This asks the caller's question:
+             -- is the municipality being handed back the one that was written?
+             -- It leaves the query as `mun_remapped` and reaches uncertainty_m,
+             -- so it compares against p.mun_input and nothing else.
+             , {fold_smun} = p.mun_input AS mun_kept
+             -- The same four questions the CASE above asks, kept instead of
+             -- collapsed into a multiplier. The order is the precedence: a
+             -- string that named nothing is not a swap, evidence outranks the
+             -- absence of evidence, and `unattested` is what is left -- a name
+             -- NAR does file mail under, which shares no postal code with the
+             -- answer and is not its census subdivision's own name. That last
+             -- class is the one that carries the gross errors, and it is the
+             -- reason this leaves the query rather than staying a multiplier.
+             , CASE WHEN {fold_smun} = p.mun_input  THEN 'kept'
+                    WHEN p.mun_input = ''           THEN 'inferred'
+                    WHEN c.MN_A IS NOT NULL         THEN 'copostal'
+                    WHEN p.mun_input = {fold_csd}
+                      OR {fold_smun} = {fold_csd}   THEN 'csd'
+                    WHEN NOT p.mun_testable         THEN 'untestable'
+                    ELSE 'unattested' END AS mun_evidence
         FROM probe p
         -- Through the alias set rather than straight at MAIL_MUN_NAME: the name
         -- someone writes and the name NAR files under are often different names
@@ -463,6 +671,13 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
         JOIN StreetFold f
           ON f.SID = s.rowid
          AND (p.prov = '' OR s.MAIL_PROV_ABVN = p.prov)
+        -- Directed on purpose: written name to candidate name, so no OR is
+        -- needed here and the pair is looked up once. At most one row per key,
+        -- so this cannot multiply candidates.
+        LEFT JOIN MunCoPostal c
+          ON c.PR = s.MAIL_PROV_ABVN
+         AND c.MN_A = p.mun_input
+         AND c.MN_B = {fold_smun}
        WHERE p.mun_use IS NOT NULL
     ),
     -- No municipality, and no postal code to recover one from. Fuzzy matching is
@@ -510,7 +725,12 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                                        ELSE 0 END)) AS score,
              -- Last, and in this order, because UNION ALL below lines the two
              -- branches up by position and not by name.
-             FALSE AS mun_exact
+             FALSE AS mun_exact,
+             -- This branch only runs when the string named no municipality at
+             -- all, so there is nothing for the answer to have kept.
+             FALSE AS mun_kept,
+             -- Same reason: nothing was named, so nothing was swapped for it.
+             'inferred' AS mun_evidence
         FROM probe p
         JOIN Streets s
           ON (p.name_fold = s.NAME_FOLD OR p.name_fold = s.MAIL_NAME_FOLD)
@@ -549,6 +769,10 @@ nar_gazetteer_sql <- function(probe, name_threshold = 0.90) {
   sql <- gsub("{fold_smun}",
               nar_match_fold_sql("strip_accents(upper(s.MAIL_MUN_NAME))"),
               sql, fixed = TRUE)
+  sql <- gsub("{fold_csd}",
+              nar_match_fold_sql("strip_accents(upper(s.CSD_ENG_NAME))"),
+              sql, fixed = TRUE)
+  sql <- gsub("{swap}", format(mun_swap_penalty), sql, fixed = TRUE)
   gsub("{name_threshold}", format(name_threshold), sql, fixed = TRUE)
 }
 
@@ -660,7 +884,19 @@ nar_rqa_gazetteer_sql <- function(probe, name_threshold = 0.90) {
                            WHEN p.civic BETWEEN s.MIN_CIVIC_NO AND s.MAX_CIVIC_NO THEN 1
                            ELSE 0 END
                AS score,
-             p.mun_join = p.mun_use AS mun_exact
+             p.mun_join = p.mun_use AS mun_exact,
+             -- As in the NAR pass, and against the written name rather than
+             -- against mun_join: an RQA street is filed under its CSD, so
+             -- `VERDUN` comes back as the city of Montreal and that is a
+             -- substitution whoever made it.
+             {fold_smun} = p.mun_input AS mun_kept,
+             -- RqaStreets is filed under the CSD, so every substitution this
+             -- pass can make is a borough-for-city one -- `VERDUN` answered as
+             -- Montreal. That is the amalgamation class by construction, and
+             -- there is no weaker arm for it to fall into.
+             CASE WHEN {fold_smun} = p.mun_input THEN 'kept'
+                  WHEN p.mun_input = ''          THEN 'inferred'
+                  ELSE 'csd' END AS mun_evidence
         FROM muns p
         JOIN RqaStreets s
           ON {fold_smun} = p.mun_join

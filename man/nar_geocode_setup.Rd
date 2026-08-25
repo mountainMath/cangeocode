@@ -4,7 +4,17 @@
 \alias{nar_geocode_setup}
 \title{Everything a geocoding call has to settle before it can query}
 \usage{
-nar_geocode_setup(x, prov, mun, within, method, crs, version, con)
+nar_geocode_setup(
+  x,
+  prov,
+  mun,
+  within,
+  method,
+  crs,
+  version,
+  con,
+  dots = list()
+)
 }
 \arguments{
 \item{x}{Address strings, or a parsed data frame}

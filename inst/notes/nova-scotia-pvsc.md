@@ -220,6 +220,179 @@ found the spread is genuinely zero. It says nothing about whether the search
 looked in the right place. Ambiguous matches, by contrast, do get a large
 uncertainty and the field works as intended there.
 
+## What was done about it
+
+Both halves of the tail finding are now in the package: an uncorroborated remap
+is **fined** at scoring time, and what survives is **reported** — not just as a
+flag, but as the reason the substitution was allowed to stand. Measured on the
+same 40,000-address sample, `NAR_CACHE_PATH/pvsc/bench.rds`, seed 1.
+
+Every figure below is from the current code. The unpenalised baseline is 32,886
+exact unambiguous building matches carrying **98 errors past 5 km**, 170 past
+1 km — one in 193.
+
+### Where the widening comes from
+
+`MunAlias` keys a written name to a **census subdivision**, not to a community.
+So `MILFORD, NS` does not restrict candidates to Milford: it restricts them to
+Halifax Regional Municipality, which is 166 mailing communities spread over
+127 km. Inside that set a street in the wrong community can outscore the right
+one on the evidence, because agreement on the street *type* is worth 0.10 and a
+single Damerau-Levenshtein step costs 0.072 at the name gate. `12 Wildwood Dr,
+Milford` resolves to `Windwood Dr, Middle Sackville` at 0.952, and beats the
+`Wildwood Ave` in Halifax that scores 0.900 for the type it does not match.
+
+The widening is not the defect. Without it a misspelt street in a small
+community resolves to nothing at all, and 1,685 of the 2,894 remaps in this
+sample are the feature working. The defect is that nothing distinguished them.
+
+### Two signals, learned from NAR rather than assumed
+
+**A shared full postal code.** Two mailing municipalities that appear on the same
+six-character postal code are two names for one delivery geography, whoever else
+disagrees. `HOWIE CENTER` and `SYDNEY` share three; `MILFORD` and
+`MIDDLE SACKVILLE` share none. Nationally that is 32,216 directed pairs, built as
+a TEMP table in 0.2 s (`nar_mun_copostal()`) — no schema bump, no re-import. It
+has to be the full code and not the FSA: an FSA in rural Nova Scotia covers most
+of a county, so the FSA-keyed `PostalMun` already in the schema would attest
+nearly every pair in the province and the test would never fire.
+
+**The census subdivision the street already sits in.** Amalgamations and legacy
+names do not produce shared postal codes — the merger did not merge the delivery
+names — so `Bathurst St, Toronto` reaching a street NAR still mails to
+`NORTH YORK` is a swap no postal evidence will ever attest. `Streets.CSD_ENG_NAME`
+carries the relationship directly, and comparing against it is the second
+attestation. It is small in Nova Scotia (91 rows) but it is *clean*: zero of them
+past a kilometre.
+
+Both are read out of NAR. **There is no curated alias list in either direction**,
+which is what makes the test portable to provinces nobody has looked at.
+
+Splitting the 2,894 remaps by which arm answered, before any penalty:
+
+| `mun_evidence` | n | p50 | p90 | p95 | >1 km | >5 km |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `copostal` — shares a postal code | 1,601 | 7.4 m | 49 m | 121 m | 0.94% | **0.62%** |
+| `csd` — amalgamation or legacy name | 84 | 14.7 m | 98 m | 214 m | 0.00% | **0.00%** |
+| **`unattested`** | 1,025 | 18.6 m | 316 m | **12.5 km** | 7.22% | **6.83%** |
+| `untestable` — not a mailing name | 184 | 32.0 m | 328 m | 740 m | 3.26% | 1.63% |
+
+A hundredfold separation at p95, from signals that cost 0.2 s. The unattested
+class is 35% of the remaps and carries 85% of their gross errors.
+
+> **The comparison has to be anchored on the baseline reading.** The parser emits
+> several candidate readings per string and the gazetteer scores all of them; an
+> alternative reading may re-segment the trailing run and hand back a *shorter*
+> municipality. `HOWIE CENTRE` read as `CENTRE` — itself a Nova Scotia
+> municipality, and one that shares a postal code with `LUNENBURG`. Scoring the
+> swap against that reading lets a truncation manufacture its own attestation.
+> This was live long enough to be measured wrong: it laundered 184 rows into
+> `copostal`, which is the entire `untestable` row above.
+
+### The penalty, and what it costs
+
+A candidate whose mailing municipality is neither the one written nor attested by
+either arm has its whole score multiplied by `mun_swap_penalty`, default **0.88**.
+Against the 0.85 acceptance threshold that means an unattested swap must score
+0.966 unpenalised — an exact or one-keystroke street name *and* agreement on
+everything else the string supplied. Two uncertainties at once is one too many.
+
+The value is the knee of a curve, not a preference:
+
+| penalty | exact matches | matches lost | past 5 km | errors removed | matches per error |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1.00 | 32,886 | — | 98 | — | — |
+| 0.95 | 32,821 | 65 | 82 | 16 | 4 |
+| 0.92 | 32,829 | 57 | 69 | 29 | 2 |
+| 0.90 | 32,818 | 68 | 69 | 29 | 2 |
+| **0.88** | **32,513** | **373** | **42** | **56** | **7** |
+| 0.86 | 32,454 | 432 | 41 | 57 | 8 |
+| 0.85 | 31,958 | 928 | 32 | 66 | 14 |
+
+Read the last column marginally rather than cumulatively: 0.90 → 0.88 buys 27
+gross errors for 305 matches, 11 apiece; 0.88 → 0.86 buys **one** for 59; 0.86 →
+0.85 buys 9 for 496, 55 apiece. 0.88 is the last step that is cheap.
+
+Below 0.85 the penalty stops discriminating — every unattested swap is refused
+whatever else it got right, and **85% of the matches that costs were within 100 m
+of PVSC's own point.** That is the trade that makes refusing the whole class the
+wrong answer: the class is 100× enriched in gross error and still overwhelmingly
+correct.
+
+### What it did
+
+| `mun_evidence` | n | p50 | p90 | p95 | >1 km | >5 km | floor |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `kept` — not remapped | 30,044 | 10.2 m | 57 m | 119 m | 0.26% | 0.05% | — |
+| `copostal` | 1,632 | 7.5 m | 50 m | 127 m | 1.10% | 0.80% | 0 |
+| `csd` | 91 | 14.5 m | 87 m | 203 m | 0.00% | 0.00% | 0 |
+| `unattested` | 561 | 12.9 m | 83 m | 195 m | 1.78% | 1.78% | 118 |
+| `untestable` | 184 | 32.0 m | 328 m | 740 m | 3.26% | 1.63% | 118 |
+| `inferred` | 0 here | — | — | — | — | — | 118 |
+
+Errors past 5 km over the whole exact unambiguous population fall from 98 to 42,
+and the rate from one in 193 more than a kilometre wrong to one in 288. What it
+costs is 1.1 points of overall placement, 87.44% → 86.32%, almost all of it rows
+that go unplaced rather than rows that move.
+
+The `unattested` class is what the penalty acts on and it shrank by 45%, from
+1,025 rows to 561; the ones that stayed are 4× less likely to be kilometres out
+than the ones that left. `untestable` is untouched by construction — an absence
+of evidence about a name NAR has never seen is not evidence of a bad swap, and
+fining it was measured: it refuses 119 matches to remove 2 gross errors, 60 apiece
+against the swap arm's 11 at its knee.
+
+### What survives, and why it is priced rather than refused
+
+The reproduction that opened this section is one of the survivors, and it is
+worth being exact about what changed:
+
+```
+36 LAKEVIEW DR, HOWIE CENTRE, NS
+   before  ->  Lakeview Cir, CONQUERALL MILLS   conf 0.900   nar_building   388 km out
+                 mun_remapped  (absent)         uncertainty_m 0
+   after   ->  Lakeview Cir, CONQUERALL MILLS   conf 0.900   nar_building   388 km out
+                 mun_evidence  untestable       uncertainty_m 118
+```
+
+It is **not refused**, and the penalty never touches it. NAR files no
+postal-coded mail under `HOWIE CENTRE` — it spells the community `HOWIE CENTER` —
+so there is nothing to test the swap against and the untestable exemption carries
+it through. What changed is that the row no longer claims 0 m.
+
+`25 River Rd, Moser River` is the harder case: it still answers with the
+`River Rd` in Halifax, 118 km away, and that swap **is** attested — `MOSER RIVER`
+and `HALIFAX` do share a postal code, because `HALIFAX` is a mailing name
+covering the whole regional municipality. So it gets no floor at all. That is the
+copostal class's 0.80% past 5 km showing up as a single row, and it is the reason
+the flag exists separately from the metres.
+
+Refusing either would mean `mun_swap_penalty = 0.85` and worse, and would cost
+the 928 matches above. So they are priced instead.
+
+`normalize_address()` returns `mun_remapped` and `mun_evidence`, and
+`geocode()` floors `uncertainty_m` at **118 m** — the pooled 90th percentile of
+the three unverified classes, over 745 rows — wherever the evidence is not an
+attestation. Three honest things and one dishonest one to avoid:
+
+* the floor stops `uncertainty_m` reporting **0 m** on the population where 0 m
+  is least true, which was recommendation 2 below;
+* **an attested remap is not floored at all**, and that is the measurement rather
+  than a concession: the attested classes pool to p90 **52 m** over 1,723 rows,
+  *below* the 57 m of rows whose municipality was never touched. A swap a postal
+  code or a census subdivision vouches for is as good as no swap. `inferred` is
+  grouped with the unverified classes on the argument and not on a measurement —
+  PVSC always carries a city, so the class cannot occur in this sample at all;
+* 118 m is a *disagreement*, not an error budget: much of it is NAR's own
+  distance from PVSC rather than anything the remap added;
+* and it does **not** describe the tail. The unverified classes run 1.6–1.8% past
+  5 km against 0.05% for untouched rows — thirty times the rate, at a distance no
+  90th percentile of either population reports, and the Moser River row shows an
+  *attested* one can be 118 km out. A caller who cannot tolerate a
+  kilometre-scale error should filter on `mun_remapped` itself. A metre value
+  cannot express a bimodal distribution, and pretending otherwise would be the
+  same mis-description as reporting 0.
+
 ## What it says about the parser
 
 PVSC's split components are **labels**, which makes this a corpus in the sense
@@ -326,16 +499,24 @@ third.
    contains it in that municipality. The evidence is already in the database.
    See [`normalization.md`](../../.claude/normalization.md) before touching it.
 
-2. **Stop reporting `uncertainty_m` as 0 for a unique match whose municipality
-   was remapped.** The remap is recoverable information — `normalize_address()`
-   already knows it happened — and it multiplies the >5 km rate by 60. It does
-   not need a new measurement, only for the number already computed to be
-   carried through to the output.
+2. ~~**Stop reporting `uncertainty_m` as 0 for a unique match whose
+   municipality was remapped.**~~ **Done**, 2026-08-24, and it grew two further
+   halves. The remap is *fined* where nothing attests it — errors past 5 km fall
+   from 98 to 42, and one exact unambiguous match in 288 is now more than a
+   kilometre wrong against one in 193 — and what survives is reported as
+   `mun_remapped` plus `mun_evidence`, with `uncertainty_m` floored at 118 m only
+   where the evidence is not an attestation. See
+   [What was done about it](#what-was-done-about-it) above. Two of the four
+   attestation arms had to be built rather than assumed, and the anchor bug
+   documented there was found by disbelieving the reproduction.
 
 3. **Municipality truncation** (2.32%, half of them unplaced) is the harder of
    the three, because the fix is a gazetteer question rather than a rule
    question: NS community names are multi-word far more often than the
-   inventory anticipates.
+   inventory anticipates. It is also worth more now than it was: a truncated
+   municipality is a *wrong* name, so the swap penalty fines the answer it would
+   otherwise have found, and some of the 373 matches that penalty costs are
+   truncations rather than genuine swaps.
 
 4. **A PVSC tier is not obviously worth building.** The licence permits it and
    it would reach the 9.4% NAR lacks, but it is one province, it covers improved

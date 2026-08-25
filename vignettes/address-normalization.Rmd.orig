@@ -129,6 +129,47 @@ that address.
 `confidence` grades within that — a fuzzy gazetteer match scores below an exact
 one — and `pattern` is the structural shape the string parsed as.
 
+`mun_remapped` is the fourth, and it answers a question the other three cannot:
+whether the municipality you get back is the one you wrote. The gazetteer
+resolves a community name through the census subdivision it belongs to, so a
+street can be confirmed — `parse_source` of `gazetteer`, high `confidence` — in
+a different community of the same regional municipality. That is usually the
+feature working, since rural communities are filed under the city that delivers
+their mail. It is worth knowing about either way:
+
+```{r remapped}
+normalize_address(c("2 Barrington St, Halifax NS", "25 River Rd, Moser River NS",
+                    "36 Lakeview Dr, Howie Centre NS"), con = con) |>
+  select(STREET_NAME, MUN_NAME, mun_remapped, mun_evidence, confidence)
+```
+
+Note that the remapped rows are not the low-confidence ones. `confidence` grades
+how well the *street* matched, and Moser River's River Rd matched perfectly —
+under a community name 118 km from the one that was written. That
+is why this is a column and not a confidence penalty.
+
+`TRUE` also covers the case where the string named no municipality at all and
+the gazetteer determined one; `NA` means there is still none. If you are
+matching against a list keyed on the municipality, this is the column that tells
+you which keys were rewritten under you.
+
+`mun_evidence` sits beside it and says *why* the substitution was allowed to
+stand. Three of its values are attestations — `kept` (nothing was substituted),
+`copostal` (the two names share a full postal code in the register, so they are
+two labels for one delivery geography) and `csd` (the name written is the census
+subdivision the street sits in, which is how amalgamations and legacy names
+arrive: `Toronto` for a street the register still mails to `North York`). The
+other three are not: `unattested` was checked and corroborated by nothing,
+`untestable` names a community the register files no postal-coded mail under so
+there was nothing to check against, and `inferred` means you named no
+municipality and one was determined for you. An unattested substitution is fined
+during scoring and has to be an exact or near-exact street name agreeing on
+everything else to survive; `geocode()` prices what does survive into
+`uncertainty_m`. None of this is a guarantee — the Moser River row is attested
+and 118 km out — but it is the difference between a rural community filed under
+the city that delivers its mail and a street name that simply landed somewhere
+else.
+
 ## Triage before cleaning
 
 `address_pattern()` sorts a string into one of twelve shapes and needs no

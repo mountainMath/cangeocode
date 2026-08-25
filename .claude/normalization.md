@@ -349,6 +349,89 @@ fixture carrying one street in two cities and another in one.
 > 0 lost**. Attribution and the harness-level deltas are in
 > [`inst/notes/address-normalization-status.md`](../inst/notes/address-normalization-status.md).
 
+### The municipality swap penalty
+
+**`MunAlias` keys on the census subdivision, so the fuzzy branch's "locality" is a whole regional
+municipality.** `MILFORD, NS` does not restrict candidates to Milford; it restricts them to Halifax
+Regional Municipality — 166 mailing communities over 127 km. Inside that set the scoring can prefer
+a street in the wrong community, because type agreement is worth 0.10 and one Damerau-Levenshtein
+step costs 0.072 at the gate: `12 Wildwood Dr, Milford` scored `Windwood Dr, MIDDLE SACKVILLE` at
+0.952 over the `Wildwood Ave` in Halifax at 0.900, and `geocode()` then found exactly one civic
+number there and reported `n_matches == 1`, `uncertainty_m == 0`, 60 km away.
+
+**The widening is not the defect** — 1,601 of 2,795 remaps in the PVSC sample are it working. The
+defect was that nothing separated those from the rest.
+
+**Two mailing municipalities sharing a full postal code is the separator, and it is read out of NAR
+rather than curated.** `nar_mun_copostal()` builds `MunCoPostal` (32,216 directed pairs, 0.2 s) and
+`MunMail` as TEMP tables, the `nar_street_fold()` pattern and for the same reason — no schema bump,
+no re-import. Three things about it are not guessable:
+
+- **The full postal code, never the FSA.** `PostalMun` is already there and is FSA-keyed, and an
+  FSA in rural Nova Scotia covers most of a county — it would attest nearly every pair in the
+  province and the penalty would never fire.
+- **`MunMail` exists so that an absence of evidence can be told from an untestable name.** A name
+  NAR files no postal-coded mail under shares no postal code with anything, and that is not
+  evidence of a bad swap. It is read off exactly the same rows as `MunCoPostal` for that reason: a
+  name that could never have appeared in the pair table must not be scored as one that could have
+  and did not.
+- **The pairs are directed** (`MN_A` written, `MN_B` candidate), so the scoring join needs no `OR`
+  and stays a hash join.
+
+**The penalty multiplies the whole score, and the operative rule is its product with the
+threshold.** At the default `mun_swap_penalty = 0.88` against `threshold = 0.85`, an unattested
+swap has to reach 0.966 unpenalised — an exact or one-keystroke name *and* agreement on everything
+else the string gave. It **reorders as well as refuses**, which is half its value: the Wildwood
+case now answers with the Halifax street it always scored second. Below 0.85 the penalty stops
+discriminating and simply refuses every unattested swap; `1` is the old behaviour. The knee at 0.88
+is calibrated on one province and the calibration table is in
+[`inst/notes/nova-scotia-pvsc.md`](../inst/notes/nova-scotia-pvsc.md); the mechanism it rests on —
+a fuzzy name compounding an unattested municipality — is not provincial.
+
+**A second attestation, for amalgamations and legacy names: the census subdivision.** A swap whose
+candidate sits in the census subdivision the string named — or whose own `CSD_ENG_NAME` is the name
+the string wrote — is not fined. `Bathurst St, Toronto` reaches a street NAR still mails to
+`NORTH YORK`; they share no postal code and never will, because the amalgamation did not merge the
+delivery names. `Streets.CSD_ENG_NAME` already carries the relationship, so this is read out of NAR
+for the same reason the postal pairs are: **no curated alias list, in either direction.** It is
+worth 32 exact matches in the PVSC sample at zero errors past a kilometre, which is why it is an
+exemption and not a discount.
+
+**Four exemptions, and each is holding back a real address form.** A candidate whose municipality
+equals the written one is not a swap; a string that named no municipality at all had its locality
+supplied by the postal code and has nothing to have swapped; a census-subdivision match is the
+amalgamation arm above; and an untestable name is exempt per `MunMail` above. The order of the
+`CASE` branches is the argument — `copostal` is tested before `csd` so the stronger evidence is the
+one reported, and `untestable` last so it cannot mask either.
+
+**The exemptions are also the output.** The same `CASE`, run a second time over the same
+predicates, emits `mun_evidence` — `kept` / `inferred` / `copostal` / `csd` / `untestable` /
+`unattested` — which is how the gazetteer's private reasoning about *why* a swap was allowed
+becomes something `geocode()` can price. The two `CASE`s must stay in step; they are adjacent in
+`nar_gazetteer_sql()` for that reason.
+
+**The swap is scored against the *baseline reading*, not against the reading being scored.** The
+parser emits several candidate readings per string and the gazetteer scores all of them; an
+alternative reading may re-segment the trailing run and hand back a shorter municipality.
+`HOWIE CENTRE` read as `CENTRE` — itself a Nova Scotia municipality, and one that shares a postal
+code with `LUNENBURG`. Scoring the swap against *that* lets a truncation manufacture its own
+attestation: NAR files no mail to `HOWIE CENTRE`, so the honest verdict is `untestable`, but the
+reading that broke the name gets credited with a `copostal` match. `nar_gazetteer_pass()` therefore
+anchors `mun_input` on the first candidate by `.cand` — the reading that took the string's own
+delimiters at face value — and only `mun_use` / `mun_match` stay on the per-candidate name. This
+was a live defect: it laundered 184 rows into a falsely attested class, and fixing it cost one
+gross error and bought 60 exact matches.
+
+**The RQA pass is deliberately unpenalised.** RQA files under census subdivisions — `Montréal`,
+never `Verdun` — so changing the municipality is what that pass *does*, and every one of its
+answers would be fined for it.
+
+**`mun_exact` and `mun_kept` are different questions and the query carries both.** `mun_exact`
+compares against `mun_use`, which may have come from the postal code, and orders ties. `mun_kept`
+compares against `mun_match`, the name the string actually wrote, and is what leaves the query as
+`mun_remapped` — the flag `normalize_address()` returns and `geocode()` prices per
+`mun_evidence`. Reusing either for the other's job silently changes what the flag means.
+
 ### The second pass, over Quebec's own register
 
 `nar_resolve_gazetteer()` runs `nar_gazetteer_pass()` twice: once against NAR, and — only where
