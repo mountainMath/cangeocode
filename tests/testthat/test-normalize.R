@@ -817,6 +817,33 @@ test_that("the gazetteer picks the named street over its mirror image", {
   expect_equal(as.character(r$STREET_DIR), "W")
 })
 
+test_that("a tie is broken by the reading that stayed in the town written", {
+  # Score has already said the two readings are equally good and the swap
+  # penalty has already declined to separate them -- which is what an attested
+  # swap means. `170 North Park St, Brantford` is the real shape: the baseline
+  # resolves at 1.0 to Park Rd N in HAMILTON, exempt from the fine because
+  # Brantford and Hamilton share a census subdivision name, and the restored
+  # reading resolves at 1.0 to North Park St in Brantford itself.
+  best <- data.frame(.row = c(1L, 1L), .cand = 1:2, score = c(1, 1),
+                     mun_kept = c(FALSE, TRUE))
+  expect_equal(cangeocode:::nar_gazetteer_winner(best)$.cand, 2L)
+
+  # And it is a tie-break only. A reading that stayed put but scored worse does
+  # not displace one that resolved better somewhere else -- the term sits after
+  # the score, not in it.
+  best$score <- c(1, 0.95)
+  expect_equal(cangeocode:::nar_gazetteer_winner(best)$.cand, 1L)
+
+  # With nothing to choose between them the baseline still wins, which is the
+  # behaviour every other tie in this file relies on. Both arms: both readings
+  # kept the municipality, and neither did.
+  for (k in list(c(TRUE, TRUE), c(FALSE, FALSE), c(NA, NA))) {
+    best$score <- c(1, 1)
+    best$mun_kept <- k
+    expect_equal(cangeocode:::nar_gazetteer_winner(best)$.cand, 1L)
+  }
+})
+
 test_that("anchoring never fires on a parse that is not broken", {
   # The guard that matters. These strings name no municipality at all, and
   # every one ends in a word that is a real place -- Albanel, Nantes and Trail

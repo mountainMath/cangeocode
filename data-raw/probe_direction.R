@@ -80,10 +80,12 @@ message("\n--- lost the word but NOT into STREET_DIR: ", sum(lost),
         " (of ", sum(!kept), " total losses)")
 print(table(parse_source = norm$parse_source[lost]))
 
+# Printed whole rather than sampled: since nar_dir_lead_variant() and the
+# municipality tie-break went in, the entire residual is small enough to read,
+# and reading all of it is what showed it is no longer about directions.
 message("\n--- what the gazetteer answered instead")
 print(tibble(input = substr(samp$addr, 1, 46),
-             nar_name = samp$nm, parsed = norm$STREET_NAME)[lost, ] |> head(15),
-      n = 15)
+             nar_name = samp$nm, parsed = norm$STREET_NAME)[lost, ], n = Inf)
 
 # The other half: the word did go into STREET_DIR, so the restored reading was
 # offered and lost. Since nar_dir_lead_variant() went in this is the larger of
@@ -98,4 +100,4 @@ print(table(parse_source = norm$parse_source[held],
 message("\n--- what those resolved to")
 print(tibble(input = substr(samp$addr, 1, 46), nar_name = samp$nm,
              parsed = norm$STREET_NAME, dir = norm$STREET_DIR,
-             src = norm$parse_source)[held, ] |> head(15), n = 15)
+             src = norm$parse_source, mun = norm$MUN_NAME)[held, ], n = Inf)

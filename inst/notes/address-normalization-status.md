@@ -127,36 +127,46 @@ answered: of the 191 remaining misses where street name and province are already
 2–5 candidate municipalities, 55 have 6–20 and 66 have more than 20. So a shortlist would be short
 enough to be worth showing in about a fifth of them, and the rest are the ceiling.
 
-### 2. A leading direction word in the street name — fixed, and the 1.8% residual is not about directions
+### 2. A leading direction word in the street name — fixed, and nothing left in it is about directions
 
-Fixed on 2026-08-25 by `nar_dir_lead_variant()`; the full before/after is under *A stripped
-leading compass word, offered back as a parallel candidate*. What is left is small and has one
-cause, which is not the direction step.
+Fixed on 2026-08-25 in two steps: `nar_dir_lead_variant()` offers the unstripped reading, and a
+tie-break in `nar_gazetteer_winner()` settles the case where both readings are perfect. The full
+before/after for each is under *A stripped leading compass word, offered back as a parallel
+candidate* and *A tie broken by the municipality the reading kept*.
 
-On the same 2,500-address probe the parser now keeps the compass word in the name 2,455 times and
-loses it 45. Six of those 45 lose it some other way — four are Montréal's `West Hill AV`, where
-`HILL` is a NAR street type and the type step eats it before the direction step is reached, so
-they are mode 3 wearing mode 2's clothes. The other 39 are the interesting ones: **the restored
-reading was offered, matched exactly, and lost a tie.**
+On the 2,500-address probe the parser now keeps the compass word in the name **2,473** times and
+loses it **27** — down from 453 before either step. What is left has been read row by row, and
+**not one of the 27 is a failure of the direction step**. Two causes account for all of them.
+
+**Mode 3 wearing mode 2's clothes — 22 rows.** A name-final word that is also a NAR street type is
+eaten as the type before the direction step is ever reached, so there is no leading compass word
+left to restore and the restored reading is nonsense:
 
 ```
-170 North Park ST, BRANTFORD, ON  ->  Park ST N, HAMILTON       (mun_evidence "csd")
-125 East Main ST, WELLAND, ON     ->  Main ST E, PORT COLBORNE  (mun_evidence "copostal")
+4250 West Hill AV, MONTRÉAL, QC   ->  name AV,   dir O     (HILL is a NAR type)
+1072 East Centre, SASKATOON, SK   ->  name EAST            (CENTRE is a NAR type)
+50 West Crest, ANCASTER, ON       ->  name West, dir N     (CREST is a NAR type)
 ```
 
-Brantford has `North Park ST` (455 addresses) and no plain `Park`; Welland has `East Main ST`
-(327) and no plain `Main`. The baseline reading reaches 1.0 anyway by **leaving the municipality
-the string named** — and because the swap is attested, by CSD in one case and by a shared postal
-code in the other, it is exempt from the 0.88 penalty and keeps the full score. Two readings of
-one string then tie at 1.0, and the baseline wins ties by rule.
+Seventeen of the 22 are Montréal's `West Hill AV`, and they fail *benignly*: nothing matches, they
+fall through to `rules`, and they end up unplaced rather than confidently placed on another
+street. This is failure mode 3 and it is counted there too — the direction fix cannot reach it,
+and building mode 3's candidate reading would take these with it.
 
-So the residual is not about directions at all: it is that an *attested* municipality swap costs
-nothing, which is right when it is the only reading on offer and wrong when a reading that stayed
-put scores the same. **The fix is a tie-break in `nar_gazetteer_winner()`: on equal scores, prefer
-the candidate that did not remap the municipality.** Staying where the string said is strictly
-more evidence than moving, it cannot affect a row with one candidate, and it is one term in an
-`order()` call. It has not been built or measured, and it needs its own harness run — the swap
-penalty is load-bearing elsewhere and this changes what it means when two readings compete.
+**NAR files the same city both ways — 3 rows.** Not a parse failure at all. Lethbridge carries
+`Parkside DR S` (2801–3329, 28 addresses) *and* `South Parkside DR` (2618–4012, 55); Simcoe
+carries `Main ST N` (56–121, 13) *and* `North Main ST` (21–196, 54). Where the civic ranges
+overlap, both readings score 1.0, both kept the municipality, and there is nothing left to
+arbitrate on — the ambiguity is in the register, not in the string. Where they do not overlap the
+score already settles it correctly: `151 North Main ST, SIMCOE` resolves to `North Main` because
+151 is outside `Main ST N`'s range and the civic-in-range term is worth 0.12, while `100 North
+Main ST` is inside both and goes to the baseline. This is the same duplication the *source-nar*
+vignette documents under *The same street, filed two ways*, met from the other side, and no
+tie-break can help: the tie is real.
+
+The remaining 2 are single rows with no shared cause — `695 South Shore RD, NAPANEE` resolving to
+a longer street of a similar name, and `11 South Country RD, RM OF DUNDURN` losing the word
+outright.
 
 ### 3. A name-final type word eaten as the type, when the real type is missing — ~586k addresses (3.4%) at risk
 
@@ -326,12 +336,64 @@ have not been measured.
 > reclassification working: `West 19th St` in Hamilton is a street with a name, not a grid address.
 
 `data-raw/probe_direction.R` reproduces all of it in about two minutes, and now also tabulates the
-residual. NAR is a fair reference here, which is unusual in this package: every accuracy
+residual whole. NAR is a fair reference here, which is unusual in this package: every accuracy
 measurement elsewhere carries the not-ground-truth caveat because it compares a *coordinate* to
 NAR's. This asks whether the parser reproduces the decomposition NAR itself records — name here,
 direction there — and NAR is by definition authoritative about its own columns. See also
 `## The same street, filed two ways` in `vignette("source-nar")`, where the 92,167-address
 national inventory and NAR's own 162 self-contradictions are reported.
+
+The 45 that remained were diagnosed here and turned out not to be a direction problem at all,
+which is what the next entry fixes.
+
+### A tie broken by the municipality the reading kept
+
+The second half of the item above, and it started as a diagnosis rather than an idea. Of the 45
+losses `nar_dir_lead_variant()` left, 39 had the restored reading offered, matched **exactly**,
+and lose a tie:
+
+```
+170 North Park ST, BRANTFORD, ON  ->  Park ST N, HAMILTON       (mun_evidence "csd")
+125 East Main ST, WELLAND, ON     ->  Main ST E, PORT COLBORNE  (mun_evidence "copostal")
+```
+
+Brantford has `North Park ST` (455 addresses) and no plain `Park`; Welland has `East Main ST`
+(327) and no plain `Main`. So the restored reading scores 1.0. But the baseline reaches 1.0 too,
+by **leaving the municipality the string named** — and the 0.88 swap penalty that would have
+separated them exempts an *attested* swap, by CSD in the first case and by a shared full postal
+code in the second. Two readings of one string, both perfect, and the baseline wins ties by rule.
+
+**The exemption is right and the tie is not.** Not fining an attested swap is a measured decision
+with its own entry below: those swaps place well, and refusing them costs 13 matches per error
+avoided. That reasoning is about a swap competing against *nothing* — it is the only reading on
+offer, and the question is whether to accept it. It says nothing about a swap competing against a
+reading that stayed put and scored the same. Score has already declined to separate them and the
+penalty has already declined to; the only question left is which reading did what it was told.
+
+So: **on equal scores, prefer the candidate whose answer is in the municipality the string
+wrote.** One term in the `order()` inside `nar_gazetteer_winner()`, reading the `mun_kept` column
+all three gazetteer queries already emit.
+
+**Where it cannot fire, which is most places.** It is inert on a row with one candidate, which is
+the overwhelming majority. It is inert where the string named no municipality: `mun_kept` compares
+against the *baseline* reading's municipality, so with nothing written it is `FALSE` for every
+reading of the row. And that same anchoring makes it inert on the municipality-anchored variants —
+those exist to re-segment a trailing run into a town the baseline missed, so it is *their* answers
+that differ from the baseline's, and the term points back at the baseline they were generated to
+challenge. It bites in one place, which is the place it was measured on.
+
+> **Measured.** Probe losses **45 → 27** of 2,500. The whole of the change is in the placed-wrong
+> class: rows that lose the word placed 35.6% of the time before and **7.4%** after, because the
+> 18 rows recovered were precisely the ones being confidently placed in the wrong city. Eval
+> harness, same seeds, both parts: **byte-identical output on 10,000 rows** — every figure in
+> Part A and Part B unchanged. That is the expected result and it is the safety evidence: the tie
+> needs a compass-led street *and* a municipality with an attested-swap partner, which no row in
+> either random sample happens to have. The mechanism argument above is what covers the rest, and
+> `tests/testthat/test-normalize.R` pins all four arms of the `order()` directly.
+
+What it does not reach is a tie where both readings kept the municipality, because NAR files the
+city both ways — Lethbridge's `Parkside DR S` alongside `South Parkside DR`. That tie is real and
+no rule about municipalities can break it; see failure mode 2.
 
 ### Québec's own register, as a second gazetteer pass
 
@@ -658,6 +720,13 @@ class, and fixing it bought 60 exact matches at the cost of one gross error.
 than merely smaller; the residual is bimodal and a `confidence` number cannot express that. The RQA
 pass is deliberately left unpenalised — see [`normalization.md`](../../.claude/normalization.md).
 
+**The exemption for an attested swap is a decision about a swap that competes against nothing.**
+The measurements above weigh accepting the swap against refusing it, which is the right question
+when it is the only reading on offer. It is not the right question when a second reading of the
+same string stayed in the municipality that was written and scored the same — there the exemption
+is what lets the wrong one through, and the answer is the tie-break under *A tie broken by the
+municipality the reading kept*, not a change to the penalty.
+
 ## Measured and deliberately not done
 
 Recording these so they are not re-litigated:
@@ -814,30 +883,27 @@ the largest number on this list has now twice been the one that moved least.
    through the particule and the hyphen), so what is left is the part folding cannot do: former
    names, and génériques that are part of the name rather than the type. Six of RQA's génériques
    have no counterpart in NAR's observed types, so they must not be promoted to canonical types.
-2. **A tie-break on the municipality the reading kept** (what is left of mode 2). Every one of
-   the 39 residual rows is two readings of one string tied at 1.0, where the baseline got there by
-   an *attested* municipality swap and so paid no penalty. Prefer the candidate that did not
-   remap. One term in `order()` inside `nar_gazetteer_winner()`, and it cannot touch a row with a
-   single candidate — but the swap penalty is load-bearing elsewhere, so it needs its own harness
-   run.
-3. **A candidate reading for the type step** (mode 3). The direction half of this item is built
-   and measured; the type half is not, and it is the same mechanism — offer the reading in which
-   the name-final word was *not* taken as the type, and let the gazetteer choose. ~586k addresses'
-   worth of street forms at risk, and Montréal's `West Hill AV` shows it can also swallow a
-   direction case whole. The name gate recovers some of it incidentally — whole-word containment
-   catches a type the parser ate whenever the gazetteer has the fuller name — so re-measure the
-   remaining size before building it.
-4. **Reject a province name as a municipality** (mode 6). An afternoon.
-5. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
+2. **A candidate reading for the type step** (mode 3). The direction half of this mechanism is
+   built and measured twice over; the type half is not, and it is the same move — offer the
+   reading in which the name-final word was *not* taken as the type, and let the gazetteer choose.
+   ~586k addresses' worth of street forms at risk. It has also become the *only* thing left in
+   failure mode 2: 22 of the 27 remaining direction losses are a type word eaten early, 17 of them
+   Montréal's `West Hill AV`, so this item would take them with it. The name gate recovers some of
+   it incidentally — whole-word containment catches a type the parser ate whenever the gazetteer
+   has the fuller name — so re-measure the remaining size before building it. Note the one thing
+   it will not fix: where NAR files the same city both ways with overlapping civic ranges, the tie
+   is in the register and no reading can break it.
+3. **Reject a province name as a municipality** (mode 6). An afternoon.
+4. **Decide what `MUN_NAME = NA` should mean** for the still-ambiguous rows (mode 1). The
    determined case is now answered; this is the 157 rows with 2 or more candidates. Either
    document `NA` as the honest answer or return candidates. A design decision, not a bug fix.
-6. **A period-abbreviated type glued to the next word.** `nar_norm_text()` strips every period at
+5. **A period-abbreviated type glued to the next word.** `nar_norm_text()` strips every period at
    input, so `BOUL.DES GRANDES PRAIRIES` arrives as one token `BOULDES` and no type is found.
    Single-digit row counts in the Québec residual, and probably the same anywhere French
    abbreviations are typed without a space; splitting on a period *before* stripping it, where the
    left side is a known type surface, would cover it. Cheap, and worth doing whenever the file is
    open for another reason.
-7. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
+6. **Period-folded street index** (mode 5), only if it is by then the largest remaining item.
 
 ## Deferred
 

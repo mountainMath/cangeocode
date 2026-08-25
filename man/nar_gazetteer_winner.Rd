@@ -7,14 +7,37 @@
 nar_gazetteer_winner(best)
 }
 \arguments{
-\item{best}{Scored rows carrying `.row`, `.cand` and `score`}
+\item{best}{Scored rows carrying `.row`, `.cand`, `score` and `mun_kept`}
 }
 \value{
 `best`, one row per `.row`
 }
 \description{
-The highest-scoring reading, and on a tie the earliest
-candidate -- which is the baseline parse. A reading only displaces it by
-resolving to a street this one does not.
+The highest-scoring reading; on a tie, the one that answered in
+the municipality the string wrote; and on a tie in that too, the earliest
+candidate -- which is the baseline parse. A reading only displaces the
+baseline by resolving to a street this one does not, or to the same quality
+of street without moving the town.
+
+The middle term is not a preference for tidiness. A municipality swap is
+normally fined 0.88, so a reading that moved the town rarely ties one that
+did not -- but the fine exempts an *attested* swap, and an attested swap is
+exactly what a real place name buys: `170 North Park St, Brantford` resolves
+at 1.0 to `Park Rd N` in HAMILTON, because Brantford and Hamilton share a
+census subdivision name, while the reading that keeps the compass word in
+the name resolves at 1.0 to `North Park St` in Brantford itself. Two
+readings, both perfect, and the exemption is what let the wrong one through.
+Score cannot separate them and the swap penalty has already declined to, so
+the only remaining question is which one stayed where it was told.
+
+It cannot fire on a row with one candidate, and it cannot fire where the
+string named no municipality -- there `mun_kept` is `FALSE` for every
+reading of the row, since it compares against the *baseline* reading's
+municipality, which is the same value for all of them. That anchoring is
+also why the term is inert on the municipality-anchored variants: those
+exist to re-segment a trailing run into a town the baseline missed, so their
+answers are the ones that differ from the baseline's, and the term points
+back at the baseline they were generated to challenge. It bites in one
+place, which is the place it was measured on.
 }
 \keyword{internal}

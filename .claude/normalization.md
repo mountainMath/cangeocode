@@ -137,8 +137,11 @@ is the municipality, nothing puts the unit back. So the parser produces *reading
 with evidence picks — the municipality inventory when parsing is rules-only, the street gazetteer
 when a connection is available.
 
-**The baseline reading is always candidate 1 and always wins a tie.** A candidate displaces it
-only on evidence, never on preference.
+**The baseline reading is always candidate 1 and wins a tie on everything but one term.** A
+candidate displaces it only on evidence, never on preference — and the single term ahead of
+`.cand` in `nar_gazetteer_winner()`'s `order()` is evidence too: on equal scores, the reading
+whose answer is in the municipality the string *wrote* wins. See **A tie is broken by the
+municipality that survived** below for why that had to be added and where it cannot fire.
 
 **`nar_baseline_is_defective()` is the load-bearing part of the file, and it is a gate on
 *generating* alternatives rather than on choosing between them.** Offering a second reading
@@ -247,7 +250,8 @@ by rule — so without a connection the answer stays `VANCOUVER`. Only the gazet
 Loraine Avenue is in one of them and not the other, moves it. That is the arbitration order
 working as designed and not a shortfall in the gate; do not add a tie-break that prefers the
 longer name, because `100 MILE HOUSE` and `MILE HOUSE` are the same shape with the opposite
-answer.
+answer. The one tie-break that *was* added reads evidence out of the gazetteer's answer rather
+than a property of the string, which is what makes it safe where a shape rule is not.
 
 **A known hole this exposed but does not cause.** With the municipality already fixed,
 `nar_parse_one()` silently drops whatever trails the street type — `802 11 rue Victoria, La Baie`
@@ -466,10 +470,25 @@ never `Verdun` — so changing the municipality is what that pass *does*, and ev
 answers would be fined for it.
 
 **`mun_exact` and `mun_kept` are different questions and the query carries both.** `mun_exact`
-compares against `mun_use`, which may have come from the postal code, and orders ties. `mun_kept`
-compares against `mun_match`, the name the string actually wrote, and is what leaves the query as
+compares against `mun_use`, which may have come from the postal code, and orders ties *inside* the
+window that picks one street row per probe. `mun_kept` compares against `mun_input`, the
+municipality the **baseline** reading took out of the string, and is what leaves the query as
 `mun_remapped` — the flag `normalize_address()` returns and `geocode()` prices per
 `mun_evidence`. Reusing either for the other's job silently changes what the flag means.
+
+**A tie is broken by the municipality that survived.** `mun_kept` has a second consumer:
+`nar_gazetteer_winner()` orders on it between `score` and `.cand`. It is there because the swap
+penalty exempts an *attested* swap, and an attested swap that competes against a reading which
+stayed put is the one case that exemption gets wrong — `170 North Park St, Brantford` resolves at
+1.0 to `Park Rd N` in HAMILTON (attested by CSD name) and at 1.0 to `North Park St` in Brantford
+itself, so score cannot separate them and the penalty has already declined to. This is why
+`mun_kept` anchors on `mun_input` and not on the reading being scored: the term has to compare
+every candidate against *one* municipality — the string's own — or it decides nothing. That
+anchoring also makes it inert exactly where it should be: on a single-candidate row, on a string
+that named no municipality (`mun_kept` is then `FALSE` for every reading alike), and on the
+municipality-anchored variants, whose whole purpose is to answer somewhere the baseline did not.
+Measured: probe losses 45 → 27, the placed-wrong share of them 35.6% → 7.4%, and the eval harness
+byte-identical on 10,000 rows.
 
 ### `keep_refused` — reporting what the threshold turned away
 
