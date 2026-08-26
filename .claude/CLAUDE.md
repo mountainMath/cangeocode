@@ -137,6 +137,19 @@ visible in the code and that have been re-derived — and re-broken — before. 
 | **[`rnf.md`](rnf.md)** | `R/rnf.R` — the road network file import and the `"rnf"` tier | the file carries no provenance flag on its address ranges, so every threshold rests on measurement; take the shapefile, the only format published for every release; `N/A` is a literal string beside real nulls in TYPE/DIR; an absent type or direction constrains nothing on either side; the municipality needs both `MunAlias` and a direct CSD comparison; ambiguity refuses and a parity mismatch does not, for different reasons |
 | **[`geocoding.md`](geocoding.md)** | `R/geocode.R`, `R/known.R`, `R/geocode_accept.R`, `R/geocode_bc.R`, `R/geocode_nrcan.R`, `R/geocode_qc.R`, `R/geocode_osm.R` | `known` is one named list keyed by the *output* column names, and an unrecognized key is an error rather than a dropped constraint; `MUN_NAME` (mailing city, compared straight) and `CSD_NAME` (census subdivision, resolved through the asymmetric `MunAlias`) are two different questions, not one with a mode, and they do not nest; `CSD_NAME` is an input *and* an output and the two are not the same claim, so the constraint travels on the `nar_csd_constraint` attribute and never off the column; `method` names the tiers *in priority order*, and "unplaced" is `is.na(x)`, never `match_method == "none"`; `n_matches` counts points and `n_records` addresses, and only the first may widen `uncertainty_m`; `POSTAL_CODE` is the parse where `match_postal_code` is a lookup that reports nothing unless the candidates agree; a supplied unit narrows the candidates *or does nothing*; `geocode_matches()` is that same candidate set read without the collapse; matching both NAR name families with `OR` instead of a `UNION` is a 99x slowdown; `...` has to reach inward as well as outward; `uncertainty_m` is floored per `mun_evidence`, not per `mun_remapped`; the precision/recall dial is at *report* time in `geocode_accept()` and deliberately not a `strictness` argument; each online binding has a trap of its own — BC, NRCan and Quebec always answer so a response is not a match, Quebec needs the query spelled French-canonical, and OSM is excluded on licence rather than accuracy |
 
+### Design notes
+
+Notes for work that is **designed but not built**, kept beside the component notes so the next
+attempt starts from the decision rather than re-deriving it.
+
+- **[`known-input.md`](known-input.md)** — handing `geocode()` a record per address instead of
+  two arguments recycled to equal length, and letting a constraint be a *set*: why a frame with
+  an `input` column and a list-column beats a list of per-address lists; why a set is resolved
+  rather than asserted and so needs its own `mun_evidence` class; why a municipality `OR` is
+  *not* the 99x name-family trap and is bounded above by the unconstrained case that already
+  ships; and the two places the work actually goes wrong — the gazetteer's SQL half and the
+  online floors.
+
 ### Status notes
 
 Longer-form notes live in **`inst/notes/`** and ship with the package. They record what has been
