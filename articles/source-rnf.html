@@ -185,9 +185,9 @@ honest is the trade the tier makes.</p>
 <p><strong>It is necessary and not sufficient.</strong> Every recovered
 row that landed more than 2 km from where the filer’s own postal code
 says it should be had <code>n_matches == 1</code> — the refusal never
-saw them. Two of those three turned out to be filers whose city and
-postal code name different municipalities, so the check rather than the
-tier was wrong. The third was a genuine error, and instructive:
+saw them. Two of those three are filers whose city and postal code name
+different municipalities, so the check rather than the tier is wrong.
+The third is a genuine error, and instructive:
 <code>10272 County Road 2, Cobourg, ON</code> parses to street
 <code>28</code>, type <code>HWY</code>, in Bailieboro, and RNF placed
 10272 on that faithfully. A bad parse, laundered into a confident

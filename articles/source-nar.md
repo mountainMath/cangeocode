@@ -155,9 +155,9 @@ answers sit a median **19.8 m** apart, p90 118.8 m. That is disagreement
 rather than error — it contains both sources’ error plus their
 definitional difference — and the two are not independent, for the
 reason the previous section gives: NAR’s BC records are assembled from
-BC’s own files. That is no longer a guess about this particular pair, it
-is how the register is built. Read the 19.8 m as a lower bound on how
-far apart two genuinely independent sources would be.
+BC’s own files. That is not a guess about this particular pair, it is
+how the register is built. Read the 19.8 m as a lower bound on how far
+apart two genuinely independent sources would be.
 
 ## Not every point is the same kind of point
 
@@ -516,11 +516,11 @@ the same street.
 The harder half of this problem is not NAR’s. NAR at least records an
 answer; a free-text address arrives with none, and
 [`normalize_address()`](https://mountainmath.github.io/cangeocode/reference/normalize_address.md)
-has to guess whether a leading `EAST` is a name or a direction before it
-can look anything up. It currently guesses direction, which is wrong for
-the 92,167 addresses in the first row of that table — the failure mode
-`inst/notes/nova-scotia-pvsc.md` measures against an independent source,
-where it accounts for 1.14% of Nova Scotia rows.
+has to decide whether a leading `EAST` is a name or a direction before
+it can look anything up. It declines to choose: it offers the gazetteer
+both readings and keeps whichever scores better, so `EAST BEAVER CREEK`
+matches a street of that name exactly rather than a coin-toss between
+`East` and `West Beaver Creek`.
 
 ## A remark: municipality and postal city are not the same thing
 

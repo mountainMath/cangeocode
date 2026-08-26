@@ -109,12 +109,12 @@ honest is the trade the tier makes.
 **It is necessary and not sufficient.** Every recovered row that landed
 more than 2 km from where the filer’s own postal code says it should be
 had `n_matches == 1` — the refusal never saw them. Two of those three
-turned out to be filers whose city and postal code name different
-municipalities, so the check rather than the tier was wrong. The third
-was a genuine error, and instructive: `10272 County Road 2, Cobourg, ON`
-parses to street `28`, type `HWY`, in Bailieboro, and RNF placed 10272
-on that faithfully. A bad parse, laundered into a confident coordinate.
-A tier that exists precisely because NAR does not have the street cannot
+are filers whose city and postal code name different municipalities, so
+the check rather than the tier is wrong. The third is a genuine error,
+and instructive: `10272 County Road 2, Cobourg, ON` parses to street
+`28`, type `HWY`, in Bailieboro, and RNF placed 10272 on that
+faithfully. A bad parse, laundered into a confident coordinate. A tier
+that exists precisely because NAR does not have the street cannot
 sanity-check its input against NAR, so this is the one tier where a
 parser error survives all the way to an answer. Roughly 1 row in 93.
 

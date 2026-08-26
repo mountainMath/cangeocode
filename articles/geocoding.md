@@ -231,8 +231,8 @@ alone. That is a measurement rather than a courtesy: against an
 independent reading of the same houses, an attested remap lands at a
 90th percentile of 52 m, *below* the 57 m of addresses whose
 municipality was never touched. The other three are floored at 118 m,
-their own pooled 90th percentile — which is why the third row above no
-longer claims the 0 m an exact civic match would otherwise imply.
+their own pooled 90th percentile — which is why the third row above does
+not claim the 0 m an exact civic match would otherwise imply.
 
 The scoring uses the same evidence: a substitution nothing corroborates
 is fined, so it has to be an exact or one-keystroke street name agreeing
@@ -694,11 +694,11 @@ sapply(c(25, 100, 250, Inf), function(u)
 
 ### Seeing the answers that were refused
 
-The other direction is the one the package used to be silent about. When
-the gazetteer scores a match below its threshold, the row comes back
-unresolved — and from the outside that is indistinguishable from the
-street not existing. You get no rejected answer, no score, and no
-evidence class. That is a false negative with nothing to read.
+The other direction is a match the gazetteer rejected. When it scores a
+match below its threshold, the row comes back unresolved — and from the
+outside that is indistinguishable from the street not existing. You get
+no rejected answer, no score, and no evidence class. That is a false
+negative with nothing to read.
 
 ``` r
 
@@ -1199,14 +1199,12 @@ The ceiling for a NAR-only pathway was put at around 93% and is
 essentially met, so what headroom is left is in the tiers that reach
 outside NAR rather than in NAR itself.
 
-When the residual was last decomposed it stood at 10.8%, and it broke
-down roughly as: 3.7% whose street is not in NAR anywhere in the
-province, 3.8% where the street exists but the civic number could not be
-reached even by interpolation, 1.4% that never parsed, and a remainder
-where the street exists under a municipality that did not match. The
-parser has since removed a third of that residual and the road network
-file eats into the first bucket by construction, so read the ranking
-rather than the shares.
+The residual decomposes roughly as: 3.7% whose street is not in NAR
+anywhere in the province, 3.8% where the street exists but the civic
+number could not be reached even by interpolation, 1.4% that never
+parsed, and a remainder where the street exists under a municipality
+that did not match. Read the ranking rather than the shares — the parser
+and the road network file both eat into it.
 
 The notes that ship with the package carry the measurements behind every
 figure quoted here, along with what is not built yet:

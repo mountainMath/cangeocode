@@ -346,8 +346,8 @@ leaves them alone. That is a measurement rather than a courtesy: against
 an independent reading of the same houses, an attested remap lands at a
 90th percentile of 52 m, <em>below</em> the 57 m of addresses whose
 municipality was never touched. The other three are floored at 118 m,
-their own pooled 90th percentile — which is why the third row above no
-longer claims the 0 m an exact civic match would otherwise imply.</p>
+their own pooled 90th percentile — which is why the third row above does
+not claim the 0 m an exact civic match would otherwise imply.</p>
 <p>The scoring uses the same evidence: a substitution nothing
 corroborates is fined, so it has to be an exact or one-keystroke street
 name agreeing on everything else the string gave before it can win. That
@@ -752,11 +752,11 @@ forty thousand addresses takes minutes.</p>
 <div class="section level3">
 <h3 id="seeing-the-answers-that-were-refused">Seeing the answers that were refused<a class="anchor" aria-label="anchor" href="#seeing-the-answers-that-were-refused"></a>
 </h3>
-<p>The other direction is the one the package used to be silent about.
-When the gazetteer scores a match below its threshold, the row comes
-back unresolved — and from the outside that is indistinguishable from
-the street not existing. You get no rejected answer, no score, and no
-evidence class. That is a false negative with nothing to read.</p>
+<p>The other direction is a match the gazetteer rejected. When it scores
+a match below its threshold, the row comes back unresolved — and from
+the outside that is indistinguishable from the street not existing. You
+get no rejected answer, no score, and no evidence class. That is a false
+negative with nothing to read.</p>
 <div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">refusable</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"551 Victoria Dr, Birch Grove, NS"</span>,</span>
 <span>               <span class="st">"16 Kelry Dr, East Dover, NS"</span>,</span>
@@ -1235,14 +1235,12 @@ someone made up. See <code><a href="../reference/osm_geocode.html">?osm_geocode<
 with <code>"rnf"</code> appended. The ceiling for a NAR-only pathway was
 put at around 93% and is essentially met, so what headroom is left is in
 the tiers that reach outside NAR rather than in NAR itself.</p>
-<p>When the residual was last decomposed it stood at 10.8%, and it broke
-down roughly as: 3.7% whose street is not in NAR anywhere in the
-province, 3.8% where the street exists but the civic number could not be
-reached even by interpolation, 1.4% that never parsed, and a remainder
-where the street exists under a municipality that did not match. The
-parser has since removed a third of that residual and the road network
-file eats into the first bucket by construction, so read the ranking
-rather than the shares.</p>
+<p>The residual decomposes roughly as: 3.7% whose street is not in NAR
+anywhere in the province, 3.8% where the street exists but the civic
+number could not be reached even by interpolation, 1.4% that never
+parsed, and a remainder where the street exists under a municipality
+that did not match. Read the ranking rather than the shares — the parser
+and the road network file both eat into it.</p>
 <p>The notes that ship with the package carry the measurements behind
 every figure quoted here, along with what is not built yet:</p>
 <div class="sourceCode" id="cb38"><pre class="downlit sourceCode r">
